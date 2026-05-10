@@ -67,14 +67,16 @@ module Frozone
           # emitter still returns a single String. Handle both.
           if source.is_a?(Hash)
             fixed = {
-              base:     "#{base}_base.hpp",
-              post:     "#{base}_post.hpp",
-              layouts:  "#{base}_layouts.hpp",
-              all_hpp:  "#{base}_all.hpp",
-              default:  "#{base}.cpp",
-              universe: "#{base}_universe.cpp",
-              static:   "#{base}_static.cpp",
-              main:     "#{base}_main.cpp",
+              base:             "#{base}_base.hpp",
+              post:             "#{base}_post.hpp",
+              layouts:          "#{base}_layouts.hpp",
+              all_hpp:          "#{base}_all.hpp",
+              int_literals_hpp: "#{base}_int_literals.hpp",
+              int_literals_cpp: "#{base}_int_literals.cpp",
+              default:          "#{base}.cpp",
+              universe:         "#{base}_universe.cpp",
+              static:           "#{base}_static.cpp",
+              main:             "#{base}_main.cpp",
             }
             # Per-class streams. Two patterns:
             #   `:class_<ClassName>`     → `frozone_class_<ClassName>.cpp`

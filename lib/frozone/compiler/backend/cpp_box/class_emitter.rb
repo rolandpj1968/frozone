@@ -125,7 +125,15 @@ module Frozone
                   # narrow the PCH scope without re-deriving.
                   emit.line %(#include "frozone_all.hpp")
                   emit.line %(#include "class/#{k.name}.hpp")
-                  unless k.name.to_s.end_with?("_eigenclass")
+                  # Pair with the partner header in the non-self direction:
+                  #  - Foo.cpp also includes Foo_eigenclass.hpp (for
+                  #    `&Foo_CLASS` references in instance method bodies)
+                  #  - Foo_eigenclass.cpp also includes Foo.hpp (for
+                  #    `m_new()` returning Foo* etc. in class method bodies)
+                  if k.name.to_s.end_with?("_eigenclass")
+                    partner = k.name.to_s.sub(/_eigenclass\z/, "")
+                    emit.line %(#include "class/#{partner}.hpp")
+                  else
                     emit.line %(#include "class/#{k.name}_eigenclass.hpp")
                   end
                   # host_class_refs is keyed by flat-name Symbol;
@@ -242,9 +250,19 @@ module Frozone
             # working. write_post_open already opened the namespace.
             write_singletons(emit, classes)
             emit.blank
-            emit.with_stream(:post) do
-              emit.cpp.write_int_literals(emit)
-              emit.cpp.write_raw_int_arrays(emit)
+            # Integer literal optimisation lives in its own
+            # frozone_int_literals.{hpp,cpp} pair:
+            #   .hpp: extern decls + raw int64_t tables (pure data)
+            #   .cpp: storage definitions (Integer ctor calls)
+            # Per-TU sees only the extern decls; the constructor
+            # calls are paid by one TU (frozone_int_literals.cpp).
+            emit.with_stream(:int_literals_hpp) do
+              emit.cpp.write_raw_int_array_decls(emit)
+              emit.cpp.write_int_literal_decls(emit)
+            end
+            emit.with_stream(:int_literals_cpp) do
+              emit.cpp.write_raw_int_array_defs(emit)
+              emit.cpp.write_int_literal_defs(emit)
             end
             emit.with_stream(:post) do
               emit.line %|#include "../../runtime/intrinsics.hpp"|

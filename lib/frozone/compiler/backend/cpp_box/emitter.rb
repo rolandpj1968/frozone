@@ -70,7 +70,13 @@ module Frozone
             # goes away, we just edit frozone_all.hpp to stop
             # including it; per-class .cpp first-include doesn't
             # change.
-            @outs = { base: +"", post: +"", layouts: +"", all_hpp: +"", default: +"", universe: +"", static: +"", main: +"" }
+            # `:int_literals_hpp` / `:int_literals_cpp` carry the
+            # interned-Integer optimisation: extern decls + raw
+            # int64_t tables in the .hpp, storage definitions in
+            # the .cpp. Per-TU only parses cheap extern lines; the
+            # constructor calls are paid once in
+            # frozone_int_literals.cpp.
+            @outs = { base: +"", post: +"", layouts: +"", all_hpp: +"", default: +"", universe: +"", static: +"", main: +"", int_literals_hpp: +"", int_literals_cpp: +"" }
             @stream = :default
             @indent = 0
             @strict_emit = false
@@ -157,6 +163,8 @@ module Frozone
             with_stream(:post) { write_post_open }
             with_stream(:layouts) { write_layouts_open }
             with_stream(:all_hpp) { write_all_hpp_open }
+            with_stream(:int_literals_hpp) { write_int_literals_hpp_open }
+            with_stream(:int_literals_cpp) { write_int_literals_cpp_open }
             with_stream(:universe) { write_universe_open }
             with_stream(:static) { write_static_open }
             write_header
@@ -171,6 +179,8 @@ module Frozone
             with_stream(:base) { write_base_close }
             with_stream(:post) { write_post_close }
             with_stream(:all_hpp) { write_all_hpp_close }
+            with_stream(:int_literals_hpp) { write_int_literals_hpp_close }
+            with_stream(:int_literals_cpp) { write_int_literals_cpp_close }
             # Close the :layouts namespace now that ClassEmitter has
             # populated it (forward decls in step 3; more in later steps).
             with_stream(:layouts) { write_layouts_close }
@@ -235,6 +245,13 @@ module Frozone
           }.freeze
           FUSED_VM_CLASS_FLAT_KEYS = Set.new(FUSED_VM_CLASSES.values.map { |v| v[:flat] }).freeze
           FUSED_VM_CLASS_FULL_NAMES = Set.new(FUSED_VM_CLASSES.keys).freeze
+          # Reverse map for ref resolution: fused flat name → runtime
+          # flat name. Used in host_class_refs collection to redirect
+          # references to fused classes (Frozone_Vm_FalseObject ⇒
+          # FalseClass) since the fused class has no per-class hpp.
+          FUSED_VM_FLAT_TO_RUNTIME = FUSED_VM_CLASSES.values.each_with_object({}) do |v, h|
+            h[v[:flat]] = v[:runtime].to_sym
+          end.freeze
 
           # Methods that the receiver-aware send widening would normally
           # pull into the surface but whose compiled bodies break the
@@ -775,41 +792,32 @@ module Frozone
             # variable receivers, deeply-qualified shapes we don't
             # recognise, or constants pointing at non-class values.
             # Resolves an Ast::ConstantRead / ConstantPath chain to the
-            # known user class it refers to. Returns [cls, flat_name] —
-            # cls is the Vm::ClassObject (with `.eigenclass` etc.) and
-            # flat_name is the underscore-joined symbol that doubles as
-            # the C++ struct name + per-class hpp filename. nil if the
-            # path doesn't resolve to any known class.
-            const_path_to_class = lambda do |recv|
-              parts = []
-              cur = recv
-              loop do
-                case cur
-                when Ast::ConstantRead
-                  parts.unshift(cur.name)
-                  break
-                when Ast::ConstantPath
-                  parts.unshift(cur.name)
-                  cur = cur.parent_node
-                else
-                  return nil
-                end
-              end
+            # known user class (or universe class) it refers to.
+            # Returns [cls, flat_name] — cls is the Vm::ClassObject
+            # (or nil for universe classes); flat_name is the
+            # underscore-joined symbol that doubles as the C++ struct
+            # name and per-class hpp filename.
+            #
+            # Uses Reachability.resolve_const_to_flat for proper
+            # lexical-scope walking — `Method` referenced inside
+            # `Frozone::Vm::Vm` resolves to `Frozone_Vm_Method`, not
+            # the top-level `Method`. Without this, `host_class_refs`
+            # would record the wrong class and per-class .cpp would
+            # miss the include it actually needs (Stage 4 of the
+            # layouts.hpp split).
+            #
+            # `scope_prefixes` defaults to empty (top-level only) for
+            # the existing eigenclass-widening caller; the AST-walk
+            # caller passes the host's actual scope chain.
+            const_path_to_class = lambda do |recv, scope_prefixes = []|
+              flat = Reachability.resolve_const_to_flat(recv, scope_prefixes, @user_classes)
+              return [@user_classes[flat], flat] if flat && @user_classes.key?(flat)
+              # Bare path with universe-class name (BasicObject,
+              # Integer, FloatDomainError, ...) — these aren't in
+              # @user_classes but have their own class/<Name>.hpp.
+              parts = Reachability.collect_path(recv)
               tail = parts.join('_').to_sym
-              # Direct match (full path matches a top-level user_class)
-              return [@user_classes[tail], tail] if @user_classes.key?(tail)
-              # Universe classes (BasicObject, Object, Integer,
-              # FloatDomainError, StopIteration, ...) don't appear in
-              # @user_classes but have their own class/<Name>.hpp
-              # files that per-class TUs need to include. cls is nil
-              # for these (no Vm::ClassObject) — existing eigenclass-
-              # widening caller already handles that case.
               return [nil, tail] if UNIVERSE_NAMES.include?(tail.to_s)
-              # Suffix match (e.g. Vm::Intrinsics → Frozone_Vm_Intrinsics)
-              suffix = "_#{tail}"
-              @user_classes.each do |flat, cls|
-                return [cls, flat] if flat.to_s.end_with?(suffix)
-              end
               nil
             end
             walk = lambda do |node, host, host_refs|
@@ -882,9 +890,28 @@ module Frozone
                 # Array and Enumerable (via two visit() calls in
                 # method_bodies_named_with_host), so each .cpp gets
                 # the includes its emitted body needs.
-                # See project_layouts_split.md / docs/box-first-layouts-split.md.
-                resolved = const_path_to_class.call(node)
+                # Pass the host's scope chain so `Method` inside
+                # Frozone::Vm::Vm resolves to Frozone_Vm_Method (not
+                # top-level Method). For eigenclass hosts use the
+                # OWNER's scope — the eigenclass's full_name is
+                # `#<Class:Foo>`-style, useless for resolution.
+                # Stage 4 of the layouts.hpp split depends on this
+                # being precise.
+                scope_owner =
+                  if host_refs.respond_to?(:is_singleton_class) && host_refs.is_singleton_class
+                    host_refs.singleton_of
+                  else
+                    host_refs
+                  end
+                scope = scope_owner.respond_to?(:full_name) ? Reachability.scope_for_class(scope_owner) : []
+                resolved = const_path_to_class.call(node, scope)
                 if resolved
+                  # Redirect refs to fused VM classes (Frozone::Vm::NilObject
+                  # etc.) to their runtime fusion target (NilClass etc.).
+                  # The fused class has no per-class hpp file.
+                  if FUSED_VM_FLAT_TO_RUNTIME.key?(resolved[1])
+                    resolved = [nil, FUSED_VM_FLAT_TO_RUNTIME[resolved[1]]]
+                  end
                   # Compute the host's flat name for indexing.
                   # Eigenclasses (`is_singleton_class`) get a synthetic
                   # `<OwnerFlat>_eigenclass` form that matches the
@@ -1272,6 +1299,16 @@ module Frozone
                   end
                 next unless expr  # unrenderable constant — fall through to constant_missing
                 eigen.overrides[cpp_name] = { params: [], body: "return #{expr};" }
+                # Stage 4 of the layouts.hpp split: this auto-stub
+                # body is `return (&Foo_CLASS);` (or similar) when
+                # val is a class. Record the class ref against the
+                # eigenclass's flat name so the per-class .cpp emit
+                # picks up the corresponding `#include "class/Foo_eigenclass.hpp"`.
+                if val.is_a?(Vm::ModuleObject) && val.full_name
+                  ref_flat = val.full_name.to_s.gsub("::", "_").to_sym
+                  ref_flat = FUSED_VM_FLAT_TO_RUNTIME[ref_flat] if FUSED_VM_FLAT_TO_RUNTIME.key?(ref_flat)
+                  @host_class_refs[eigen.name.to_sym] << ref_flat
+                end
               end
             end
           end
@@ -1870,8 +1907,12 @@ module Frozone
 
           def write_header
             # frozone.cpp top: include the PCH cache root so gcc
-            # uses frozone_all.hpp.gch.
+            # uses frozone_all.hpp.gch.  Plus layouts.hpp explicitly:
+            # this TU references Type, Errno_, all-classes via the
+            # MainObject body and singleton initializers, so it
+            # genuinely needs the full meta-include.
             line %(#include "frozone_all.hpp")
+            line %(#include "frozone_layouts.hpp")
             blank
           end
 
@@ -1987,11 +2028,51 @@ module Frozone
             line "#pragma once"
             line %(#include "frozone_base.hpp")
             line %(#include "frozone_post.hpp")
-            line %(#include "frozone_layouts.hpp")
+            line %(#include "frozone_int_literals.hpp")
+            # Stage 4: layouts.hpp dropped from the PCH cache root.
+            # Per-class .cpps now rely on host_class_refs (lexical-
+            # scope-aware via Reachability.resolve_const_to_flat)
+            # plus the const-stub auto-collection. Auxiliary TUs
+            # (frozone.cpp/universe/static) include layouts.hpp
+            # explicitly.
             blank
           end
 
           def write_all_hpp_close
+            blank
+          end
+
+          # frozone_int_literals.hpp — extern decls for the
+          # interned Integer literals + raw int64_t tables. Pure
+          # extern decls + arrays; needs only base.hpp's forward
+          # decl of Integer.
+          def write_int_literals_hpp_open
+            line "#pragma once"
+            line %(#include "frozone_base.hpp")
+            blank
+            line "namespace Ruby {"
+            blank
+          end
+          def write_int_literals_hpp_close
+            blank
+            line "}  // namespace Ruby"
+            blank
+          end
+
+          # frozone_int_literals.cpp — single TU that holds all the
+          # `Integer _f_i_N(NLL);` storage. Needs Integer struct
+          # complete (for the constructor), so includes class/Integer.hpp.
+          def write_int_literals_cpp_open
+            line %(#include "frozone_base.hpp")
+            line %(#include "class/Integer.hpp")
+            line %(#include "frozone_int_literals.hpp")
+            blank
+            line "namespace Ruby {"
+            blank
+          end
+          def write_int_literals_cpp_close
+            blank
+            line "}  // namespace Ruby"
             blank
           end
 
@@ -2002,6 +2083,7 @@ module Frozone
           # without ODR violations or inline-ism.
           def write_universe_open
             line %(#include "frozone_all.hpp")
+            line %(#include "frozone_layouts.hpp")
             blank
             line "namespace Ruby {"
             blank
@@ -2020,6 +2102,7 @@ module Frozone
           # compile in parallel with class TUs.
           def write_static_open
             line %(#include "frozone_all.hpp")
+            line %(#include "frozone_layouts.hpp")
             blank
             line "namespace Ruby {"
             blank

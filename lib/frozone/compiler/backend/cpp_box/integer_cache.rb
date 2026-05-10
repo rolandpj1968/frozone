@@ -41,39 +41,62 @@ module Frozone
           # Emit the raw int64_t[] tables collected during static-state
           # capture. Each goes after Integer is complete (so the runtime
           # `build_int_array` helper can construct Integer instances).
-          def write_raw_int_arrays(emit)
+          # EXTERN decls only — the storage definitions live in
+          # write_raw_int_array_defs (a dedicated .cpp). Per-TU
+          # only parses the extern decls, not thousands of int
+          # literals.
+          def write_raw_int_array_decls(emit)
             return if @raw_int_arrays.empty?
             emit.line "// Raw int64_t tables for large Integer-only Arrays —"
-            emit.line "// build_int_array() boxes them into Array+Integer at static-init"
-            emit.line "// time. Cuts source size and cc1plus parse time vs emitting"
-            emit.line "// each element as `(&_f_i_X), `."
+            emit.line "// extern decls only; storage in frozone_int_literals.cpp."
             @raw_int_arrays.each_with_index do |values, idx|
-              # `inline` instead of `static const` so the layouts header
-              # can host these arrays — single definition across TUs that
-              # need to take addresses of (&__TBL_INT_X__[N]) etc.
-              emit.line "inline const int64_t __TBL_INT_#{idx}__[#{values.size}] = {#{values.join(",")}};"
+              emit.line "extern const int64_t __TBL_INT_#{idx}__[#{values.size}];"
             end
             emit.blank
           end
 
-          # Emit the named static decls. Positioned after all class
-          # definitions (Integer must be complete to call its ctor).
-          # Each is its own variable — cc1plus parses each
-          # independently, much cheaper than one big array initializer
-          # for the wq parser scale (~thousands of unique literals).
-          # `inline` (C++17 inline variable) so the layouts header can
-          # include them without ODR clashes — multiple TUs see the
-          # same single definition. Required so per-class TUs and the
-          # universe TU can reference (&_f_i_N) when emitting accessor
-          # bodies that use Integer literals.
-          def write_int_literals(emit)
+          def write_raw_int_array_defs(emit)
+            return if @raw_int_arrays.empty?
+            emit.line "// Raw int64_t tables — single TU's worth of storage."
+            @raw_int_arrays.each_with_index do |values, idx|
+              emit.line "const int64_t __TBL_INT_#{idx}__[#{values.size}] = {#{values.join(",")}};"
+            end
+            emit.blank
+          end
+
+          # Backwards-compat alias for write_raw_int_arrays callers
+          # (now routes to write_raw_int_array_decls + _defs split).
+          def write_raw_int_arrays(emit)
+            write_raw_int_array_decls(emit)
+          end
+
+          # Emit just the EXTERN DECLARATIONS — `extern Integer _f_i_N;`
+          # — to a header that every TU pulls in. Forward decl of
+          # Integer (in base.hpp) suffices for extern decls. Per-TU
+          # parse cost is negligible: ~thousands of cheap one-liners.
+          # The actual storage definitions go to their own .cpp via
+          # write_int_literal_defs.
+          def write_int_literal_decls(emit)
             return if @int_literals.empty?
-            emit.line "// Interned Integer literals — every unique IntegerLiteral and"
-            emit.line "// IntegerObject in the program graph maps to one shared inline"
-            emit.line "// instance. Direct named inlines (rather than an array) so"
-            emit.line "// cc1plus parses each as an independent declaration."
+            emit.line "// Interned Integer literals — extern decls only."
+            emit.line "// Storage definitions live in a dedicated .cpp so per-TU"
+            emit.line "// compile cost stays small (no per-TU constructor calls)."
             @int_literals.each_key do |value|
-              emit.line "inline Integer #{int_literal_name(value)}(#{value}LL);"
+              emit.line "extern Integer #{int_literal_name(value)};"
+            end
+            emit.blank
+          end
+
+          # Emit the storage DEFINITIONS — `Integer _f_i_N(NLL);` —
+          # to a single .cpp. Needs Integer to be a complete type
+          # (Integer's hpp must be included by the consuming TU).
+          # One TU's worth of Integer-constructor calls; not paid by
+          # other TUs.
+          def write_int_literal_defs(emit)
+            return if @int_literals.empty?
+            emit.line "// Interned Integer literal storage — single definition."
+            @int_literals.each_key do |value|
+              emit.line "Integer #{int_literal_name(value)}(#{value}LL);"
             end
             emit.blank
           end

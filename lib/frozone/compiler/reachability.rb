@@ -79,37 +79,16 @@ module Frozone
           end
         end
 
-        # Walk lexical scope (innermost first) trying each prefix
-        # joined with `parts`. Falls through to the bare top-level
-        # lookup last. Mirrors cpp.rb's resolve_constant — without
-        # this, `Ruby` inside `Blurhash::Ruby` resolves to top-level
-        # `Ruby` (the VM-bootstrap MRI-compat module) instead of
-        # `Blurhash::Ruby`, dragging the wrong class into the reach
-        # set and pruning the actually-needed one.
+        # Lexical-scope-aware constant resolution. Both helpers are
+        # module-functions on Reachability — also used by box-first
+        # emitter's host_class_refs collection (Stage 4 of the
+        # layouts.hpp split, project_layouts_split.md) so the two
+        # places that map ConstantRead → flat name stay in sync.
         resolve_const_to_flat = lambda do |node, scope_prefixes|
-          parts =
-            case node
-            when Ast::ConstantRead then [node.name.to_s]
-            when Ast::ConstantPath then collect_path(node)
-            else return nil
-            end
-          parts.reject!(&:empty?)
-          return nil if parts.empty?
-          (scope_prefixes + [[]]).each do |prefix|
-            flat = (prefix + parts).join("_").to_sym
-            return flat if all_classes.key?(flat)
-          end
-          nil
+          Reachability.resolve_const_to_flat(node, scope_prefixes, all_classes)
         end
-
-        # Class's lexical scope chain (innermost first), as part-arrays.
-        # `Blurhash::Ruby` → [["Blurhash", "Ruby"], ["Blurhash"]].
-        # Skips the top-level (bare) lookup — that's appended in
-        # resolve_const_to_flat.
         scope_for_class = lambda do |cls|
-          fname = (cls.full_name || cls.name).to_s
-          parts = fname.split("::")
-          (1..parts.size).map { |i| parts.first(i) }.reverse
+          Reachability.scope_for_class(cls)
         end
 
         schedule_class = lambda do |flat|
@@ -198,6 +177,32 @@ module Frozone
         when Ast::ConstantRead then [node.name.to_s]
         else []
         end
+      end
+
+      # Class's lexical scope chain (innermost first), as part-arrays.
+      # `Blurhash::Ruby` → [["Blurhash", "Ruby"], ["Blurhash"]].
+      # The bare top-level lookup (empty prefix) is added by callers.
+      def scope_for_class(cls)
+        fname = (cls.full_name || cls.name).to_s
+        parts = fname.split("::")
+        (1..parts.size).map { |i| parts.first(i) }.reverse
+      end
+
+      # Resolve a ConstantRead/ConstantPath node to a flat
+      # @user_classes key, walking lexical scope (innermost first)
+      # before the bare top-level lookup. Mirrors cpp.rb's
+      # resolve_constant. Returns nil if no matching class found.
+      # `all_classes` is a Hash with Symbol flat-name keys
+      # (typically Emitter#user_classes).
+      def resolve_const_to_flat(node, scope_prefixes, all_classes)
+        parts = collect_path(node)
+        parts.reject!(&:empty?)
+        return nil if parts.empty?
+        (scope_prefixes + [[]]).each do |prefix|
+          flat = (prefix + parts).join("_").to_sym
+          return flat if all_classes.key?(flat)
+        end
+        nil
       end
     end
   end
