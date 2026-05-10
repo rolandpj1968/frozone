@@ -114,15 +114,55 @@ module Frozone
                   # Stage 4 will use after layouts.hpp is dropped.
                   # Right now this just exercises the collection so
                   # we can audit the emitted include sets.
+                  # frozone_all.hpp MUST be the FIRST include — gcc
+                  # only activates the PCH (frozone_all.hpp.gch) when
+                  # the TU starts with this exact include. The PCH
+                  # captures base + post + layouts in cached form, so
+                  # the entire universe loads in one step.
+                  # Subsequent includes below are decorative no-ops
+                  # (pragma once); they document Path 2's precise
+                  # per-class dependency set so a future Stage can
+                  # narrow the PCH scope without re-deriving.
+                  emit.line %(#include "frozone_all.hpp")
                   emit.line %(#include "class/#{k.name}.hpp")
+                  unless k.name.to_s.end_with?("_eigenclass")
+                    emit.line %(#include "class/#{k.name}_eigenclass.hpp")
+                  end
                   # host_class_refs is keyed by flat-name Symbol;
                   # k.name from RubyClass may be String or Symbol —
                   # try both lookups.
-                  refs = (emit.host_class_refs[k.name.to_sym] ||
-                          emit.host_class_refs[k.name.to_s]   ||
-                          Set.new) - [k.name.to_sym, k.name.to_s]
-                  refs.to_a.sort.each { |r| emit.line %(#include "class/#{r}.hpp") }
-                  emit.line %(#include "frozone_layouts.hpp")
+                  # Union host_class_refs across the entire ancestor
+                  # chain. Module-included methods (e.g. Enumerable's
+                  # methods on Array) get walked under host=Enumerable
+                  # but emitted into Array's .cpp via overlay; their
+                  # refs need to flow into Array's include set too.
+                  # ancestors_list traverses parent + included modules
+                  # + prepends.
+                  refs = Set.new
+                  vm_for_k = (emit.user_classes[k.name.to_sym] rescue nil)
+                  vm_for_k ||= (emit.top_level_scope&.constants_table || {})[k.name.to_sym]
+                  if vm_for_k.respond_to?(:ancestors_list)
+                    vm_for_k.ancestors_list.each do |anc|
+                      anc_flat = (anc.respond_to?(:full_name) && anc.full_name ?
+                                    anc.full_name.to_s.gsub("::", "_") :
+                                    anc.name.to_s).to_sym
+                      refs.merge(emit.host_class_refs[anc_flat] || Set.new)
+                    end
+                  end
+                  # Also direct lookup by k.name (handles RubyClass
+                  # entries that don't correspond to a Vm::ClassObject —
+                  # eigenclasses, fused universe overlays).
+                  refs.merge(emit.host_class_refs[k.name.to_sym] || Set.new)
+                  refs.merge(emit.host_class_refs[k.name.to_s] || Set.new)
+                  refs -= [k.name.to_sym, k.name.to_s]
+                  # For each referenced class also include its
+                  # eigenclass hpp — `Foo.new(...)` compiles to
+                  # `(&Foo_CLASS)->m_new(...)`, where Foo_CLASS is of
+                  # type Foo_eigenclass.
+                  refs.to_a.sort.each do |r|
+                    emit.line %(#include "class/#{r}.hpp")
+                    emit.line %(#include "class/#{r}_eigenclass.hpp")
+                  end
                   emit.blank
                   emit.line "namespace Ruby {"
                   emit.blank
@@ -191,44 +231,26 @@ module Frozone
                 emit.line %|#include "class/#{k.name}.hpp"|
               end
             end
-            # Post-class content (singletons, int literals, intrinsics
-            # include, class var storage) needs its own namespace Ruby
-            # wrap because the per-class includes above each closed
-            # their own namespace block.
-            emit.with_stream(:layouts) do
-              emit.blank
-              emit.line "namespace Ruby {"
-              emit.blank
-            end
+            # Stage 3 Path 2: post-class content (int literals,
+            # raw int arrays, intrinsics include, class var storage)
+            # moves to frozone_post.hpp. Per-class TUs include
+            # frozone_post.hpp instead of frozone_layouts.hpp, which
+            # cuts per-TU header parse from 56k lines to ~15 universal
+            # value type hpps + intrinsics. layouts.hpp closes by
+            # `#include`ing post.hpp itself, so consumers that want
+            # the world (frozone.cpp, universe.cpp, static.cpp) keep
+            # working. write_post_open already opened the namespace.
             write_singletons(emit, classes)
             emit.blank
-            # Int literals (`inline Integer _f_i_N(NLL);`) and raw int
-            # arrays go into the layouts header so any TU including it
-            # can reference (&_f_i_N) in compiled method bodies and
-            # accessor bodies. C++17 inline variables → single
-            # definition across TUs.
-            emit.with_stream(:layouts) do
+            emit.with_stream(:post) do
               emit.cpp.write_int_literals(emit)
               emit.cpp.write_raw_int_arrays(emit)
             end
-            # Inline intrinsic implementations — must be included AFTER
-            # class structs (so String*, Array* etc. are complete) and
-            # BEFORE method bodies (so callers can call the intrinsic_X
-            # helpers). See cpp/runtime/intrinsics.hpp.
-            #
-            # Routed to the :layouts stream (inside namespace Ruby in
-            # the header) so any TU that #includes frozone_layouts.hpp
-            # gets the intrinsic_X functions visible. Required for the
-            # universe TU (Step 5) and per-class TUs (Step 7).
-            emit.with_stream(:layouts) do
+            emit.with_stream(:post) do
               emit.line %|#include "../../runtime/intrinsics.hpp"|
               emit.blank
             end
-            # Class vars are already `inline BasicObject* cv_X = ...`
-            # globals — route to layouts header so the static-state TU
-            # (Step 6) and any per-class TU can reference them. Inline
-            # variables → single definition across all including TUs.
-            emit.with_stream(:layouts) do
+            emit.with_stream(:post) do
               write_class_var_storage(emit)
             end
             body_buf.each_line { |l| emit.line l.chomp }

@@ -57,7 +57,20 @@ module Frozone
             # storage) that every per-class TU needs to see before per-class
             # struct definitions. layouts.hpp opens with #include
             # "frozone_base.hpp" then defines the class structs.
-            @outs = { base: +"", layouts: +"", default: +"", universe: +"", static: +"", main: +"" }
+            # Stage 3 Path 2 (project_layouts_split.md):
+            # `:post` carries the post-class content (int literals,
+            # raw int arrays, intrinsics impl include, class-var
+            # storage) that needs class struct visibility for
+            # universal value types.
+            # `:all_hpp` is the PCH cache root — a thin meta-header
+            # that #includes base + post + layouts. Per-class TUs
+            # start with `#include "frozone_all.hpp"` so gcc loads
+            # the .gch instantly. Decouples the PCH input from the
+            # actual include strategy: when layouts.hpp eventually
+            # goes away, we just edit frozone_all.hpp to stop
+            # including it; per-class .cpp first-include doesn't
+            # change.
+            @outs = { base: +"", post: +"", layouts: +"", all_hpp: +"", default: +"", universe: +"", static: +"", main: +"" }
             @stream = :default
             @indent = 0
             @strict_emit = false
@@ -141,7 +154,9 @@ module Frozone
             @class_ids_for_init = classes.each_with_index.to_h { |k, i| [k.name, i] }
             kernel_fns = Runtime::ALL_KERNEL_FNS + build_user_constant_accessors
             with_stream(:base) { write_base_open }
+            with_stream(:post) { write_post_open }
             with_stream(:layouts) { write_layouts_open }
+            with_stream(:all_hpp) { write_all_hpp_open }
             with_stream(:universe) { write_universe_open }
             with_stream(:static) { write_static_open }
             write_header
@@ -154,6 +169,8 @@ module Frozone
               write_main_object
             end
             with_stream(:base) { write_base_close }
+            with_stream(:post) { write_post_close }
+            with_stream(:all_hpp) { write_all_hpp_close }
             # Close the :layouts namespace now that ClassEmitter has
             # populated it (forward decls in step 3; more in later steps).
             with_stream(:layouts) { write_layouts_close }
@@ -711,11 +728,11 @@ module Frozone
             # Default unset is treated as wide too — safety first.
             call_surface_filter = {}
 
-            schedule_body = lambda do |body, host|
+            schedule_body = lambda do |body, host_calls, host_refs|
               next if body.nil?
-              key = [body.object_id, host&.object_id]
+              key = [body.object_id, host_calls&.object_id, host_refs&.object_id]
               next unless reached_bodies.add?(key)
-              worklist << [body, host]
+              worklist << [body, host_calls, host_refs]
             end
 
             # Track Ruby names separately from cpp_names because the
@@ -731,7 +748,9 @@ module Frozone
               cpp_name = Cpp.method_name(ruby_name)
               calls[cpp_name] ||= ruby_name.to_s
               if seen_ruby_names.add?(ruby_name)
-                method_bodies_named_with_host(ruby_name).each { |b, h| schedule_body.call(b, h) }
+                method_bodies_named_with_host(ruby_name).each do |b, hc, hr|
+                  schedule_body.call(b, hc, hr)
+                end
               end
               cpp_name
             end
@@ -779,6 +798,13 @@ module Frozone
               tail = parts.join('_').to_sym
               # Direct match (full path matches a top-level user_class)
               return [@user_classes[tail], tail] if @user_classes.key?(tail)
+              # Universe classes (BasicObject, Object, Integer,
+              # FloatDomainError, StopIteration, ...) don't appear in
+              # @user_classes but have their own class/<Name>.hpp
+              # files that per-class TUs need to include. cls is nil
+              # for these (no Vm::ClassObject) — existing eigenclass-
+              # widening caller already handles that case.
+              return [nil, tail] if UNIVERSE_NAMES.include?(tail.to_s)
               # Suffix match (e.g. Vm::Intrinsics → Frozone_Vm_Intrinsics)
               suffix = "_#{tail}"
               @user_classes.each do |flat, cls|
@@ -786,7 +812,7 @@ module Frozone
               end
               nil
             end
-            walk = lambda do |node, host|
+            walk = lambda do |node, host, host_refs|
               next unless node.is_a?(Ast::Node)
               # Don't recurse into nested method defs — their bodies are
               # walked separately via user_methods/method_bodies_named
@@ -845,30 +871,45 @@ module Frozone
                 # exist on BasicObject's universal surface, so widen
                 # eagerly (don't wait for the conditional post-walk).
                 mark_wide.call(node.value_node.value.to_sym)
-              elsif (node.is_a?(Ast::ConstantRead) || node.is_a?(Ast::ConstantPath)) && host
+              elsif (node.is_a?(Ast::ConstantRead) || node.is_a?(Ast::ConstantPath)) && host_refs
                 # Stage 3 Path 1: any AST node that resolves to a
                 # known class via const_path_to_class becomes an
-                # entry in host_class_refs[<host_flat_name>]. Per-class
-                # .cpp emission then uses this set to emit precise
-                # `#include "class/<flat>.hpp"` lines. Reuses the
-                # existing const_path_to_class so the resolution logic
-                # stays single-source. host is a Vm::ClassObject; its
-                # full_name (e.g. "Frozone::Vm::Foo") flattens to the
-                # underscore form that matches RubyClass.name on the
-                # consumption side in ClassEmitter.
+                # entry in host_class_refs[<host_refs_flat_name>].
+                # host_refs is the ENCLOSING class — the class whose
+                # methods_table this body was found in. Critical for
+                # overlaid methods: an Enumerable method that's been
+                # overlaid into Array gets its refs attributed to BOTH
+                # Array and Enumerable (via two visit() calls in
+                # method_bodies_named_with_host), so each .cpp gets
+                # the includes its emitted body needs.
                 # See project_layouts_split.md / docs/box-first-layouts-split.md.
                 resolved = const_path_to_class.call(node)
                 if resolved
-                  host_flat = (host.respond_to?(:full_name) && host.full_name ?
-                                 host.full_name.to_s.gsub("::", "_") :
-                                 host.name.to_s).to_sym
-                  @host_class_refs[host_flat] << resolved[1]
+                  # Compute the host's flat name for indexing.
+                  # Eigenclasses (`is_singleton_class`) get a synthetic
+                  # `<OwnerFlat>_eigenclass` form that matches the
+                  # RubyClass naming convention used by ClassEmitter
+                  # (k.name on the consumption side).
+                  host_flat =
+                    if host_refs.respond_to?(:is_singleton_class) && host_refs.is_singleton_class
+                      owner = host_refs.singleton_of
+                      if owner.respond_to?(:full_name) && owner.full_name
+                        :"#{owner.full_name.to_s.gsub("::", "_")}_eigenclass"
+                      elsif owner
+                        :"#{owner.name}_eigenclass"
+                      end
+                    elsif host_refs.respond_to?(:full_name) && host_refs.full_name
+                      host_refs.full_name.to_s.gsub("::", "_").to_sym
+                    else
+                      host_refs.name.to_s.to_sym
+                    end
+                  @host_class_refs[host_flat] << resolved[1] if host_flat
                   if ENV['FROZONE_BOX_REFS_DEBUG'] == '1'
                     $stderr.puts "[refs] #{host_flat} -> #{resolved[1]}"
                   end
                 end
               end
-              node.children.each { |c| walk.call(c, host) } if node.respond_to?(:children)
+              node.children.each { |c| walk.call(c, host, host_refs) } if node.respond_to?(:children)
             end
 
             # Seed pre-walk:
@@ -1005,11 +1046,14 @@ module Frozone
             # Top-level execute body runs on `main` (an Object instance) —
             # bare calls in it dispatch through Object's MRO. Treat the
             # host as @top_level_scope (Object) for self-call attribution.
-            schedule_body.call(@execute_block, @top_level_scope)
+            # No enclosing class for top-level body → host_refs nil
+            # (refs would land in Object via the universe-class visit
+            # in method_bodies_named_with_host's loop, anyway).
+            schedule_body.call(@execute_block, @top_level_scope, nil)
             user_methods.each_value do |m|
               next unless m.is_a?(Vm::Method)
               host = m.scopes.last
-              method_walkable_roots(m).each { |r| schedule_body.call(r, host) }
+              method_walkable_roots(m).each { |r| schedule_body.call(r, host, host) }
             end
 
             # Send-aware widening: when send-style dispatch is in the
@@ -1024,8 +1068,8 @@ module Frozone
             send_names = %w[m_send m___send__ m_public_send].to_set
             until worklist.empty?
               while (item = worklist.shift)
-                body, host = item
-                walk.call(body, host)
+                body, host_calls, host_refs = item
+                walk.call(body, host_calls, host_refs)
               end
               if send_names.any? { |n| calls.key?(n) }
                 progressed = false
@@ -1074,16 +1118,30 @@ module Frozone
           # self-receiver call sites inside the body to the right MRO.
           def method_bodies_named_with_host(name)
             pairs = []
-            push = lambda do |m|
+            # Two hosts per body:
+            #   host_calls = m.scopes.last (the class where the method
+            #     was originally defined; existing call_surface widening
+            #     keys filters off this).
+            #   host_refs  = enclosing_cls (the class whose methods_table
+            #     we found this method in — Array for an Enumerable
+            #     method that's been overlaid into Array). Per-class
+            #     `.cpp` emit needs refs collected against host_refs so
+            #     Array.cpp's includes cover the Enumerable methods that
+            #     end up baked into it.
+            # Same body may appear in multiple tables (e.g. Enumerable's
+            # to_set and Array's overlaid copy point to the same Vm::Method);
+            # walking both pairs adds refs to both host_class_refs[Array]
+            # and host_class_refs[Enumerable], which is what we want.
+            push = lambda do |m, enclosing_cls|
               next unless m.is_a?(Vm::Method)
-              host = m.scopes.last
-              method_walkable_roots(m).each { |r| pairs << [r, host] }
+              host_calls = m.scopes.last
+              method_walkable_roots(m).each { |r| pairs << [r, host_calls, enclosing_cls] }
             end
             visit = lambda do |cls|
               next unless cls.is_a?(Vm::ModuleObject)
-              push.call((cls.methods_table || {})[name])
+              push.call((cls.methods_table || {})[name], cls)
               eig = cls.eigenclass rescue nil
-              push.call((eig.methods_table || {})[name]) if eig
+              push.call((eig.methods_table || {})[name], eig) if eig
             end
             @user_classes.each_value(&visit)
             top = @top_level_scope.constants_table || {}
@@ -1091,7 +1149,7 @@ module Frozone
               visit.call(top[universe_klass.name.to_sym])
             end
             top_m = user_methods[name]
-            push.call(top_m) if top_m
+            push.call(top_m, nil) if top_m
             pairs
           end
 
@@ -1811,10 +1869,9 @@ module Frozone
           end
 
           def write_header
-            # frozone.cpp top: just #include the shared layouts header.
-            # box_first.hpp comes in transitively. Future steps will
-            # move struct decls, extern globals etc. into the header.
-            line %(#include "frozone_layouts.hpp")
+            # frozone.cpp top: include the PCH cache root so gcc
+            # uses frozone_all.hpp.gch.
+            line %(#include "frozone_all.hpp")
             blank
           end
 
@@ -1855,11 +1912,12 @@ module Frozone
           # frozone_layouts.hpp — meta-header (Stage 2 of the layouts.hpp
           # split). Opens with #include "frozone_base.hpp", then includes
           # every per-class class/<Name>.hpp in topo order (each per-class
-          # hpp opens its own `namespace Ruby { ... }` block), then opens
-          # a final `namespace Ruby { }` for the post-class content
-          # (int literals, intrinsics impls, class-var storage). Per-class
-          # TUs continue to #include "frozone_layouts.hpp" for transparent
-          # backward-compat (Stage 3 will narrow that further).
+          # hpp opens its own `namespace Ruby { ... }` block), then ends
+          # with `#include "frozone_post.hpp"` (Stage 3 Path 2 — moved
+          # post-class content to its own header). Used by frozone.cpp /
+          # frozone_universe.cpp / frozone_static.cpp which genuinely
+          # need the whole world. Per-class TUs use frozone_post.hpp
+          # directly + their precise per-class refs.
           def write_layouts_open
             line "#pragma once"
             line %(#include "frozone_base.hpp")
@@ -1868,7 +1926,72 @@ module Frozone
 
           def write_layouts_close
             blank
+            line %(#include "frozone_post.hpp")
+            blank
+          end
+
+          # Universal value-type classes whose hpps frozone_post.hpp
+          # transitively pulls in. Required because the post-class
+          # content (int literals, EMPTY_ARGS/KWARGS, intrinsic
+          # templates that cast to these) needs the full struct
+          # definitions visible. ~15 hpps × ~100 lines each ≪ the
+          # 660-class layouts.hpp meta-header — that's the per-TU win.
+          # Order matters: hpps with inline methods that cast to
+          # other universal types must come AFTER those types' hpps.
+          # Array's ctor casts to Integer*, Integer's hpp doesn't
+          # cast to Array — so Integer first. When in doubt: simple
+          # leaf types first, then complex types.
+          POST_HPP_VALUE_TYPES = %w[
+            BasicObject Object Module Class
+            Symbol
+            Integer Float
+            String
+            NilClass TrueClass FalseClass
+            Array Hash
+            Proc
+            Range Regexp MatchData
+            Exception NoMethodError RuntimeError
+            Random ThrownTag
+          ].freeze
+
+          # frozone_post.hpp — receives the post-class content moved
+          # out of frozone_layouts.hpp under Stage 3 Path 2. Per-class
+          # TUs include this in place of layouts.hpp.
+          def write_post_open
+            line "#pragma once"
+            line %(#include "frozone_base.hpp")
+            POST_HPP_VALUE_TYPES.each do |t|
+              line %(#include "class/#{t}.hpp")
+              line %(#include "class/#{t}_eigenclass.hpp")
+            end
+            blank
+            line "namespace Ruby {"
+            blank
+          end
+
+          def write_post_close
+            blank
             line "}  // namespace Ruby"
+            blank
+          end
+
+          # frozone_all.hpp — PCH cache root. Per-class TUs start
+          # with `#include "frozone_all.hpp"` so gcc loads
+          # frozone_all.hpp.gch (which captures the entire AST of
+          # base + post + layouts) in one cached step. Decouples the
+          # PCH input from what the build actually depends on: when
+          # we eventually drop layouts.hpp (Stage 4 of the layouts
+          # split), we just remove that line here — per-class .cpp
+          # first-include doesn't change.
+          def write_all_hpp_open
+            line "#pragma once"
+            line %(#include "frozone_base.hpp")
+            line %(#include "frozone_post.hpp")
+            line %(#include "frozone_layouts.hpp")
+            blank
+          end
+
+          def write_all_hpp_close
             blank
           end
 
@@ -1878,7 +2001,7 @@ module Frozone
           # Lets per-class TUs and the static-state TU call them
           # without ODR violations or inline-ism.
           def write_universe_open
-            line %(#include "frozone_layouts.hpp")
+            line %(#include "frozone_all.hpp")
             blank
             line "namespace Ruby {"
             blank
@@ -1896,7 +2019,7 @@ module Frozone
           # frozone.cpp shrinks the main TU and (with PCH) lets it
           # compile in parallel with class TUs.
           def write_static_open
-            line %(#include "frozone_layouts.hpp")
+            line %(#include "frozone_all.hpp")
             blank
             line "namespace Ruby {"
             blank

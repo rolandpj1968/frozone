@@ -68,7 +68,9 @@ module Frozone
           if source.is_a?(Hash)
             fixed = {
               base:     "#{base}_base.hpp",
+              post:     "#{base}_post.hpp",
               layouts:  "#{base}_layouts.hpp",
+              all_hpp:  "#{base}_all.hpp",
               default:  "#{base}.cpp",
               universe: "#{base}_universe.cpp",
               static:   "#{base}_static.cpp",

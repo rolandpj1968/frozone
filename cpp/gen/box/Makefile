@@ -34,8 +34,15 @@ MAKEFLAGS += -j$(JOBS)
 CPPS := $(wildcard frozone.cpp frozone_*.cpp)
 OBJS := $(CPPS:.cpp=.o)
 
-PCH       := frozone_layouts.hpp.gch
-PCH_INPUT := frozone_layouts.hpp
+# Stage 3 Path 2 of the layouts.hpp split: PCH the cache-root meta-
+# header frozone_all.hpp (which is just `#include base + post +
+# layouts`). Per-class TUs start with `#include "frozone_all.hpp"`
+# so gcc activates the .gch and the entire 50k-line universe loads
+# from cache. Decoupled from include strategy: when layouts.hpp
+# eventually goes away, edit frozone_all.hpp's include list — per-
+# class .cpp first-include doesn't change.
+PCH       := frozone_all.hpp.gch
+PCH_INPUT := frozone_all.hpp
 
 # Binary name + location. Default puts it in /tmp like the manual
 # build commands have been doing; override via BIN=path on the
