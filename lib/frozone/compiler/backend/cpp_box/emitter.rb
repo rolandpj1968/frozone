@@ -549,7 +549,7 @@ module Frozone
           PRIMITIVE_VM_VALUE_CLASSES = [
             Vm::IntegerObject, Vm::FloatObject, Vm::SymbolObject,
             Vm::StringObject, Vm::NilObject, Vm::TrueObject, Vm::FalseObject,
-            Vm::ArrayObject, Vm::HashObject
+            Vm::ArrayObject, Vm::HashObject, Vm::RegexpObject
           ].freeze
 
           def primitive_vm_value?(val)
@@ -612,6 +612,28 @@ module Frozone
                   # storage; build_user_constant_accessors detects the
                   # sentinel and emits a writable nil_instance() storage cell.
                   consts[flat] = val
+                end
+              end
+              # Constants defined inside `class << self; ... end` live on
+              # the eigenclass's constants_table, NOT the class's. They're
+              # lexically visible to methods defined in the same block —
+              # ConstantResolver walks the same prefix chain for both, so
+              # the flat name is the same as a sibling top-level constant
+              # of the host class. (E.g. `Intrinsics::CONST_NAME_RE` →
+              # :Frozone_Vm_Intrinsics_CONST_NAME_RE, regardless of which
+              # table holds the value.)
+              eigen = scope.eigenclass rescue nil
+              if eigen && eigen != scope
+                (eigen.constants_table || {}).each do |name, val|
+                  flat = prefix ? :"#{prefix}_#{name}" : name
+                  next if consts.key?(flat)  # host-side wins if both exist
+                  if val.is_a?(Vm::ClassObject) || val.is_a?(Vm::ModuleObject)
+                    walk.call(val, flat)
+                  elsif val.is_a?(Vm::ObjectObject)
+                    consts[flat] = val unless FUSED_VM_BOOTSTRAP_CONSTANTS.include?(flat)
+                  elsif val.is_a?(Vm::HoistedConstantSentinel)
+                    consts[flat] = val
+                  end
                 end
               end
             }
@@ -1035,45 +1057,29 @@ module Frozone
             # /tmp/hello.rb's load_core path. Grow as we hit gaps.
             intrinsics_cls = @user_classes[:Frozone_Vm_Intrinsics] rescue nil
             if intrinsics_cls && (intrinsics_cls.eigenclass rescue nil)
-              # Allow-list: Intrinsics methods we've verified compile
-              # cleanly under box-first AND that core/4.0/ dispatches
-              # to via Intrinsics.X at runtime. Grow as we hit gaps in
-              # the load_core path. Pattern-based seeding (e.g. all
-              # `module_*`) tends to drag in helper methods with
-              # emission bugs.
-              wanted = %i[
-                module_set_public
-                module_set_private
-                module_set_protected
-                module_undef_method
-                module_undef_methods
-                module_undef_method_dispatch
-                module_remove_method
-                module_remove_methods
-                module_alias_method
-                module_define_method
-                module_ruby2_keywords
-                module_singleton_class_q
-                module_name
-                module_constants
-                module_const_defined
-                module_const_get
-                module_class_variable_defined
-                module_class_variable_get
-                module_class_variable_set
-                module_class_variables
-                module_remove_class_variable
-                module_using
-                module_used_refinements
-                module_set_temporary_name
-                module_const_source_location
-                module_private_constant
-                module_public_constant
-                module_remove_const
-              ]
+              # Seed every Intrinsics eigenclass method. core/4.0/ dispatches
+              # to Intrinsics.X via Ast::IntrinsicCall#evaluate at runtime
+              # using `Vm::Intrinsics.send(@name, ...)` — the @name is a
+              # Symbol literal in the AST node, never reachable via static
+              # walking, so without seeding the entire surface, methods
+              # silently drop and you get NoMethodError on first call.
+              # Body emission failures are caught by method_emitter's
+              # rescue and produce abort stubs — calling an unimplemented
+              # intrinsic aborts loudly with the specific feature gap,
+              # which is what we want.
+              #
+              # SOME bodies succeed Ruby-level emission but produce invalid
+              # C++ (e.g. `block:` kwarg in a block-parameter list) that
+              # fails g++ compile. Exclude those by name until their
+              # lowering is fixed — they fall through to mm_dispatch →
+              # NoMethodError at runtime, same as before this expansion.
+              skip = %i[
+                proc_curry
+              ].to_set
               mt = intrinsics_cls.eigenclass.methods_table || {}
-              wanted.each do |mname|
-                seed_names << Cpp.method_name(mname) if mt.key?(mname)
+              mt.each_key do |mname|
+                next if skip.include?(mname)
+                seed_names << Cpp.method_name(mname)
               end
             end
             # Seeded names are universally reachable — runtime dispatches
