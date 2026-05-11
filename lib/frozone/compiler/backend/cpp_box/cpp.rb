@@ -780,6 +780,26 @@ module Frozone
                 arg_strs = node.arg_nodes.map { |a| from_expr(a, locals) }
                 "(new Array({#{arg_strs.join(', ')}}))"
               end
+            # Ruby semantics: bare `super` forwards everything (incl
+            # outer kwargs); explicit `super(...)` does NOT implicitly
+            # forward kwargs — they're empty unless the call has an
+            # explicit `**splat`. Previously we always passed outer
+            # `kwargs`, which silently appended the outer kwargs Hash
+            # as a trailing positional arg in the parent body (via the
+            # has_kw=false fold) — invisible until the arity check
+            # surfaced it.
+            kwargs_expr =
+              if node.forwarding
+                "kwargs"
+              elsif (node.respond_to?(:kw_splat_nodes) ? node.kw_splat_nodes : []).empty?
+                "(&EMPTY_KWARGS)"
+              else
+                # **splat forwarding from explicit super — not yet
+                # lowered; fall back to passing the outer kwargs hash,
+                # which preserves any inner kwarg state (and matches
+                # the previous behaviour). Tracked separately.
+                "kwargs"
+              end
             block_expr =
               if node.block_node.nil?
                 "_block"
@@ -790,7 +810,7 @@ module Frozone
               end
             # Direct C++ method call — bypasses the usual virtual
             # dispatch since we resolved the target at AOT time.
-            "this->#{qualifier_class}::#{cpp_name}(#{args_expr}, kwargs, #{block_expr})"
+            "this->#{qualifier_class}::#{cpp_name}(#{args_expr}, #{kwargs_expr}, #{block_expr})"
           end
 
           # Box-first global variable reads. Match-data globals stay
