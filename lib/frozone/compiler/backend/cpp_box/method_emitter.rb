@@ -22,7 +22,7 @@ module Frozone
             cpp_name = Cpp.method_name(name)
             sig = emit.natural_arity_names[name]
             if sig
-              write_natural_arity_method(emit, name, method, cpp_name, sig.arity_req)
+              write_natural_arity_method(emit, name, method, cpp_name, sig)
             else
               write_universal_method(emit, name, method, cpp_name)
             end
@@ -38,8 +38,9 @@ module Frozone
             msg = "[frozone-box-first] unimplemented method :#{name} (def @ #{loc}): #{e.message}"
             sig = emit.natural_arity_names[name]
             if sig
-              params = (0...sig.arity_req).map { |i| "BasicObject* l_a#{i}" }.join(', ')
-              emit.line "virtual BasicObject* #{cpp_name}(#{params}) {"
+              pos = (0...sig.arity_req).map { |i| "BasicObject* l_a#{i}" }
+              kw = sig.required_kw_names.map { |kn| "BasicObject* #{local_cpp_name(kn)}" }
+              emit.line "virtual BasicObject* #{cpp_name}(#{(pos + kw).join(', ')}) {"
             else
               emit.line "virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) {"
             end
@@ -103,20 +104,27 @@ module Frozone
           # (signature enforces), no kwargs-fold (eligibility implies
           # no kw params), no block alias (eligibility implies no
           # caller passes a block and no body yields).
-          def self.write_natural_arity_method(emit, _name, method, cpp_name, arity)
+          def self.write_natural_arity_method(emit, _name, method, cpp_name, sig)
             required = method.required_params || []
-            if required.length != arity ||
+            req_kw = (method.required_kw_params || []).map(&:to_sym).sort
+            # The slot signature has arity_req positional slots
+            # followed by required_kw_names slots (sorted Symbol order
+            # — matches sig.required_kw_names). Each slot binds to a
+            # named local via decl_local_line in the body prologue.
+            if required.length != sig.arity_req ||
                !(method.optional_params || []).empty? ||
                !(method.post_params || []).empty? ||
                method.rest_param ||
                method.kw_rest_param ||
-               !(method.required_kw_params || []).empty? ||
                !(method.optional_kw_params || []).empty? ||
+               req_kw != sig.required_kw_names ||
                method.block_param
-              raise Cpp::EmissionError, "natural-arity eligibility/shape mismatch for #{cpp_name}/#{arity}"
+              raise Cpp::EmissionError, "natural-arity shape mismatch for #{cpp_name}: def doesn't fit #{sig}"
             end
 
-            param_decls = required.each_with_index.map { |_, i| "BasicObject* _arg#{i}" }
+            pos_decls = required.each_with_index.map { |_, i| "BasicObject* _arg#{i}" }
+            kw_decls = sig.required_kw_names.map { |kn| "BasicObject* _kw_#{kn}" }
+            param_decls = pos_decls + kw_decls
             captured = method.body ? collect_method_captured(method) : Set.new
             body_buf = emit.cpp.with_captured_locals(captured) do
             emit.capture do
@@ -124,6 +132,10 @@ module Frozone
               required.each_with_index do |p, i|
                 emit.line decl_local_line(emit, p, "_arg#{i}")
                 locals << p.to_s
+              end
+              sig.required_kw_names.each do |kn|
+                emit.line decl_local_line(emit, kn, "_kw_#{kn}")
+                locals << kn.to_s
               end
               # Eligibility disqualifies methods that use yield /
               # block_given? in their body, so `_block` is never

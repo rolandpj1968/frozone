@@ -479,6 +479,9 @@ module Frozone
                 ctx = {
                   host_name: host_name, method_name: mname, origin_index: idx, chain: entries,
                   method_params: (method.required_params || []).map { |p| MethodEmitter.local_cpp_name(p) },
+                  # kw_params is set in from_super; here we only need
+                  # positional. Super forwarding reads kw locals from
+                  # the natural-arity sig in the survey table directly.
                 }
                 # Head override on top of hand-coded ancestor: if the
                 # user's body fails to emit (unsupported intrinsic etc.),
@@ -1618,6 +1621,9 @@ module Frozone
                 ctx = {
                   host_name: host_name, method_name: mname, origin_index: idx, chain: entries,
                   method_params: (method.required_params || []).map { |p| MethodEmitter.local_cpp_name(p) },
+                  # kw_params is set in from_super; here we only need
+                  # positional. Super forwarding reads kw locals from
+                  # the natural-arity sig in the survey table directly.
                 }
                 spec =
                   begin
@@ -1885,32 +1891,37 @@ module Frozone
           # falls through to its abort-stub path, keeping the slot
           # signature consistent with BasicObject's natural-arity
           # default decl.
-          def build_natural_arity_override(method, arity)
+          def build_natural_arity_override(method, sig)
             required = method.required_params || []
-            if required.length != arity ||
+            req_kw = (method.required_kw_params || []).map(&:to_sym).sort
+            if required.length != sig.arity_req ||
                !(method.optional_params || []).empty? ||
                !(method.post_params || []).empty? ||
                method.rest_param ||
                method.kw_rest_param ||
-               !(method.required_kw_params || []).empty? ||
                !(method.optional_kw_params || []).empty? ||
+               req_kw != sig.required_kw_names ||
                method.block_param
-              raise Cpp::EmissionError, "natural-arity eligibility/shape mismatch for :#{method.name} (arity=#{arity})"
+              raise Cpp::EmissionError, "natural-arity shape mismatch for :#{method.name}: def doesn't fit #{sig}"
             end
             captured = method.body ? MethodEmitter.collect_method_captured(method) : Set.new
             body = @cpp.with_captured_locals(captured) do
               capture do
                 locals = Set.new
-                # Re-declare each natural-arity param as a body local via
-                # decl_local_line — heap-cell form when captured, stack
-                # local otherwise. Mirrors what unpack_params does for
-                # universal-sig methods. Param IN the signature uses an
-                # anonymous name (_arg<i>) so the local binding can
-                # shadow it with the right cpp_name + captured-aware
-                # storage class.
+                # Re-declare each natural-arity param as a body local
+                # via decl_local_line — heap-cell form when captured,
+                # stack local otherwise. The signature param uses an
+                # anonymous name (_arg<i> / _kw_<name>) so the local
+                # binding can shadow it with the right cpp_name +
+                # captured-aware storage class. Mirrors unpack_params'
+                # treatment for universal-sig methods.
                 required.each_with_index do |p, i|
                   line MethodEmitter.decl_local_line(self, p, "_arg#{i}")
                   locals << p.to_s
+                end
+                sig.required_kw_names.each do |kn|
+                  line MethodEmitter.decl_local_line(self, kn, "_kw_#{kn}")
+                  locals << kn.to_s
                 end
                 # Eligibility excludes internal-yield / block_given?
                 # so `_block` is never referenced. Don't emit it.
@@ -1925,6 +1936,11 @@ module Frozone
               end
             end
             indented_body = body.each_line.map { |l| "  #{l}" }.join
+            # spec[:params] carries only the positional slot decls;
+            # write_override_def appends `_kw_<name>` decls from the
+            # NaturalAritySig directly (so the spec stays the same
+            # shape as universal-sig specs — body's local bindings
+            # via decl_local_line handle the kw mapping).
             {
               params: required.each_with_index.map { |_, i| "BasicObject* _arg#{i}" },
               body: "std::uint64_t __frame_id__ = next_frame_id();\ntry {\n#{indented_body}  return nil_instance();\n} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }\n",
@@ -1946,7 +1962,7 @@ module Frozone
                 # name only). Look up under the storage name.
                 lookup_name = storage_name || method.name
                 sig = @natural_arity_names && @natural_arity_names[lookup_name]
-                return build_natural_arity_override(method, sig.arity_req) if sig
+                return build_natural_arity_override(method, sig) if sig
                 # Pre-walk for captured locals (inner-block-referenced
                 # locals get heap-cell storage; see CppBox::Cpp.captured_locals).
                 # Includes block-locals hoisted by collect_local_writes

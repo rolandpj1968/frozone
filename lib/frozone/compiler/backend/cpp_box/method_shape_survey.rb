@@ -171,16 +171,16 @@ module Frozone
 
             # Returns the DefShape for an eligible name, else nil.
             # Eligible iff the def-histogram has exactly one bin AND
-            # that shape is simple-positional (no opt, rest, kw,
-            # kwrest, block_param) — and no caller passes a block to
-            # the name. simple_kw_only? is a forthcoming extension
-            # (DefShape tracks required_kw_names ready for that step);
-            # the gate is here, not in the data layer.
+            # that shape is either pure simple-positional or required-
+            # kw-only (no opt, rest, kwrest, optional_kw, block_param).
+            # Block-bearing call sites disqualify the name regardless
+            # of def-shape — the natural-arity signature has no Block
+            # slot.
             def eligible_def_shape(name)
               shapes = @defs[name]
               return nil unless shapes.size == 1
               shape = shapes.keys.first
-              return nil unless shape.simple?
+              return nil unless shape.simple? || shape.simple_kw_only?
               return nil if @calls[name].any? { |c, _| c.blk_pass || c.do_block }
               shape
             end
@@ -218,11 +218,29 @@ module Frozone
             non_eligible = names - eligible
             single_defn = names.select { |n| agg.def_total(n) == 1 }
             single_defn_calls = single_defn.sum { |n| agg.call_total(n) }
+            # What-if: names that WOULD become eligible if we relaxed
+            # eligibility to also accept simple_kw_only? shapes
+            # (required-kw lowering). One bin, simple-kw-only shape,
+            # no block-bearing callers.
+            kw_lift = non_eligible.select do |n|
+              shapes = agg.defs[n]
+              shapes.size == 1 &&
+                shapes.keys.first.simple_kw_only? &&
+                !agg.calls[n].any? { |c, _| c.blk_pass || c.do_block }
+            end
+            kw_lift_calls = kw_lift.sum { |n| agg.call_total(n) }
             io.puts '[method-shape survey]'
             io.puts "  total method names:  #{names.size}"
             io.puts "  eligible:            #{eligible.size}"
             io.puts "  non-eligible:        #{non_eligible.size}"
             io.puts "  single-defn names:   #{single_defn.size} (#{single_defn_calls} call sites)"
+            io.puts "  +kw-lift candidates: #{kw_lift.size} names, #{kw_lift_calls} call sites"
+            io.puts ''
+            io.puts '  kw-lift candidates (sorted by call-site count desc):'
+            kw_lift.sort_by { |n| -agg.call_total(n) }.first(30).each do |n|
+              shape = agg.defs[n].keys.first
+              io.puts "    :#{n.to_s.ljust(40)} (#{shape}) — #{agg.call_total(n)} calls"
+            end
             io.puts ''
             io.puts '  single-defn shape distribution:'
             shape_buckets = Hash.new { |h, k| h[k] = { count: 0, calls: 0 } }

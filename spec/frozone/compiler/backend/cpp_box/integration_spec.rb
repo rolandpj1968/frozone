@@ -195,4 +195,8 @@ RSpec.describe 'box-first end-to-end' do
       '13',
     ])
   end
+
+  it 'lowers required-kw methods to natural-arity positional dispatch' do
+    expect(run_box_first('kw_test').strip.split("\n")).to eq(%w[50 307 307 411 411 411])
+  end
 end

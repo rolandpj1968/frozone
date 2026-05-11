@@ -419,9 +419,18 @@ module Frozone
               next unless sig
               ruby_lit = ruby_name.gsub('\\', '\\\\\\\\').gsub('"', '\\"')
               n = sig.arity_req
-              params = (0...n).map { |i| "BasicObject* a#{i}" }.join(', ')
+              pos_params = (0...n).map { |i| "BasicObject* a#{i}" }
+              kw_params = sig.required_kw_names.map { |kn| "BasicObject* k_#{kn}" }
+              params = (pos_params + kw_params).join(', ')
               pack = (0...n).map { |i| "_args->data.push_back(a#{i});" }.join(' ')
-              emit.line "BasicObject* BasicObject::#{cpp_name}(#{params}) { Array* _args = new Array(); #{pack} return mm_dispatch(this, _args, &EMPTY_KWARGS, nil_instance(), \"#{ruby_lit}\"); }"
+              # Pack kw params back into a Hash for mm_dispatch — the
+              # fallthrough path doesn't know the natural-arity shape.
+              if sig.required_kw_names.empty?
+                emit.line "BasicObject* BasicObject::#{cpp_name}(#{params}) { Array* _args = new Array(); #{pack} return mm_dispatch(this, _args, &EMPTY_KWARGS, nil_instance(), \"#{ruby_lit}\"); }"
+              else
+                kw_pack = sig.required_kw_names.map { |kn| %|_kw->data[intern("#{kn}")] = k_#{kn};| }.join(' ')
+                emit.line "BasicObject* BasicObject::#{cpp_name}(#{params}) { Array* _args = new Array(); #{pack} Hash* _kw = new Hash(); #{kw_pack} return mm_dispatch(this, _args, _kw, nil_instance(), \"#{ruby_lit}\"); }"
+              end
             end
             emit.blank
           end
@@ -445,14 +454,29 @@ module Frozone
               n = sig.arity_req
               emit.line "static BasicObject* trampoline_#{cpp_name}(BasicObject* recv, Array* args, Hash* kwargs, BasicObject* /*block*/) {"
               emit.indented do
-                # Ruby2-style fold preserves trailing-Hash binding —
-                # rare for eligible names (no kw params, so kwargs are
-                # never explicitly bound, but a caller might still
-                # pass a Hash positionally via :foo(x: 1)).
-                emit.line "if (!kwargs->data.empty()) { Array* _ext = new Array(); _ext->data = args->data; Hash* _h = new Hash(); _h->data = kwargs->data; _ext->data.push_back(static_cast<BasicObject*>(_h)); args = _ext; }"
-                emit.line "check_arity_fixed(args->data.size(), #{n});"
-                args_call = (0...n).map { |i| "args->data[#{i}]" }.join(', ')
-                emit.line "return recv->#{cpp_name}(#{args_call});"
+                if sig.required_kw_names.empty?
+                  # Ruby2-style fold preserves trailing-Hash binding —
+                  # rare for eligible names (no kw params, so kwargs
+                  # are never explicitly bound, but a caller might
+                  # still pass a Hash positionally via :foo(x: 1)).
+                  emit.line "if (!kwargs->data.empty()) { Array* _ext = new Array(); _ext->data = args->data; Hash* _h = new Hash(); _h->data = kwargs->data; _ext->data.push_back(static_cast<BasicObject*>(_h)); args = _ext; }"
+                  emit.line "check_arity_fixed(args->data.size(), #{n});"
+                  args_call = (0...n).map { |i| "args->data[#{i}]" }.join(', ')
+                  emit.line "return recv->#{cpp_name}(#{args_call});"
+                else
+                  # Required-kw entry: extract each kw value by name
+                  # from the kwargs Hash. Missing required-kw aborts
+                  # the same way unpack_params would today.
+                  emit.line "check_arity_fixed(args->data.size(), #{n});"
+                  sig.required_kw_names.each do |kn|
+                    key_lit = kn.to_s.gsub('\\', '\\\\\\\\').gsub('"', '\\"')
+                    emit.line %|auto _it_#{kn} = kwargs->data.find(intern("#{key_lit}"));|
+                    emit.line %|if (_it_#{kn} == kwargs->data.end()) { std::fprintf(stderr, "[box-first] missing required kw arg :#{kn}\\n"); std::abort(); }|
+                  end
+                  pos_args = (0...n).map { |i| "args->data[#{i}]" }
+                  kw_args = sig.required_kw_names.map { |kn| "_it_#{kn}->second" }
+                  emit.line "return recv->#{cpp_name}(#{(pos_args + kw_args).join(', ')});"
+                end
               end
               emit.line "}"
             end
@@ -814,7 +838,9 @@ module Frozone
                 # struct is complete (the body needs `new Array()` for
                 # the mm_dispatch fallthrough, which can't sit inline
                 # while Array is still forward-declared).
-                params = (0...sig.arity_req).map { |i| "BasicObject* a#{i}" }.join(', ')
+                pos_params = (0...sig.arity_req).map { |i| "BasicObject* a#{i}" }
+                kw_params = sig.required_kw_names.map { |kn| "BasicObject* k_#{kn}" }
+                params = (pos_params + kw_params).join(', ')
                 emit.line %(virtual BasicObject* #{cpp_name}(#{params});)
               else
                 emit.line %(virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) { return mm_dispatch(this, args, kwargs, block, "#{ruby_lit}"); })
@@ -1018,8 +1044,9 @@ module Frozone
             end
             override_kw = (klass.name == "BasicObject" || !@call_surface_set&.include?(name)) ? "" : " override"
             if (sig = @natural_arity_names[cpp_name_to_ruby(name).to_sym])
-              params = (0...sig.arity_req).map { |i| "BasicObject* a#{i}" }.join(', ')
-              emit.line "virtual BasicObject* #{name}(#{params})#{override_kw};"
+              pos_params = (0...sig.arity_req).map { |i| "BasicObject* a#{i}" }
+              kw_params = sig.required_kw_names.map { |kn| "BasicObject* k_#{kn}" }
+              emit.line "virtual BasicObject* #{name}(#{(pos_params + kw_params).join(', ')})#{override_kw};"
             else
               emit.line "virtual BasicObject* #{name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance())#{override_kw};"
             end
@@ -1047,14 +1074,15 @@ module Frozone
               return
             end
             if (sig = @natural_arity_names[cpp_name_to_ruby(name).to_sym])
-              # Natural-arity override out-of-line def. Params come in
-              # named (a0..aN-1); we still rebind them to whatever the
-              # spec named them, since the spec body references those
-              # names. For specs that declared no params (universal-
-              # protocol auto-overrides like m_class), the natural-
-              # arity signature still gets the right shape via arity.
-              param_names = (spec[:params] || []).map { |decl| decl.split(/\s+/).last.delete_prefix('*') }
-              if param_names.length != sig.arity_req
+              # Natural-arity override out-of-line def. The spec's
+              # params list names the BODY-visible locals; for
+              # positional-only natural-arity (no kw), this is the
+              # full signature. For kw-bearing natural-arity, the
+              # spec body uses the kw names directly — we append
+              # `_kw_<name>` slots after the positional ones and
+              # treat the spec as if it had already declared them.
+              spec_param_names = (spec[:params] || []).map { |decl| decl.split(/\s+/).last.delete_prefix('*') }
+              if spec_param_names.length != sig.arity_req
                 # Spec doesn't match natural-arity contract — fall back
                 # to universal sig so the def stays consistent with
                 # something. Shouldn't happen if eligibility is sound.
@@ -1070,9 +1098,17 @@ module Frozone
                 emit.blank
                 return
               end
-              fn_params = param_names.map { |n| "BasicObject* #{n}" }.join(', ')
-              emit.line "BasicObject* #{class_name}::#{name}(#{fn_params}) {"
-              emit.indented { spec[:body].each_line { |l| emit.line l.chomp } }
+              pos_params = spec_param_names.map { |n| "BasicObject* #{n}" }
+              kw_params = sig.required_kw_names.map { |kn| "BasicObject* _kw_#{kn}" }
+              emit.line "BasicObject* #{class_name}::#{name}(#{(pos_params + kw_params).join(', ')}) {"
+              emit.indented do
+                # If the spec body references kw param names directly,
+                # bind each to its `_kw_<name>` incoming slot.
+                sig.required_kw_names.each do |kn|
+                  emit.line "BasicObject* #{kn} = _kw_#{kn};"
+                end
+                spec[:body].each_line { |l| emit.line l.chomp }
+              end
               emit.line "}"
               emit.blank
               return

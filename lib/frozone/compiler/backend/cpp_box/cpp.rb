@@ -403,28 +403,50 @@ module Frozone
             # trampoline free function which takes universal-shape
             # args and forwards to the natural-arity slot.
             na_sig = emit&.natural_arity_names&.dig(name)
+            # Compatibility for natural-arity dispatch: positional
+            # arg count matches sig.arity_req, no splat / kw-splat /
+            # block. If the sig has required-kw names, the call site
+            # must also supply EXACTLY that set of literal kw_arg
+            # names (no extras, no missing). Reorder the call's kw
+            # args to match the sig's declaration (sorted) order.
+            na_kw_csv = nil
+            kw_compat = if na_sig
+              call_kw_names = (node.kw_arg_nodes || []).map do |k, _|
+                k.respond_to?(:value) ? k.value.to_sym : nil
+              end
+              if na_sig.required_kw_names.empty?
+                (node.kw_arg_nodes || []).empty? && (node.kw_splat_nodes || []).empty?
+              elsif (node.kw_splat_nodes || []).any?
+                false
+              elsif call_kw_names.sort == na_sig.required_kw_names
+                kw_map = (node.kw_arg_nodes || []).to_h { |k, v| [k.value.to_sym, v] }
+                na_kw_csv = na_sig.required_kw_names.map { |kn| from_expr(kw_map[kn], locals) }
+                true
+              else
+                false
+              end
+            end
             na_compatible = na_sig &&
                             arg_nodes.length == na_sig.arity_req &&
                             arg_nodes.none? { |a| a.is_a?(Ast::SplatArg) } &&
-                            (node.kw_arg_nodes || []).empty? &&
-                            (node.kw_splat_nodes || []).empty? &&
-                            !has_block
+                            !has_block &&
+                            kw_compat
 
-            if na_compatible && recv
-              recv_str = from_expr(recv, locals)
-              args_csv = arg_nodes.map { |a| from_expr(a, locals) }.join(', ')
-              if node.safe_nav
-                return "([&]() -> BasicObject* { auto* _r = #{recv_str}; return (_r == nil_instance()) ? nil_instance() : _r->#{Cpp.method_name(name)}(#{args_csv}); }())"
+            if na_compatible
+              pos_csv = arg_nodes.map { |a| from_expr(a, locals) }
+              all_csv = (pos_csv + (na_kw_csv || [])).join(', ')
+              if recv && node.safe_nav
+                recv_str = from_expr(recv, locals)
+                return "([&]() -> BasicObject* { auto* _r = #{recv_str}; return (_r == nil_instance()) ? nil_instance() : _r->#{Cpp.method_name(name)}(#{all_csv}); }())"
+              elsif recv
+                return "#{from_expr(recv, locals)}->#{Cpp.method_name(name)}(#{all_csv})"
               else
-                return "#{recv_str}->#{Cpp.method_name(name)}(#{args_csv})"
+                return "this->#{Cpp.method_name(name)}(#{all_csv})"
               end
-            elsif na_compatible && !recv
-              args_csv = arg_nodes.map { |a| from_expr(a, locals) }.join(', ')
-              return "this->#{Cpp.method_name(name)}(#{args_csv})"
             end
 
             args_array = build_args_array(arg_nodes, locals)
-            kwargs_arg = build_kwargs_hash(node.kw_arg_nodes || [], locals)
+            kwargs_arg = build_kwargs_hash(node.kw_arg_nodes || [], node.kw_splat_nodes || [], locals)
 
             # Eligible name but incompatible call shape: trampoline
             # takes the universal-shape args and forwards. Same
@@ -484,18 +506,29 @@ module Frozone
             "([&]() -> BasicObject* { try { return #{call_expr}; } catch (BreakException& e_) { return e_.value; } }())"
           end
 
-          # Build the kwargs Hash for a call. Empty kw list → nullptr
-          # (no allocation cost when there are no kw args). Each entry
-          # is `{intern("key"), <value_expr>}` — Symbol keys.
-          # **splat handling deferred — kw_splat_nodes raise EmissionError.
-          def build_kwargs_hash(kw_arg_nodes, locals)
-            return "(&EMPTY_KWARGS)" if kw_arg_nodes.empty?
+          # Build the kwargs Hash for a call. Empty kw list AND no
+          # **splat → EMPTY_KWARGS singleton (no allocation). Literal
+          # kw pairs → `(new Hash({{intern("k"), v}, ...}))`. **splat
+          # forwards the source Hash directly when it's the only kw
+          # input; mixed literal+splat builds a fresh Hash and merges.
+          def build_kwargs_hash(kw_arg_nodes, kw_splat_nodes, locals)
+            return "(&EMPTY_KWARGS)" if kw_arg_nodes.empty? && kw_splat_nodes.empty?
             entries = kw_arg_nodes.map do |key_node, value_node|
               key_name = key_node.is_a?(Ast::SymbolLiteral) ? key_node.value.to_s : nil
               raise EmissionError, "non-symbol kw key not supported" unless key_name
               "{intern(#{cpp_string_literal(key_name)}), static_cast<BasicObject*>(#{from_expr(value_node, locals)})}"
             end
-            "(new Hash({#{entries.join(", ")}}))"
+            # Pure single-splat (`**h` with no literal pairs) — forward
+            # the source Hash directly, avoiding the alloc + copy.
+            if kw_arg_nodes.empty? && kw_splat_nodes.length == 1
+              return "static_cast<Hash*>(#{from_expr(kw_splat_nodes[0], locals)})"
+            end
+            # Mixed or multi: build a fresh Hash, populate with literal
+            # pairs, then copy each splat source's entries on top.
+            splat_pushes = kw_splat_nodes.map do |s|
+              "for (auto& _kv : static_cast<Hash*>(#{from_expr(s, locals)})->data) _h->data[_kv.first] = _kv.second;"
+            end.join(' ')
+            "([&]() -> Hash* { Hash* _h = new Hash({#{entries.join(', ')}}); #{splat_pushes} return _h; }())"
           end
 
           # Compose the trailing `(args, kwargs, block)` of a method
@@ -825,16 +858,30 @@ module Frozone
             method_name = ctx[:method_name]
             na_sig = emit&.natural_arity_names&.dig(method_name)
             if na_sig
+              # Forwarding super needs the kw locals too — they live
+              # under their declared param names (l_<kw_name>) and
+              # come after the positional locals in the signature.
+              kw_locals = na_sig.required_kw_names.map { |kn| MethodEmitter.local_cpp_name(kn) }
               args_csv =
                 if node.forwarding
                   # Bare `super` — forward the enclosing method's
-                  # named params. ctx[:method_params] captures them in
-                  # natural-arity order.
-                  (ctx[:method_params] || []).join(', ')
+                  # named params. ctx[:method_params] holds the
+                  # positionals; append kw locals in sig order.
+                  ((ctx[:method_params] || []) + kw_locals).join(', ')
                 elsif node.arg_nodes.empty?
+                  # `super()` with no args — only legal if parent
+                  # has zero slots. Kw-bearing parent will fail to
+                  # compile (too few args), which is the right
+                  # outcome.
                   ""
                 else
-                  node.arg_nodes.map { |a| from_expr(a, locals) }.join(', ')
+                  # Explicit `super(x, y)` — pass the given args.
+                  # If enclosing has kw, parent expects them too;
+                  # we forward the enclosing's kw locals. This
+                  # matches Ruby semantics for explicit super in a
+                  # method whose parent shares the kw signature.
+                  pos = node.arg_nodes.map { |a| from_expr(a, locals) }
+                  (pos + kw_locals).join(', ')
                 end
               return "this->#{qualifier_class}::#{cpp_name}(#{args_csv})"
             end
