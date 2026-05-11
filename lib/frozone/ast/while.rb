@@ -24,15 +24,24 @@ module Frozone
         begin
           while first || @condition_node.evaluate(context).truthy?
             first = false
-            begin
-              @body_node.evaluate(context)
-            rescue NextException
-              next
-            rescue RedoException
-              redo
-            rescue BreakException => e
-              raise if e.from_block
-              return e.value
+            # State-flag instead of `next`/`redo` inside rescue: box-first
+            # wraps rescue bodies in a C++ lambda, so break/next/redo can't
+            # target the enclosing loop scope. `next` is a no-op here
+            # (begin/rescue is the entire body), `redo` becomes
+            # `iteration_done = false` to repeat the inner loop.
+            iteration_done = false
+            until iteration_done
+              iteration_done = true
+              begin
+                @body_node.evaluate(context)
+              rescue NextException
+                # iteration_done stays true — exits inner loop
+              rescue RedoException
+                iteration_done = false
+              rescue BreakException => e
+                raise if e.from_block
+                return e.value
+              end
             end
           end
           Vm::NilObject::NIL

@@ -49,17 +49,20 @@ module Frozone
           # Iterate directly in the enclosing frame (no new scope for for loops).
           all_args.each do |args|
             assign_target(context, enclosing_frame, args)
-            # Support redo: re-run body with same args (don't re-assign target)
-            loop do
+            # State-flag for redo support — see Ast::While for the same
+            # rationale (box-first wraps rescue in a lambda, so break/next
+            # inside rescue can't target the enclosing `loop do`).
+            iteration_done = false
+            until iteration_done
+              iteration_done = true
               begin
                 @body_node.evaluate(context)
-                break
               rescue Ast::BreakException => e
                 return e.value
               rescue Ast::NextException
-                break
+                # iteration_done stays true
               rescue Ast::RedoException
-                # redo: re-run body with same iteration variable values
+                iteration_done = false
               end
             end
           end
