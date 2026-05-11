@@ -181,6 +181,7 @@ module Frozone
                 end
               end
               write_method_vt(emit, method_ids)
+              write_trampoline_vt(emit, method_ids)
               write_send_body(emit, method_ids)
               write_is_a_lut(emit, class_ids, is_a_lut)
               write_method_missing_default(emit)
@@ -377,6 +378,34 @@ module Frozone
             end
             emit.line "};"
             emit.line "static constexpr int METHOD_VT_SIZE = #{method_ids.size};"
+            emit.blank
+          end
+
+          # Parallel free-function-pointer table indexed by method_id —
+          # nullptr for ineligible names, &trampoline_<name> for names
+          # that have a natural-arity specialization (set under
+          # FROZONE_NATURAL_ARGS=1; all-null otherwise). m_send and
+          # related dispatch paths check TRAMPOLINE_VT[id] first; if
+          # non-null, the trampoline validates Array-packed args, unpacks
+          # to positional, and calls recv->m_<name>(a1,...,aN) virtually.
+          # See project_natural_args.md for the dispatch model (Option F).
+          def self.write_trampoline_vt(emit, method_ids)
+            tramps = (emit.respond_to?(:natural_arity_names) ? emit.natural_arity_names : nil) || {}
+            emit.line "// Parallel trampoline table — populated only for natural-arity-eligible names."
+            emit.line "// nullptr → fall through to METHOD_VT (universal calling convention)."
+            emit.line "using __TrampolineFn__ = BasicObject* (*)(BasicObject*, Array*, Hash*, BasicObject*);"
+            emit.line "static const __TrampolineFn__ TRAMPOLINE_VT[] = {"
+            emit.indented do
+              method_ids.each do |cpp, id|
+                ruby = cpp_name_to_ruby(cpp)
+                if tramps.key?(ruby.to_sym)
+                  emit.line "&trampoline_#{cpp},  // id #{id}: #{ruby}"
+                else
+                  emit.line "nullptr,  // id #{id}: #{ruby}"
+                end
+              end
+            end
+            emit.line "};"
             emit.blank
           end
 
@@ -743,6 +772,12 @@ module Frozone
                 # Unknown id → m_method_missing path (mm_dispatch builds the
                 # symbol-prepended args array and virtual-dispatches).
                 emit.line "if (_id < 0 || _id >= METHOD_VT_SIZE) return mm_dispatch(this, _rest, kwargs, block, _name->name_);"
+                # Natural-args specialization (Option F): TRAMPOLINE_VT[id]
+                # is non-null for eligible names; trampoline validates args
+                # + calls recv->m_<name>(a1,...,aN) virtually on the
+                # natural-arity slot. nullptr → fall through to universal.
+                emit.line "auto _tramp = TRAMPOLINE_VT[_id];"
+                emit.line "if (_tramp) return _tramp(this, _rest, kwargs, block);"
                 emit.line "return (this->*METHOD_VT[_id])(_rest, kwargs, block);"
               end
               emit.line "}"
