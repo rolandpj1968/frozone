@@ -180,4 +180,19 @@ RSpec.describe 'box-first end-to-end' do
   it 'concatenates interpolated strings with Integer#to_s coercion' do
     expect(run_box_first('selfcompile_more').strip).to eq('loaded 42 ast nodes')
   end
+
+  it 'validates positional arity at every method body entry' do
+    expect(run_box_first('arity_test').strip.split("\n")).to eq([
+      'wrong number of arguments (given 0, expected 1)',
+      'wrong number of arguments (given 2, expected 1)',
+      '42',
+      'wrong number of arguments (given 0, expected 1..2)',
+      'wrong number of arguments (given 3, expected 1..2)',
+      '799',
+      '708',
+      'wrong number of arguments (given 0, expected 1+)',
+      '10',
+      '13',
+    ])
+  end
 end
