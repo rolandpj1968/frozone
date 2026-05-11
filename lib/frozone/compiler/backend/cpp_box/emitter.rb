@@ -1945,8 +1945,8 @@ module Frozone
                 # has a block-bearing caller, disqualifying that
                 # name only). Look up under the storage name.
                 lookup_name = storage_name || method.name
-                arity = @natural_arity_names && @natural_arity_names[lookup_name]
-                return build_natural_arity_override(method, arity) if arity
+                sig = @natural_arity_names && @natural_arity_names[lookup_name]
+                return build_natural_arity_override(method, sig.arity_req) if sig
                 # Pre-walk for captured locals (inner-block-referenced
                 # locals get heap-cell storage; see CppBox::Cpp.captured_locals).
                 # Includes block-locals hoisted by collect_local_writes
@@ -2008,8 +2008,8 @@ module Frozone
             # eligibility lookup (same as the eligibility check at
             # build_override entry).
             lookup_name = storage_name || (method.respond_to?(:name) ? method.name : nil)
-            arity = lookup_name && @natural_arity_names && @natural_arity_names[lookup_name]
-            params = arity ? (0...arity).map { |i| "BasicObject* _arg#{i}" } : []
+            sig = lookup_name && @natural_arity_names && @natural_arity_names[lookup_name]
+            params = sig ? (0...sig.arity_req).map { |i| "BasicObject* _arg#{i}" } : []
             {
               params: params,
               body: %|std::fprintf(stderr, "%s\\n", #{@cpp.cpp_string_literal(msg)});\nstd::abort();\n|,
@@ -2082,8 +2082,9 @@ module Frozone
           # Returns the count pruned (for the activation summary).
           def prune_override_arity_collisions
             pruned = 0
-            @natural_arity_names.delete_if do |ruby_name, arity|
+            @natural_arity_names.delete_if do |ruby_name, sig|
               cpp = Cpp.method_name(ruby_name)
+              n = sig.arity_req
               # Module/Class singletons (Math.pow, Math.hypot, …) live
               # in `eigenclass_overrides` on the RubyClass itself, not
               # via a separate eigenclass object. Check both maps.
@@ -2091,8 +2092,8 @@ module Frozone
                 instance = (k.overrides || {})[cpp]
                 singleton = (k.respond_to?(:eigenclass_overrides) ? k.eigenclass_overrides : nil) || {}
                 singleton_spec = singleton[cpp]
-                (instance && (instance[:params] || []).length != arity) ||
-                  (singleton_spec && (singleton_spec[:params] || []).length != arity)
+                (instance && (instance[:params] || []).length != n) ||
+                  (singleton_spec && (singleton_spec[:params] || []).length != n)
               end
               pruned += 1 if collide
               collide

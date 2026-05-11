@@ -402,9 +402,9 @@ module Frozone
             # kwargs) of eligible names go through the per-name
             # trampoline free function which takes universal-shape
             # args and forwards to the natural-arity slot.
-            na_arity = emit&.natural_arity_names&.dig(name)
-            na_compatible = na_arity &&
-                            arg_nodes.length == na_arity &&
+            na_sig = emit&.natural_arity_names&.dig(name)
+            na_compatible = na_sig &&
+                            arg_nodes.length == na_sig.arity_req &&
                             arg_nodes.none? { |a| a.is_a?(Ast::SplatArg) } &&
                             (node.kw_arg_nodes || []).empty? &&
                             (node.kw_splat_nodes || []).empty? &&
@@ -430,7 +430,7 @@ module Frozone
             # takes the universal-shape args and forwards. Same
             # construction as the universal path; just the called
             # function differs.
-            if na_arity && recv
+            if na_sig && recv
               recv_str = from_expr(recv, locals)
               tramp_call = "trampoline_#{Cpp.method_name(name)}(#{recv_str}, #{args_array}, #{kwargs_arg}, #{block_arg})"
               if node.safe_nav
@@ -438,7 +438,7 @@ module Frozone
               else
                 return tramp_call
               end
-            elsif na_arity && !recv
+            elsif na_sig && !recv
               return "trampoline_#{Cpp.method_name(name)}(this, #{args_array}, #{kwargs_arg}, #{block_arg})"
             end
 
@@ -823,8 +823,8 @@ module Frozone
             # it's also natural-arity. Pass positional args directly,
             # bypassing the universal Array allocation.
             method_name = ctx[:method_name]
-            na_arity = emit&.natural_arity_names&.dig(method_name)
-            if na_arity
+            na_sig = emit&.natural_arity_names&.dig(method_name)
+            if na_sig
               args_csv =
                 if node.forwarding
                   # Bare `super` — forward the enclosing method's

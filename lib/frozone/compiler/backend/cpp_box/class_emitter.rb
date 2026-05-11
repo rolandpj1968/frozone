@@ -415,11 +415,12 @@ module Frozone
             (basic_object_klass&.overrides || {}).each_key { |cpp| skip << cpp }
             call_surface.each do |cpp_name, ruby_name|
               next if skip.include?(cpp_name)
-              arity = @natural_arity_names[ruby_name.to_sym]
-              next unless arity
+              sig = @natural_arity_names[ruby_name.to_sym]
+              next unless sig
               ruby_lit = ruby_name.gsub('\\', '\\\\\\\\').gsub('"', '\\"')
-              params = (0...arity).map { |i| "BasicObject* a#{i}" }.join(', ')
-              pack = (0...arity).map { |i| "_args->data.push_back(a#{i});" }.join(' ')
+              n = sig.arity_req
+              params = (0...n).map { |i| "BasicObject* a#{i}" }.join(', ')
+              pack = (0...n).map { |i| "_args->data.push_back(a#{i});" }.join(' ')
               emit.line "BasicObject* BasicObject::#{cpp_name}(#{params}) { Array* _args = new Array(); #{pack} return mm_dispatch(this, _args, &EMPTY_KWARGS, nil_instance(), \"#{ruby_lit}\"); }"
             end
             emit.blank
@@ -439,8 +440,9 @@ module Frozone
             return if @natural_arity_names.empty?
             method_ids.each_key do |cpp_name|
               ruby = cpp_name_to_ruby(cpp_name)
-              arity = @natural_arity_names[ruby.to_sym]
-              next unless arity
+              sig = @natural_arity_names[ruby.to_sym]
+              next unless sig
+              n = sig.arity_req
               emit.line "static BasicObject* trampoline_#{cpp_name}(BasicObject* recv, Array* args, Hash* kwargs, BasicObject* /*block*/) {"
               emit.indented do
                 # Ruby2-style fold preserves trailing-Hash binding —
@@ -448,8 +450,8 @@ module Frozone
                 # never explicitly bound, but a caller might still
                 # pass a Hash positionally via :foo(x: 1)).
                 emit.line "if (!kwargs->data.empty()) { Array* _ext = new Array(); _ext->data = args->data; Hash* _h = new Hash(); _h->data = kwargs->data; _ext->data.push_back(static_cast<BasicObject*>(_h)); args = _ext; }"
-                emit.line "check_arity_fixed(args->data.size(), #{arity});"
-                args_call = (0...arity).map { |i| "args->data[#{i}]" }.join(', ')
+                emit.line "check_arity_fixed(args->data.size(), #{n});"
+                args_call = (0...n).map { |i| "args->data[#{i}]" }.join(', ')
                 emit.line "return recv->#{cpp_name}(#{args_call});"
               end
               emit.line "}"
@@ -805,14 +807,14 @@ module Frozone
             call_surface.each do |cpp_name, ruby_name|
               next if skip.include?(cpp_name)
               ruby_lit = ruby_name.gsub('\\', '\\\\\\\\').gsub('"', '\\"')
-              if (arity = @natural_arity_names[ruby_name.to_sym])
+              if (sig = @natural_arity_names[ruby_name.to_sym])
                 # Natural-arity default — DECLARATION only here;
                 # body emits out-of-line via
                 # write_natural_arity_default_bodies after Array's
                 # struct is complete (the body needs `new Array()` for
                 # the mm_dispatch fallthrough, which can't sit inline
                 # while Array is still forward-declared).
-                params = (0...arity).map { |i| "BasicObject* a#{i}" }.join(', ')
+                params = (0...sig.arity_req).map { |i| "BasicObject* a#{i}" }.join(', ')
                 emit.line %(virtual BasicObject* #{cpp_name}(#{params});)
               else
                 emit.line %(virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) { return mm_dispatch(this, args, kwargs, block, "#{ruby_lit}"); })
@@ -1015,8 +1017,8 @@ module Frozone
               return
             end
             override_kw = (klass.name == "BasicObject" || !@call_surface_set&.include?(name)) ? "" : " override"
-            if (arity = @natural_arity_names[cpp_name_to_ruby(name).to_sym])
-              params = (0...arity).map { |i| "BasicObject* a#{i}" }.join(', ')
+            if (sig = @natural_arity_names[cpp_name_to_ruby(name).to_sym])
+              params = (0...sig.arity_req).map { |i| "BasicObject* a#{i}" }.join(', ')
               emit.line "virtual BasicObject* #{name}(#{params})#{override_kw};"
             else
               emit.line "virtual BasicObject* #{name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance())#{override_kw};"
@@ -1044,7 +1046,7 @@ module Frozone
               emit.blank
               return
             end
-            if (arity = @natural_arity_names[cpp_name_to_ruby(name).to_sym])
+            if (sig = @natural_arity_names[cpp_name_to_ruby(name).to_sym])
               # Natural-arity override out-of-line def. Params come in
               # named (a0..aN-1); we still rebind them to whatever the
               # spec named them, since the spec body references those
@@ -1052,7 +1054,7 @@ module Frozone
               # protocol auto-overrides like m_class), the natural-
               # arity signature still gets the right shape via arity.
               param_names = (spec[:params] || []).map { |decl| decl.split(/\s+/).last.delete_prefix('*') }
-              if param_names.length != arity
+              if param_names.length != sig.arity_req
                 # Spec doesn't match natural-arity contract — fall back
                 # to universal sig so the def stays consistent with
                 # something. Shouldn't happen if eligibility is sound.

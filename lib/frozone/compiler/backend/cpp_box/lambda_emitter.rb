@@ -206,9 +206,9 @@ module Frozone
                 # If `sym` is a natural-arity-eligible name, the
                 # universal Array path doesn't exist on that slot —
                 # unpack positional args inline from __blkargs__.
-                arity = emit&.natural_arity_names&.dig(sym)
-                if arity
-                  args_csv = (0...arity).map { |i|
+                sig = emit&.natural_arity_names&.dig(sym)
+                if sig
+                  args_csv = (0...sig.arity_req).map { |i|
                     "(__blkargs__->data.size() > #{i + 1} ? __blkargs__->data[#{i + 1}] : nil_instance())"
                   }.join(', ')
                   body << "return __recv__->#{m}(#{args_csv});"

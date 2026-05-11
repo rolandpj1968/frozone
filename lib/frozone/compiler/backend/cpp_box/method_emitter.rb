@@ -20,9 +20,9 @@ module Frozone
           # which calls method_missing).
           def self.write_user_method(emit, name, method)
             cpp_name = Cpp.method_name(name)
-            arity = emit.natural_arity_names[name]
-            if arity
-              write_natural_arity_method(emit, name, method, cpp_name, arity)
+            sig = emit.natural_arity_names[name]
+            if sig
+              write_natural_arity_method(emit, name, method, cpp_name, sig.arity_req)
             else
               write_universal_method(emit, name, method, cpp_name)
             end
@@ -36,9 +36,9 @@ module Frozone
             # BasicObject — natural-arity for eligible names, universal
             # otherwise — so the override resolves and links.
             msg = "[frozone-box-first] unimplemented method :#{name} (def @ #{loc}): #{e.message}"
-            arity = emit.natural_arity_names[name]
-            if arity
-              params = (0...arity).map { |i| "BasicObject* l_a#{i}" }.join(', ')
+            sig = emit.natural_arity_names[name]
+            if sig
+              params = (0...sig.arity_req).map { |i| "BasicObject* l_a#{i}" }.join(', ')
               emit.line "virtual BasicObject* #{cpp_name}(#{params}) {"
             else
               emit.line "virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) {"
