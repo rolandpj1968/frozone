@@ -1426,6 +1426,56 @@ module Frozone
           # static-state capture to materialise large Integer-only
           # Arrays (lexer tables) without per-element source-level
           # boilerplate. One-time cost at __init_static_state__.
+          # Positional-arity raise helpers. The inline check_arity_*
+          # counterparts live in frozone_post.hpp; on mismatch they call
+          # one of these to build the MRI-format message and throw
+          # ArgumentError. Cold-path only — the check is the single
+          # integer compare emitted at method-body entry.
+          RAISE_ARITY_FIXED_FN = KernelFn.new(
+            name: "raise_arity_fixed",
+            signature: "[[noreturn]] void raise_arity_fixed(std::size_t given, std::size_t expected)",
+            body: <<~CPP.chomp,
+              char buf[96];
+              int n = std::snprintf(buf, sizeof(buf),
+                "wrong number of arguments (given %zu, expected %zu)", given, expected);
+              if (n < 0) n = 0;
+              if (n >= (int)sizeof(buf)) n = (int)sizeof(buf) - 1;
+              throw static_cast<Exception*>(
+                (&ArgumentError_CLASS)->m_new(new Array({static_cast<BasicObject*>(new String(buf, n))}))
+              );
+            CPP
+          )
+
+          RAISE_ARITY_RANGE_FN = KernelFn.new(
+            name: "raise_arity_range",
+            signature: "[[noreturn]] void raise_arity_range(std::size_t given, std::size_t lo, std::size_t hi)",
+            body: <<~CPP.chomp,
+              char buf[96];
+              int n = std::snprintf(buf, sizeof(buf),
+                "wrong number of arguments (given %zu, expected %zu..%zu)", given, lo, hi);
+              if (n < 0) n = 0;
+              if (n >= (int)sizeof(buf)) n = (int)sizeof(buf) - 1;
+              throw static_cast<Exception*>(
+                (&ArgumentError_CLASS)->m_new(new Array({static_cast<BasicObject*>(new String(buf, n))}))
+              );
+            CPP
+          )
+
+          RAISE_ARITY_MIN_FN = KernelFn.new(
+            name: "raise_arity_min",
+            signature: "[[noreturn]] void raise_arity_min(std::size_t given, std::size_t lo)",
+            body: <<~CPP.chomp,
+              char buf[96];
+              int n = std::snprintf(buf, sizeof(buf),
+                "wrong number of arguments (given %zu, expected %zu+)", given, lo);
+              if (n < 0) n = 0;
+              if (n >= (int)sizeof(buf)) n = (int)sizeof(buf) - 1;
+              throw static_cast<Exception*>(
+                (&ArgumentError_CLASS)->m_new(new Array({static_cast<BasicObject*>(new String(buf, n))}))
+              );
+            CPP
+          )
+
           BUILD_INT_ARRAY_FN = KernelFn.new(
             name: "build_int_array",
             signature: "Array* build_int_array(const std::int64_t* data, std::size_t n)",
@@ -1989,6 +2039,7 @@ module Frozone
             SPLAT_TO_ARRAY_FN,
             BUILD_INT_ARRAY_FN, INT_BOX_FN,
             COERCE_TO_INT_FN, RAISE_ARITY_FN,
+            RAISE_ARITY_FIXED_FN, RAISE_ARITY_RANGE_FN, RAISE_ARITY_MIN_FN,
             MM_DISPATCH_FN, CM_DISPATCH_FN,
             INIT_ONIGMO_FN, MATCH_DATA_GLOBAL, REGEXP_MATCH_FN, MATCH_DATA_CAP_FN,
             STRING_GSUB_FN, STRING_SCAN_FN, STRING_UNPACK_FN,

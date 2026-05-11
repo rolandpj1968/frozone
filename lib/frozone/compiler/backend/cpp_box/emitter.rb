@@ -2094,6 +2094,22 @@ module Frozone
             blank
             line "namespace Ruby {"
             blank
+            # Positional-arity check helpers. Hot path is a single
+            # integer compare with a predicted-not-taken branch; cold
+            # path is the (non-inline) raise_arity_* declared in
+            # frozone_base.hpp and defined in frozone_universe.cpp.
+            # Every emitted user method body calls one of these at
+            # entry (after the kwargs fold) — see MethodEmitter#emit_arity_check.
+            line "inline void check_arity_fixed(std::size_t given, std::size_t expected) {"
+            line "  if (given != expected) [[unlikely]] raise_arity_fixed(given, expected);"
+            line "}"
+            line "inline void check_arity_range(std::size_t given, std::size_t lo, std::size_t hi) {"
+            line "  if (given < lo || given > hi) [[unlikely]] raise_arity_range(given, lo, hi);"
+            line "}"
+            line "inline void check_arity_min(std::size_t given, std::size_t lo) {"
+            line "  if (given < lo) [[unlikely]] raise_arity_min(given, lo);"
+            line "}"
+            blank
           end
 
           def write_post_close

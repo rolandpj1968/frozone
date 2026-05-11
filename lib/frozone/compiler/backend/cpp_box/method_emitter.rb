@@ -132,6 +132,29 @@ module Frozone
             end
           end
 
+          # Emit the positional arity validation at method body entry,
+          # AFTER the kwargs-fold (so the effective arg count reflects
+          # the Ruby-2-style trailing-Hash binding). Three forms:
+          #   *rest  with required>=1   → check_arity_min
+          #   *rest  with required==0   → no check (anything goes)
+          #   defaults && no *rest      → check_arity_range
+          #   no defaults && no *rest   → check_arity_fixed
+          # Helpers are inline in frozone_post.hpp; raise functions are
+          # KernelFns in frozone_universe.cpp.
+          def self.emit_arity_check(emit, method)
+            req = (method.required_params || []).size + (method.post_params || []).size
+            opt = (method.optional_params || []).size
+            has_rest = !method.rest_param.nil?
+            if has_rest
+              return if req == 0
+              emit.line "check_arity_min(args->data.size(), #{req});"
+            elsif opt == 0
+              emit.line "check_arity_fixed(args->data.size(), #{req});"
+            else
+              emit.line "check_arity_range(args->data.size(), #{req}, #{req + opt});"
+            end
+          end
+
           def self.unpack_params(emit, method)
             locals = Set.new
             required = method.required_params || []
@@ -153,6 +176,7 @@ module Frozone
             unless has_kw
               emit.line "if (!kwargs->data.empty()) { Array* _ext = new Array(); _ext->data = args->data; Hash* _h = new Hash(); _h->data = kwargs->data; _ext->data.push_back(static_cast<BasicObject*>(_h)); args = _ext; }"
             end
+            emit_arity_check(emit, method)
             required.each_with_index do |p, i|
               emit.line decl_local_line(emit, p, "array_at(args, #{i})")
               locals << p.to_s
