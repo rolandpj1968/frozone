@@ -394,15 +394,14 @@ module Frozone
             has_block = node.block_node && !(name == :times && recv)
             block_arg = has_block ? from_block_as_proc(node.block_node, locals) : "nil_instance()"
 
-            # Natural-arity dispatch (Phase 2 Commit B, gated by
-            # FROZONE_NATURAL_ARGS=1 — eligibility set empty otherwise).
-            # If the target name is eligible AND the call shape is
-            # compatible (positional only, no block, no kwargs, no splat,
-            # arity matches), emit a direct natural-arity virtual call
-            # that skips Array allocation. Incompatible-shape calls go
-            # through the trampoline free function (takes universal-
-            # shape args, forwards to the natural-arity slot). See
-            # project_natural_args.md.
+            # Natural-arity dispatch. If the target name is eligible
+            # AND the call shape is compatible (positional only, no
+            # block, no kwargs, no splat, arity matches), emit a
+            # direct natural-arity virtual call that skips the args-
+            # Array allocation. Incompatible-shape calls (splat /
+            # kwargs) of eligible names go through the per-name
+            # trampoline free function which takes universal-shape
+            # args and forwards to the natural-arity slot.
             na_arity = emit&.natural_arity_names&.dig(name)
             na_compatible = na_arity &&
                             arg_nodes.length == na_arity &&
@@ -818,10 +817,11 @@ module Frozone
               else
                 Cpp.shadowed_method_name(ctx[:method_name], next_origin)
               end
-            # Natural-arity super (Phase 2 Commit B). The enclosing
-            # method's name is eligible iff its body is natural-arity.
-            # Super target is the same Ruby name on a different class,
-            # so it's also natural-arity. Pass positional args directly.
+            # Natural-arity super. The enclosing method's name is
+            # eligible iff its body is natural-arity; the super
+            # target is the same Ruby name on a different class so
+            # it's also natural-arity. Pass positional args directly,
+            # bypassing the universal Array allocation.
             method_name = ctx[:method_name]
             na_arity = emit&.natural_arity_names&.dig(method_name)
             if na_arity

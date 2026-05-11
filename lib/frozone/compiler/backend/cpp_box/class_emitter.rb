@@ -464,7 +464,6 @@ module Frozone
           # related dispatch paths check TRAMPOLINE_VT[id] first; if
           # non-null, the trampoline validates Array-packed args, unpacks
           # to positional, and calls recv->m_<name>(a1,...,aN) virtually.
-          # See project_natural_args.md for the dispatch model (Option F).
           def self.write_trampoline_vt(emit, method_ids)
             tramps = (emit.respond_to?(:natural_arity_names) ? emit.natural_arity_names : nil) || {}
             emit.line "// Parallel trampoline table — populated only for natural-arity-eligible names."

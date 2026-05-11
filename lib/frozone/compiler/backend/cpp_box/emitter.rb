@@ -167,8 +167,11 @@ module Frozone
               if ENV['FROZONE_NATURAL_ARGS'] == '1'
                 exclude = compute_hand_coded_disqualified_names | (@internal_block_users || Set.new)
                 @natural_arity_names = MethodShapeSurvey.eligibility_table(agg, exclude: exclude)
+                override_collisions = prune_override_arity_collisions
                 $stderr.puts "[box-first] natural-args: #{@natural_arity_names.size} eligible names " \
-                             "(excluded: #{compute_hand_coded_disqualified_names.size} hand-coded, #{(@internal_block_users || Set.new).size} use internal yield/block_given?)"
+                             "(excluded: #{compute_hand_coded_disqualified_names.size} hand-coded, " \
+                             "#{(@internal_block_users || Set.new).size} use internal yield/block_given?, " \
+                             "#{override_collisions} cpp-name arity collisions)"
               end
             end
             all_classes = overlay_universe_methods(Runtime::ALL_CLASSES) + build_user_class_defs
@@ -1869,14 +1872,19 @@ module Frozone
           # field means class_emitter doesn't double-emit unpack lines.
           # EmissionError → nil so caller can drop the entry; the slot
           # falls through to BasicObject's method_missing stub at runtime.
-          # Phase 2 Commit B variant of build_override: builds a spec
-          # for an eligible-name override, with natural-arity sig + body
-          # that uses named params directly (no array_at unpack). Same
-          # try/catch ReturnException wrapper as universal. The
-          # mismatched-shape case (eligibility says natural-arity but
-          # this def has opts/rest/etc.) raises EmissionError → falls
-          # through to the abort path so the override stays consistent
-          # with BasicObject's natural-arity default decl.
+          # build_override variant for natural-arity-eligible names.
+          # Spec has natural-arity sig (one BasicObject* per required
+          # param) and a body that uses the named params directly —
+          # no array_at unpack. Wraps the body in the same try/catch
+          # ReturnException as build_override so return-from-block
+          # semantics work identically.
+          #
+          # If the def's shape doesn't fit the eligibility contract
+          # (caller-side eligibility said natural-arity but this def
+          # has opts / rest / etc.) we raise EmissionError so caller
+          # falls through to its abort-stub path, keeping the slot
+          # signature consistent with BasicObject's natural-arity
+          # default decl.
           def build_natural_arity_override(method, arity)
             required = method.required_params || []
             if required.length != arity ||
@@ -1926,15 +1934,16 @@ module Frozone
           def build_override(method, super_ctx: nil, fall_through_on_error: false, storage_name: nil)
             with_method_scope(method) do
               with_super_context(super_ctx) do
-                # Natural-arity branch (Phase 2 Commit B). Eligibility
-                # is per-SLOT (storage Ruby name), not per-method.name.
-                # An aliased method (`alias modulo %`) is one Vm::Method
-                # under multiple storage names — method.name is the
-                # original (`:%`); the slot we're emitting may be
-                # `:modulo`. Look up eligibility for whichever storage
-                # name this emission targets. See
-                # project_alias_collapsing.md for the proper fix
-                # (collapse aliases at AOT load, drop redundant slots).
+                # Eligibility for natural-arity is per-SLOT (the
+                # storage Ruby name under which the slot lives on
+                # the class), not per-method.name. An aliased method
+                # (e.g. `alias modulo %`) is one Vm::Method under
+                # multiple storage names — method.name is the
+                # original (`:%`) while the slot we're emitting may
+                # be `:modulo`. Different storage names can have
+                # different eligibility decisions (e.g. one of them
+                # has a block-bearing caller, disqualifying that
+                # name only). Look up under the storage name.
                 lookup_name = storage_name || method.name
                 arity = @natural_arity_names && @natural_arity_names[lookup_name]
                 return build_natural_arity_override(method, arity) if arity
@@ -1992,8 +2001,17 @@ module Frozone
             loc = method&.source_location || "(unknown)"
             mname = method.respond_to?(:name) ? method.name : "?"
             msg = "[frozone-box-first] unimplemented method :#{mname} (def @ #{loc}): #{e.message}"
+            # If the slot is natural-arity-eligible, the abort-stub
+            # signature must match the natural-arity decl emitted by
+            # write_override_decl — otherwise decl/def disagree and
+            # the link step fails. Use the storage name for the
+            # eligibility lookup (same as the eligibility check at
+            # build_override entry).
+            lookup_name = storage_name || (method.respond_to?(:name) ? method.name : nil)
+            arity = lookup_name && @natural_arity_names && @natural_arity_names[lookup_name]
+            params = arity ? (0...arity).map { |i| "BasicObject* _arg#{i}" } : []
             {
-              params: [],
+              params: params,
               body: %|std::fprintf(stderr, "%s\\n", #{@cpp.cpp_string_literal(msg)});\nstd::abort();\n|,
             }
           end
@@ -2037,21 +2055,54 @@ module Frozone
           # name. Single-def names are candidates for direct dispatch
           # (no virtual table slot needed); multi-def names need
           # genuine virtual dispatch. Run with FROZONE_BOX_ANALYSIS=1.
-          # Phase 2 Path 1: names with hand-coded universal-signature
-          # definitions in runtime/universe.rb (==, nil?, is_a?, ===,
-          # object_id, freeze, send, __send__, method_missing, ...).
-          # Disqualified from natural-arity eligibility until Phase 2
-          # Path 2/3 lands per-method hand-coded migration. Returned
-          # as a Set[Symbol] of Ruby names. Filter point is exactly
-          # this method — Path 2 makes it return an empty Set and
-          # adjusts emission to add natural-arity additionally.
+          # Disqualify names whose runtime/universe.rb definition is
+          # a raw C++ declaration listed in hand_coded_method_names —
+          # m_send, m_method_missing, mm_kind_of_q etc. Those bodies
+          # live as full `BasicObject* X(Array*, Hash*, BasicObject*)`
+          # methods, so natural-arity emission on the same slot would
+          # mismatch decl vs def.
+          #
+          # Note: `overrides` is intentionally NOT disqualified. Override
+          # specs are shaped `params: ["BasicObject* x", ...]` with a
+          # body that uses the named params directly; write_override_def
+          # routes them through the natural-arity path when eligibility
+          # says so, so they coexist cleanly. This covers arithmetic
+          # ops (op_plus, op_minus, op_lt, …) and most Integer / Float /
+          # String operator overrides.
+          # The cpp_name → Ruby_name mapping is many-to-one for
+          # operators: `:**` and `:pow` both map to `op_pow`,
+          # `:<<` and (occasionally) other names to `op_lshift`, etc.
+          # When `Math.pow(x, y)` (arity 2) collides with `Integer#**`
+          # (arity 1) on the same `op_pow` slot, the override specs
+          # carry different param counts even though the survey only
+          # knows one arity for the Ruby name. Emitting natural-arity
+          # would produce a decl that disagrees with one of the
+          # override bodies. Prune those names from @natural_arity_names
+          # by walking overrides and looking for arity disagreements.
+          # Returns the count pruned (for the activation summary).
+          def prune_override_arity_collisions
+            pruned = 0
+            @natural_arity_names.delete_if do |ruby_name, arity|
+              cpp = Cpp.method_name(ruby_name)
+              # Module/Class singletons (Math.pow, Math.hypot, …) live
+              # in `eigenclass_overrides` on the RubyClass itself, not
+              # via a separate eigenclass object. Check both maps.
+              collide = Runtime::ALL_CLASSES.any? do |k|
+                instance = (k.overrides || {})[cpp]
+                singleton = (k.respond_to?(:eigenclass_overrides) ? k.eigenclass_overrides : nil) || {}
+                singleton_spec = singleton[cpp]
+                (instance && (instance[:params] || []).length != arity) ||
+                  (singleton_spec && (singleton_spec[:params] || []).length != arity)
+              end
+              pruned += 1 if collide
+              collide
+            end
+            pruned
+          end
+
           def compute_hand_coded_disqualified_names
             Set.new.tap do |set|
               Runtime::ALL_CLASSES.each do |k|
-                (k.overrides || {}).each_key do |cpp|
-                  next if cpp.start_with?("c_", "sm_")
-                  set << cpp_name_to_ruby(cpp).to_sym
-                end
                 (k.hand_coded_method_names || []).each do |cpp|
                   next if cpp.start_with?("c_", "sm_")
                   set << cpp_name_to_ruby(cpp).to_sym

@@ -86,26 +86,23 @@ module Frozone
             emit.line "}"
           end
 
-          # Natural-arity eligible method emission (Phase 2 Commit B,
-          # gated by FROZONE_NATURAL_ARGS=1 — eligibility set is empty
-          # otherwise so this path is never taken).
+          # Natural-arity method emission. Gated by
+          # FROZONE_NATURAL_ARGS=1 — when off, emit.natural_arity_names
+          # is empty and this path is unreachable.
           #
-          # Emits a SINGLE virtual slot with the natural-arity
-          # signature — `virtual m_<name>(BasicObject* l_a1, ...,
-          # BasicObject* l_aN)`. No universal-signature slot exists
-          # for eligible names: METHOD_VT[id] is nullptr, callers go
-          # through TRAMPOLINE_VT[id] (for send/mm_dispatch) or emit
-          # direct natural-arity virtual calls (for compatible direct
-          # callers — see cpp.rb#from_method_call).
+          # Emits a SINGLE virtual slot with positional signature
+          # `virtual m_<name>(BasicObject* l_a1, ..., BasicObject* l_aN)`.
+          # No universal-signature slot exists for eligible names:
+          # METHOD_VT[id] is nullptr, dynamic dispatch routes through
+          # TRAMPOLINE_VT[id] (send / mm_dispatch), and compatible
+          # direct call sites emit recv->m_<name>(a1, ...) bypassing
+          # the trampoline entirely (see cpp.rb#from_method_call).
           #
           # Body skips the universal-protocol unpack: params come in
           # as named C++ parameters (no array_at), no arity check
-          # (signature enforces), no kwargs-fold (no kw params by
-          # eligibility rule), no block binding (eligibility
-          # disqualifies block-bearing callers). `_block = nullptr`
-          # is stashed so any literal yield in the body compiles —
-          # at runtime, that path is unreachable since no caller
-          # passes a block.
+          # (signature enforces), no kwargs-fold (eligibility implies
+          # no kw params), no block alias (eligibility implies no
+          # caller passes a block and no body yields).
           def self.write_natural_arity_method(emit, _name, method, cpp_name, arity)
             required = method.required_params || []
             if required.length != arity ||
