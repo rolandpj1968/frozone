@@ -144,7 +144,13 @@ module Frozone
               shapes = @defs[name]
               return nil unless shapes.size == 1
               shape = shapes.keys.first
-              shape.simple? ? shape : nil
+              return nil unless shape.simple?
+              # Tightened v1 rule: any block-bearing call site (blk_pass
+              # or do_block) disqualifies the name. Block support is a
+              # v2 enhancement — for now eligible names are entirely
+              # block-free at the C++ signature level.
+              return nil if @calls[name].any? { |c, _| c.blk_pass || c.do_block }
+              shape
             end
 
             def compatible_calls(name)
