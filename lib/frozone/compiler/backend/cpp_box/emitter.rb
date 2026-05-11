@@ -2146,9 +2146,24 @@ module Frozone
               user_methods.each { |n, m| block.call(n, m) if m.is_a?(Vm::Method) }
             end
 
+            # Record def shape under method.name (the original Ruby
+            # name from the `def X` site), not the storage key. When a
+            # method is aliased — `alias + chain` registers the same
+            # Vm::Method object under both :chain and :+ — the def
+            # shape belongs to its original name. Recording under the
+            # storage key would let aliases pollute each other's
+            # eligibility: `Enumerable#chain(*enums)` would otherwise
+            # show up as a variadic `:+` def, disqualifying every
+            # other `:+` from natural-arity eligibility.
+            #
+            # Same alias-collapsing concern applies to codegen — the
+            # band-aid is `storage_name:` in build_override.
+            seen_defs = Set.new
             each_reachable_def.call do |name, method|
               next unless @call_surface.key?(Cpp.method_name(name))
-              agg.record_def(name, MethodShapeSurvey::DefShape.for_method(method))
+              key = [method.object_id, method.name]
+              next unless seen_defs.add?(key)
+              agg.record_def(method.name || name, MethodShapeSurvey::DefShape.for_method(method))
             end
 
             walk_calls = lambda do |node, enclosing_name|
