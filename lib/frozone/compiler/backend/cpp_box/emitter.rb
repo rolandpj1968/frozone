@@ -18,6 +18,7 @@ require_relative 'cpp'
 require_relative 'class_emitter'
 require_relative 'method_emitter'
 require_relative 'expr_emitter'
+require_relative 'method_shape_survey'
 require_relative '../../module_flattening'
 require_relative '../../reachability'
 
@@ -159,6 +160,7 @@ module Frozone
             @call_surface = collect_call_surface
             @const_surface = collect_dynamic_constant_surface
             print_method_def_analysis if ENV['FROZONE_BOX_ANALYSIS'] == '1'
+            print_method_shape_survey if ENV['FROZONE_METHOD_SHAPES'] == '1'
             all_classes = overlay_universe_methods(Runtime::ALL_CLASSES) + build_user_class_defs
             all_eigenclasses = all_classes.map { |k| Runtime.eigenclass_for(k) }.compact
             decorate_eigenclasses_with_const_overrides(all_classes, all_eigenclasses)
@@ -1953,6 +1955,53 @@ module Frozone
           # name. Single-def names are candidates for direct dispatch
           # (no virtual table slot needed); multi-def names need
           # genuine virtual dispatch. Run with FROZONE_BOX_ANALYSIS=1.
+          # Activated by FROZONE_METHOD_SHAPES=1. Walks the post-pruning
+          # surface: every reachable method def (filtered by
+          # @call_surface) and every reachable Ast::MethodCall inside
+          # those bodies (plus the top-level execute block). Builds
+          # per-name DefShape / CallShape histograms and prints the
+          # eligibility report. See method_shape_survey.rb.
+          def print_method_shape_survey
+            agg = MethodShapeSurvey::Aggregate.new
+
+            visit_methods_on = lambda do |cls, &block|
+              next unless cls.is_a?(Vm::ModuleObject)
+              (cls.methods_table || {}).each { |n, m| block.call(n, m) if m.is_a?(Vm::Method) }
+              if (eig = (cls.eigenclass rescue nil))
+                (eig.methods_table || {}).each { |n, m| block.call(n, m) if m.is_a?(Vm::Method) }
+              end
+            end
+
+            each_reachable_def = lambda do |&block|
+              @user_classes.each_value { |cls| visit_methods_on.call(cls, &block) }
+              top = @top_level_scope.constants_table || {}
+              Runtime::ALL_CLASSES.each { |uk| visit_methods_on.call(top[uk.name.to_sym], &block) }
+              user_methods.each { |n, m| block.call(n, m) if m.is_a?(Vm::Method) }
+            end
+
+            each_reachable_def.call do |name, method|
+              next unless @call_surface.key?(Cpp.method_name(name))
+              agg.record_def(name, MethodShapeSurvey::DefShape.for_method(method))
+            end
+
+            walk_calls = lambda do |node|
+              return unless node.is_a?(Ast::Node)
+              return if node.is_a?(Ast::MethodDef)
+              if node.is_a?(Ast::MethodCall)
+                agg.record_call(node.name, MethodShapeSurvey::CallShape.for_call(node))
+              end
+              node.children.each { |c| walk_calls.call(c) }
+            end
+
+            walk_calls.call(@execute_block) if @execute_block
+            each_reachable_def.call do |name, method|
+              next unless @call_surface.key?(Cpp.method_name(name))
+              method_walkable_roots(method).each { |r| walk_calls.call(r) }
+            end
+
+            MethodShapeSurvey.report(agg)
+          end
+
           def print_method_def_analysis
             defs_by_name = Hash.new { |h, k| h[k] = [] }
             user_classes_with_universe = Runtime::ALL_CLASSES.map(&:name) + @user_classes.keys.map(&:to_s)
