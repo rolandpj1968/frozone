@@ -162,6 +162,16 @@ module Frozone
 
           module_function
 
+          # Returns Hash[Symbol => Int] of eligible names → arity_req.
+          # Empty if no names pass eligibility. Consumed by codegen
+          # under FROZONE_NATURAL_ARGS=1.
+          def eligibility_table(agg)
+            agg.all_names.each_with_object({}) do |name, h|
+              shape = agg.eligible_def_shape(name)
+              h[name] = shape.arity_req if shape
+            end
+          end
+
           def report(agg, io: $stderr)
             names = agg.all_names
             eligible = names.select { |n| agg.eligible?(n) }

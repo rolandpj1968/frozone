@@ -27,7 +27,7 @@ module Frozone
     module Backend
       module CppBox
         class Emitter
-          attr_reader :cpp, :top_level_scope, :user_classes, :user_constants
+          attr_reader :cpp, :top_level_scope, :user_classes, :user_constants, :natural_arity_names
           # When true, emission errors inside method bodies re-raise
           # under FROZONE_BOX_HARD_FAIL=1 instead of graceful-skipping.
           # Toggled true while emitting user-class bodies + the
@@ -160,7 +160,15 @@ module Frozone
             @call_surface = collect_call_surface
             @const_surface = collect_dynamic_constant_surface
             print_method_def_analysis if ENV['FROZONE_BOX_ANALYSIS'] == '1'
-            print_method_shape_survey if ENV['FROZONE_METHOD_SHAPES'] == '1'
+            @natural_arity_names = {}
+            if ENV['FROZONE_METHOD_SHAPES'] == '1' || ENV['FROZONE_NATURAL_ARGS'] == '1'
+              agg = build_method_shape_survey
+              MethodShapeSurvey.report(agg) if ENV['FROZONE_METHOD_SHAPES'] == '1'
+              if ENV['FROZONE_NATURAL_ARGS'] == '1'
+                @natural_arity_names = MethodShapeSurvey.eligibility_table(agg)
+                $stderr.puts "[box-first] natural-args: #{@natural_arity_names.size} eligible names"
+              end
+            end
             all_classes = overlay_universe_methods(Runtime::ALL_CLASSES) + build_user_class_defs
             all_eigenclasses = all_classes.map { |k| Runtime.eigenclass_for(k) }.compact
             decorate_eigenclasses_with_const_overrides(all_classes, all_eigenclasses)
@@ -1955,13 +1963,13 @@ module Frozone
           # name. Single-def names are candidates for direct dispatch
           # (no virtual table slot needed); multi-def names need
           # genuine virtual dispatch. Run with FROZONE_BOX_ANALYSIS=1.
-          # Activated by FROZONE_METHOD_SHAPES=1. Walks the post-pruning
-          # surface: every reachable method def (filtered by
-          # @call_surface) and every reachable Ast::MethodCall inside
-          # those bodies (plus the top-level execute block). Builds
-          # per-name DefShape / CallShape histograms and prints the
-          # eligibility report. See method_shape_survey.rb.
-          def print_method_shape_survey
+          # Walks the post-pruning surface: every reachable method def
+          # (filtered by @call_surface) and every reachable Ast::MethodCall
+          # inside those bodies (plus the top-level execute block).
+          # Returns a populated MethodShapeSurvey::Aggregate. Activated by
+          # FROZONE_METHOD_SHAPES=1 (print report) or FROZONE_NATURAL_ARGS=1
+          # (consume eligibility for codegen). See method_shape_survey.rb.
+          def build_method_shape_survey
             agg = MethodShapeSurvey::Aggregate.new
 
             visit_methods_on = lambda do |cls, &block|
@@ -1999,7 +2007,7 @@ module Frozone
               method_walkable_roots(method).each { |r| walk_calls.call(r) }
             end
 
-            MethodShapeSurvey.report(agg)
+            agg
           end
 
           def print_method_def_analysis
