@@ -33,19 +33,15 @@ class IO
 ")
         elsif arg.is_a?(Array)
           __puts_array__(arg)
-        else
-          begin
-            ary = arg.to_ary
-            if ary.nil?
-              __puts_scalar__(arg)
-            elsif ary.is_a?(Array)
-              __puts_array__(ary)
-            else
-              __puts_scalar__(arg)
-            end
-          rescue NoMethodError
+        elsif arg.respond_to?(:to_ary)
+          ary = arg.to_ary
+          if ary.is_a?(Array)
+            __puts_array__(ary)
+          else
             __puts_scalar__(arg)
           end
+        else
+          __puts_scalar__(arg)
         end
       end
     end
@@ -62,19 +58,15 @@ class IO
     arr.each do |elem|
       if elem.is_a?(Array)
         __puts_array__(elem, seen)
-      else
-        begin
-          ary = elem.to_ary
-          if ary.nil?
-            __puts_scalar__(elem)
-          elsif ary.is_a?(Array)
-            __puts_array__(ary, seen)
-          else
-            __puts_scalar__(elem)
-          end
-        rescue NoMethodError
+      elsif elem.respond_to?(:to_ary)
+        ary = elem.to_ary
+        if ary.is_a?(Array)
+          __puts_array__(ary, seen)
+        else
           __puts_scalar__(elem)
         end
+      else
+        __puts_scalar__(elem)
       end
     end
   end
