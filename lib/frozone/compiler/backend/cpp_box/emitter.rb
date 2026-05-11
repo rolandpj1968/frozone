@@ -153,6 +153,7 @@ module Frozone
             @stub_file = stub_file
             @user_constants = collect_user_constants
             @user_classes = collect_all_classes
+            restore_fusion_parents_for_self_host!
             @cpp = Cpp.new(user_classes: @user_classes, user_constants: @user_constants)
             @cpp.emit = self
             @call_surface = collect_call_surface
@@ -590,6 +591,26 @@ module Frozone
             return false unless val.respond_to?(:class_object) && val.class_object
             full = (val.class_object.full_name || val.class_object.name).to_s
             FUSED_VM_CLASS_FULL_NAMES.include?(full)
+          end
+
+          # When frozone-AOT is the root (Frozone_Vm_ObjectObject is in
+          # user_classes), restore the C-form fusion parent for NilClass /
+          # TrueClass / FalseClass / Module so the compiled interpreter's
+          # `recv.dispatch(...)` works on nil / true / false / module
+          # receivers. Without this they inherit from Object only, and
+          # Frozone::Vm::ObjectObject's m_dispatch / m_set_ivar / etc.
+          # become unreachable via vtable on those fused singletons.
+          # Sub-stubs (no frozone interpreter loaded) don't need this —
+          # they never call Vm::ObjectObject methods on nil / true / false.
+          def restore_fusion_parents_for_self_host!
+            return unless @user_classes.key?(:Frozone_Vm_ObjectObject)
+            { "NilClass" => "Frozone_Vm_ObjectObject",
+              "TrueClass" => "Frozone_Vm_ObjectObject",
+              "FalseClass" => "Frozone_Vm_ObjectObject",
+              "Module" => "Frozone_Vm_ObjectObject" }.each do |name, parent|
+              ru = Runtime::ALL_CLASSES.find { |c| c.name == name }
+              ru.parent = parent if ru
+            end
           end
 
           def collect_user_constants
