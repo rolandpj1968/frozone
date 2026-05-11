@@ -54,7 +54,9 @@ module Frozone
             end
             if kind == :yield
               # Block presence is the runtime predicate.
-              return %|(_block != nil_instance() ? static_cast<BasicObject*>(new String("yield", 5)) : nil_instance())|
+              # String publicly derives from BasicObject — implicit upcast in
+              # the ternary widens to BasicObject* without a static_cast.
+              return %|(_block != nil_instance() ? new String("yield", 5) : nil_instance())|
             end
             if kind == :method
               # `defined?(receiver.method_name)` → "method" if respond_to?,
