@@ -2146,24 +2146,28 @@ module Frozone
               user_methods.each { |n, m| block.call(n, m) if m.is_a?(Vm::Method) }
             end
 
-            # Record def shape under method.name (the original Ruby
-            # name from the `def X` site), not the storage key. When a
-            # method is aliased — `alias + chain` registers the same
-            # Vm::Method object under both :chain and :+ — the def
-            # shape belongs to its original name. Recording under the
-            # storage key would let aliases pollute each other's
-            # eligibility: `Enumerable#chain(*enums)` would otherwise
-            # show up as a variadic `:+` def, disqualifying every
-            # other `:+` from natural-arity eligibility.
+            # Record def shape under the STORAGE Ruby name (the
+            # table key on the class), NOT method.name. Aliases
+            # share a Vm::Method body: `alias + chain` registers the
+            # same chain method under both `:chain` (its method.name)
+            # and `:+`. The C++ VT slot for `:+` on Enumerable has to
+            # have a signature that matches chain's shape (variadic),
+            # so chain's shape MUST count toward `:+`'s eligibility —
+            # otherwise we'd later try to emit Enumerable::op_plus
+            # with natural-arity and abort-stub it on the mismatch,
+            # silently breaking `enum + other`.
             #
-            # Same alias-collapsing concern applies to codegen — the
-            # band-aid is `storage_name:` in build_override.
-            seen_defs = Set.new
+            # Trade-off: a single aliased name with a non-simple
+            # shape disqualifies the original name from eligibility
+            # (Enumerable's chain-as-+ keeps `:+` from being eligible
+            # even though Integer/Float/Array/String all have simple
+            # `def +(other)`). Closed-world alias collapsing
+            # (project_alias_collapsing.md) is the principled fix —
+            # rewrite call sites of aliased names to the canonical,
+            # drop the redundant VT slot.
             each_reachable_def.call do |name, method|
               next unless @call_surface.key?(Cpp.method_name(name))
-              key = [method.object_id, method.name]
-              next unless seen_defs.add?(key)
-              agg.record_def(method.name || name, MethodShapeSurvey::DefShape.for_method(method))
+              agg.record_def(name, MethodShapeSurvey::DefShape.for_method(method))
             end
 
             walk_calls = lambda do |node, enclosing_name|
