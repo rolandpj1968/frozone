@@ -1,7 +1,7 @@
 class Array
   include Enumerable
 
-  ARRAY_MAX_INDEX = (1 << 63)
+  ARRAY_MAX_INDEX = (1 << 62) # box-first: 1<<63 overflows Int64 to MIN_INT64; 1<<62 is still effectively unbounded for indexing
 
   class << self
     def [](*args) = allocate.tap { |a| args.each { |x| a << x } }
