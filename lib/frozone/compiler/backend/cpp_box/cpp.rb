@@ -380,7 +380,7 @@ module Frozone
             # universal vtable would receive the block passed to the
             # block_given? call itself, not the enclosing method's,
             # which is wrong. Special-case to a direct check.
-            return "boxed_bool(_block != nullptr)" if !recv && name == :block_given?
+            return "boxed_bool(_block != nil_instance())" if !recv && name == :block_given?
 
             # `.new` has no special case: `Foo.new(args)` dispatches via
             # the universal protocol on the eigenclass singleton — i.e.
@@ -909,6 +909,12 @@ module Frozone
             when Vm::HashObject
               pairs = val.raw.map { |k, v| "{#{emit_vm_value(k)}, #{emit_vm_value(v)}}" }
               "(new Hash({#{pairs.join(", ")}}))"
+            when Vm::RegexpObject
+              # Same shape as from_regexp_literal but seeded from the captured
+              # value's source + options (raw.source / raw.options).
+              src = val.raw.source
+              flags = val.raw.options
+              "([&]() -> BasicObject* { Regexp* _re = new Regexp(); Array* _a = new Array({static_cast<BasicObject*>((new String(#{cpp_string_literal(src)}, #{src.bytesize}))), static_cast<BasicObject*>(new Integer(#{flags}))}); _re->m_initialize(_a); return _re; }())"
             when Vm::ClassObject, Vm::ModuleObject
               flat = class_object_to_flat(val)
               raise EmissionError, "emit_vm_value: #{val.class.name.split('::').last} #{val.full_name} not in emitted set" unless flat

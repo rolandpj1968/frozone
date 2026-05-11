@@ -54,7 +54,7 @@ module Frozone
             end
             if kind == :yield
               # Block presence is the runtime predicate.
-              return %|(_block != nullptr ? static_cast<BasicObject*>(new String("yield", 5)) : nil_instance())|
+              return %|(_block != nil_instance() ? static_cast<BasicObject*>(new String("yield", 5)) : nil_instance())|
             end
             if kind == :method
               # `defined?(receiver.method_name)` → "method" if respond_to?,
