@@ -20,14 +20,40 @@ module Frozone
           # which calls method_missing).
           def self.write_user_method(emit, name, method)
             cpp_name = Cpp.method_name(name)
-            # Pre-walk for captured locals so unpack_params + the body
-            # emission both know which locals need heap-cell storage.
-            # Include collect_local_writes — unpack_params hoists ALL
-            # body-decl LocalVariableWrites to method scope (block
-            # locals included), so they share method's `captured?`
-            # check; without this, a block-local declared at method
-            # level via the hoist gets a bare decl while inner blocks
-            # access it via *deref (mismatch).
+            arity = emit.natural_arity_names[name]
+            if arity
+              write_natural_arity_method(emit, name, method, cpp_name, arity)
+            else
+              write_universal_method(emit, name, method, cpp_name)
+            end
+          rescue Cpp::EmissionError => e
+            raise if ENV['FROZONE_BOX_HARD_FAIL'] == '1' && emit.strict_emit
+            loc = method&.source_location || "(unknown)"
+            $stderr.puts "[box-first] skip user_method :#{name} @ #{loc}: #{e.message}" if ENV['FROZONE_BOX_DEBUG'] == '1'
+            # Abort-stub body so the runtime fails loudly with a
+            # "compiler limitation" message if the method is actually
+            # called. Signature matches the corresponding entry on
+            # BasicObject — natural-arity for eligible names, universal
+            # otherwise — so the override resolves and links.
+            msg = "[frozone-box-first] unimplemented method :#{name} (def @ #{loc}): #{e.message}"
+            arity = emit.natural_arity_names[name]
+            if arity
+              params = (0...arity).map { |i| "BasicObject* l_a#{i}" }.join(', ')
+              emit.line "virtual BasicObject* #{cpp_name}(#{params}) {"
+            else
+              emit.line "virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) {"
+            end
+            emit.indented do
+              emit.line %|std::fprintf(stderr, "%s\\n", #{emit.cpp.cpp_string_literal(msg)});|
+              emit.line "std::abort();"
+            end
+            emit.line "}"
+          end
+
+          # Today's universal-signature emission. Body unpacks args via
+          # array_at, runs under try/catch ReturnException for
+          # return-from-block semantics.
+          def self.write_universal_method(emit, _name, method, cpp_name)
             captured = method.body ? collect_method_captured(method) : Set.new
             body_buf = emit.cpp.with_captured_locals(captured) do
             emit.capture do
@@ -58,24 +84,73 @@ module Frozone
             emit.line "virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) {"
             emit.indented { body_buf.each_line { |l| emit.line l.chomp } }
             emit.line "}"
-          rescue Cpp::EmissionError => e
-            raise if ENV['FROZONE_BOX_HARD_FAIL'] == '1' && emit.strict_emit
-            loc = method&.source_location || "(unknown)"
-            $stderr.puts "[box-first] skip user_method :#{name} @ #{loc}: #{e.message}" if ENV['FROZONE_BOX_DEBUG'] == '1'
-            # Emit an abort-stub body so the runtime fails loudly with
-            # a "compiler limitation" message if the method is actually
-            # called. The previous silent-skip routed calls through
-            # mm_dispatch → method_missing → NoMethodError, which user
-            # code could rescue (silently swallowing a compiler gap),
-            # and which is indistinguishable from a real Ruby
-            # NoMethodError. Aborting can't be caught and points
-            # straight at the missing-feature site.
-            msg = "[frozone-box-first] unimplemented method :#{name} (def @ #{loc}): #{e.message}"
-            emit.line "virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) {"
-            emit.indented do
-              emit.line %|std::fprintf(stderr, "%s\\n", #{emit.cpp.cpp_string_literal(msg)});|
-              emit.line "std::abort();"
+          end
+
+          # Natural-arity eligible method emission (Phase 2 Commit B,
+          # gated by FROZONE_NATURAL_ARGS=1 — eligibility set is empty
+          # otherwise so this path is never taken).
+          #
+          # Emits a SINGLE virtual slot with the natural-arity
+          # signature — `virtual m_<name>(BasicObject* l_a1, ...,
+          # BasicObject* l_aN)`. No universal-signature slot exists
+          # for eligible names: METHOD_VT[id] is nullptr, callers go
+          # through TRAMPOLINE_VT[id] (for send/mm_dispatch) or emit
+          # direct natural-arity virtual calls (for compatible direct
+          # callers — see cpp.rb#from_method_call).
+          #
+          # Body skips the universal-protocol unpack: params come in
+          # as named C++ parameters (no array_at), no arity check
+          # (signature enforces), no kwargs-fold (no kw params by
+          # eligibility rule), no block binding (eligibility
+          # disqualifies block-bearing callers). `_block = nullptr`
+          # is stashed so any literal yield in the body compiles —
+          # at runtime, that path is unreachable since no caller
+          # passes a block.
+          def self.write_natural_arity_method(emit, _name, method, cpp_name, arity)
+            required = method.required_params || []
+            if required.length != arity ||
+               !(method.optional_params || []).empty? ||
+               !(method.post_params || []).empty? ||
+               method.rest_param ||
+               method.kw_rest_param ||
+               !(method.required_kw_params || []).empty? ||
+               !(method.optional_kw_params || []).empty? ||
+               method.block_param
+              raise Cpp::EmissionError, "natural-arity eligibility/shape mismatch for #{cpp_name}/#{arity}"
             end
+
+            param_decls = required.each_with_index.map { |_, i| "BasicObject* _arg#{i}" }
+            captured = method.body ? collect_method_captured(method) : Set.new
+            body_buf = emit.cpp.with_captured_locals(captured) do
+            emit.capture do
+              locals = Set.new
+              required.each_with_index do |p, i|
+                emit.line decl_local_line(emit, p, "_arg#{i}")
+                locals << p.to_s
+              end
+              # Eligibility disqualifies methods that use yield /
+              # block_given? in their body, so `_block` is never
+              # referenced — don't emit it. Universal-sig emits
+              # `Proc* _block = static_cast<Proc*>(block);` to support
+              # those constructs; natural-arity doesn't need to.
+              seen_writes = collect_local_writes(method.body)
+              ((method.locals || []) + seen_writes.to_a).uniq.each do |loc|
+                s = loc.to_s
+                next if s.empty? || locals.include?(s)
+                emit.line decl_local_line(emit, s, "nil_instance()")
+                locals << s
+              end
+              emit.line "std::uint64_t __frame_id__ = next_frame_id();"
+              emit.line "try {"
+              emit.indented do
+                ExprEmitter.write_body(emit, method.body, locals: locals, last_is_return: true) if method.body
+                emit.line "return nil_instance();"
+              end
+              emit.line "} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }"
+            end
+            end
+            emit.line "virtual BasicObject* #{cpp_name}(#{param_decls.join(', ')}) {"
+            emit.indented { body_buf.each_line { |l| emit.line l.chomp } }
             emit.line "}"
           end
 

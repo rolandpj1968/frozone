@@ -165,8 +165,10 @@ module Frozone
               agg = build_method_shape_survey
               MethodShapeSurvey.report(agg) if ENV['FROZONE_METHOD_SHAPES'] == '1'
               if ENV['FROZONE_NATURAL_ARGS'] == '1'
-                @natural_arity_names = MethodShapeSurvey.eligibility_table(agg)
-                $stderr.puts "[box-first] natural-args: #{@natural_arity_names.size} eligible names"
+                exclude = compute_hand_coded_disqualified_names | (@internal_block_users || Set.new)
+                @natural_arity_names = MethodShapeSurvey.eligibility_table(agg, exclude: exclude)
+                $stderr.puts "[box-first] natural-args: #{@natural_arity_names.size} eligible names " \
+                             "(excluded: #{compute_hand_coded_disqualified_names.size} hand-coded, #{(@internal_block_users || Set.new).size} use internal yield/block_given?)"
               end
             end
             all_classes = overlay_universe_methods(Runtime::ALL_CLASSES) + build_user_class_defs
@@ -408,7 +410,7 @@ module Frozone
               # Method-level reachability — drop unused overrides.
               next if ENV['FROZONE_BOX_NO_PRUNE'] == '1' && WIDENING_BLACKLIST.include?(mname)
               next unless ENV['FROZONE_BOX_NO_PRUNE'] == '1' || @call_surface&.key?(cpp_name)
-              spec = build_override(m)
+              spec = build_override(m, storage_name: mname)
               merged[cpp_name] = spec if spec
             end
             merged
@@ -471,13 +473,16 @@ module Frozone
                 break if idx.positive? && !prev_needs_super
                 cpp_name = idx.zero? ? cpp_head : Cpp.shadowed_method_name(mname, origin)
                 next if merged.key?(cpp_name)
-                ctx = { host_name: host_name, method_name: mname, origin_index: idx, chain: entries }
+                ctx = {
+                  host_name: host_name, method_name: mname, origin_index: idx, chain: entries,
+                  method_params: (method.required_params || []).map { |p| MethodEmitter.local_cpp_name(p) },
+                }
                 # Head override on top of hand-coded ancestor: if the
                 # user's body fails to emit (unsupported intrinsic etc.),
                 # drop the override so C++ inheritance reuses the
                 # hand-coded parent rather than abort-stubbing the slot.
                 fall_through = has_hand_coded_ancestor && idx.zero?
-                spec = build_override(method, super_ctx: ctx, fall_through_on_error: fall_through)
+                spec = build_override(method, super_ctx: ctx, fall_through_on_error: fall_through, storage_name: mname)
                 merged[cpp_name] = spec if spec
                 prev_needs_super = method_calls_super?(method)
               end
@@ -1550,7 +1555,7 @@ module Frozone
                 cpp_name = Cpp.method_name(mname)
                 next if ENV['FROZONE_BOX_NO_PRUNE'] == '1' && WIDENING_BLACKLIST.include?(mname)
                 next unless ENV['FROZONE_BOX_NO_PRUNE'] == '1' || @call_surface.key?(cpp_name)
-                spec = build_override(m)
+                spec = build_override(m, storage_name: mname)
                 h[cpp_name] = spec if spec
               },
               eigenclass_ivars: eigen_ivars,
@@ -1607,10 +1612,13 @@ module Frozone
                   next
                 end
                 cpp_name = idx.zero? ? Cpp.method_name(mname) : Cpp.shadowed_method_name(mname, origin)
-                ctx = { host_name: host_name, method_name: mname, origin_index: idx, chain: entries }
+                ctx = {
+                  host_name: host_name, method_name: mname, origin_index: idx, chain: entries,
+                  method_params: (method.required_params || []).map { |p| MethodEmitter.local_cpp_name(p) },
+                }
                 spec =
                   begin
-                    build_override(method, super_ctx: ctx)
+                    build_override(method, super_ctx: ctx, storage_name: mname)
                   rescue Cpp::EmissionError => e
                     raise Cpp::EmissionError, "while compiling #{host_name}##{mname} (origin=#{origin}): #{e.message}"
                   end
@@ -1861,9 +1869,75 @@ module Frozone
           # field means class_emitter doesn't double-emit unpack lines.
           # EmissionError → nil so caller can drop the entry; the slot
           # falls through to BasicObject's method_missing stub at runtime.
-          def build_override(method, super_ctx: nil, fall_through_on_error: false)
+          # Phase 2 Commit B variant of build_override: builds a spec
+          # for an eligible-name override, with natural-arity sig + body
+          # that uses named params directly (no array_at unpack). Same
+          # try/catch ReturnException wrapper as universal. The
+          # mismatched-shape case (eligibility says natural-arity but
+          # this def has opts/rest/etc.) raises EmissionError → falls
+          # through to the abort path so the override stays consistent
+          # with BasicObject's natural-arity default decl.
+          def build_natural_arity_override(method, arity)
+            required = method.required_params || []
+            if required.length != arity ||
+               !(method.optional_params || []).empty? ||
+               !(method.post_params || []).empty? ||
+               method.rest_param ||
+               method.kw_rest_param ||
+               !(method.required_kw_params || []).empty? ||
+               !(method.optional_kw_params || []).empty? ||
+               method.block_param
+              raise Cpp::EmissionError, "natural-arity eligibility/shape mismatch for :#{method.name} (arity=#{arity})"
+            end
+            captured = method.body ? MethodEmitter.collect_method_captured(method) : Set.new
+            body = @cpp.with_captured_locals(captured) do
+              capture do
+                locals = Set.new
+                # Re-declare each natural-arity param as a body local via
+                # decl_local_line — heap-cell form when captured, stack
+                # local otherwise. Mirrors what unpack_params does for
+                # universal-sig methods. Param IN the signature uses an
+                # anonymous name (_arg<i>) so the local binding can
+                # shadow it with the right cpp_name + captured-aware
+                # storage class.
+                required.each_with_index do |p, i|
+                  line MethodEmitter.decl_local_line(self, p, "_arg#{i}")
+                  locals << p.to_s
+                end
+                # Eligibility excludes internal-yield / block_given?
+                # so `_block` is never referenced. Don't emit it.
+                seen_writes = MethodEmitter.collect_local_writes(method.body)
+                ((method.locals || []) + seen_writes.to_a).uniq.each do |loc|
+                  s = loc.to_s
+                  next if s.empty? || locals.include?(s)
+                  line MethodEmitter.decl_local_line(self, s, "nil_instance()")
+                  locals << s
+                end
+                ExprEmitter.write_body(self, method.body, locals: locals, last_is_return: true) if method.body
+              end
+            end
+            indented_body = body.each_line.map { |l| "  #{l}" }.join
+            {
+              params: required.each_with_index.map { |_, i| "BasicObject* _arg#{i}" },
+              body: "std::uint64_t __frame_id__ = next_frame_id();\ntry {\n#{indented_body}  return nil_instance();\n} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }\n",
+            }
+          end
+
+          def build_override(method, super_ctx: nil, fall_through_on_error: false, storage_name: nil)
             with_method_scope(method) do
               with_super_context(super_ctx) do
+                # Natural-arity branch (Phase 2 Commit B). Eligibility
+                # is per-SLOT (storage Ruby name), not per-method.name.
+                # An aliased method (`alias modulo %`) is one Vm::Method
+                # under multiple storage names — method.name is the
+                # original (`:%`); the slot we're emitting may be
+                # `:modulo`. Look up eligibility for whichever storage
+                # name this emission targets. See
+                # project_alias_collapsing.md for the proper fix
+                # (collapse aliases at AOT load, drop redundant slots).
+                lookup_name = storage_name || method.name
+                arity = @natural_arity_names && @natural_arity_names[lookup_name]
+                return build_natural_arity_override(method, arity) if arity
                 # Pre-walk for captured locals (inner-block-referenced
                 # locals get heap-cell storage; see CppBox::Cpp.captured_locals).
                 # Includes block-locals hoisted by collect_local_writes
@@ -1963,14 +2037,48 @@ module Frozone
           # name. Single-def names are candidates for direct dispatch
           # (no virtual table slot needed); multi-def names need
           # genuine virtual dispatch. Run with FROZONE_BOX_ANALYSIS=1.
+          # Phase 2 Path 1: names with hand-coded universal-signature
+          # definitions in runtime/universe.rb (==, nil?, is_a?, ===,
+          # object_id, freeze, send, __send__, method_missing, ...).
+          # Disqualified from natural-arity eligibility until Phase 2
+          # Path 2/3 lands per-method hand-coded migration. Returned
+          # as a Set[Symbol] of Ruby names. Filter point is exactly
+          # this method — Path 2 makes it return an empty Set and
+          # adjusts emission to add natural-arity additionally.
+          def compute_hand_coded_disqualified_names
+            Set.new.tap do |set|
+              Runtime::ALL_CLASSES.each do |k|
+                (k.overrides || {}).each_key do |cpp|
+                  next if cpp.start_with?("c_", "sm_")
+                  set << cpp_name_to_ruby(cpp).to_sym
+                end
+                (k.hand_coded_method_names || []).each do |cpp|
+                  next if cpp.start_with?("c_", "sm_")
+                  set << cpp_name_to_ruby(cpp).to_sym
+                end
+              end
+            end
+          end
+
           # Walks the post-pruning surface: every reachable method def
           # (filtered by @call_surface) and every reachable Ast::MethodCall
           # inside those bodies (plus the top-level execute block).
           # Returns a populated MethodShapeSurvey::Aggregate. Activated by
           # FROZONE_METHOD_SHAPES=1 (print report) or FROZONE_NATURAL_ARGS=1
           # (consume eligibility for codegen). See method_shape_survey.rb.
+          # Names whose body contains an internal block-flow construct
+          # (yield or block_given?) in at least one of their reachable
+          # defs, without declaring a &blk param. Such methods rely on
+          # the implicit caller block: natural-arity codegen has
+          # nowhere to receive a block, so emitting them as natural-
+          # arity would either silently drop the block or NPE on the
+          # yield path. Disqualified from eligibility regardless of
+          # def-shape. Populated during build_method_shape_survey.
+          attr_reader :internal_block_users
+
           def build_method_shape_survey
             agg = MethodShapeSurvey::Aggregate.new
+            @internal_block_users = Set.new
 
             visit_methods_on = lambda do |cls, &block|
               next unless cls.is_a?(Vm::ModuleObject)
@@ -1992,19 +2100,26 @@ module Frozone
               agg.record_def(name, MethodShapeSurvey::DefShape.for_method(method))
             end
 
-            walk_calls = lambda do |node|
+            walk_calls = lambda do |node, enclosing_name|
               return unless node.is_a?(Ast::Node)
               return if node.is_a?(Ast::MethodDef)
               if node.is_a?(Ast::MethodCall)
                 agg.record_call(node.name, MethodShapeSurvey::CallShape.for_call(node))
+                # block_given? in a body == implicit reliance on caller
+                # block. Same blocker as yield for natural-arity emission.
+                @internal_block_users << enclosing_name if enclosing_name && node.name == :block_given?
+              elsif node.is_a?(Ast::Yield)
+                # Body yields to the caller-supplied block. Cannot
+                # natural-arity emit (no block slot).
+                @internal_block_users << enclosing_name if enclosing_name
               end
-              node.children.each { |c| walk_calls.call(c) }
+              node.children.each { |c| walk_calls.call(c, enclosing_name) }
             end
 
-            walk_calls.call(@execute_block) if @execute_block
+            walk_calls.call(@execute_block, nil) if @execute_block
             each_reachable_def.call do |name, method|
               next unless @call_surface.key?(Cpp.method_name(name))
-              method_walkable_roots(method).each { |r| walk_calls.call(r) }
+              method_walkable_roots(method).each { |r| walk_calls.call(r, name) }
             end
 
             agg

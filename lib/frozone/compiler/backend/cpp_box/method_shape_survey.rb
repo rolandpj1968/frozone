@@ -165,8 +165,17 @@ module Frozone
           # Returns Hash[Symbol => Int] of eligible names → arity_req.
           # Empty if no names pass eligibility. Consumed by codegen
           # under FROZONE_NATURAL_ARGS=1.
-          def eligibility_table(agg)
+          #
+          # `exclude` (default empty) is a Set[Symbol] of names to
+          # treat as non-eligible regardless of def-shape. Phase 2
+          # Path 1 uses this to disqualify names with hand-coded
+          # universal-signature definitions in runtime/universe.rb
+          # (==, nil?, is_a?, etc.) — natural-arity emission for
+          # those needs the hand-coded methods rewritten too.
+          # Phase 2 Path 2/3 relaxes this filter incrementally.
+          def eligibility_table(agg, exclude: Set.new)
             agg.all_names.each_with_object({}) do |name, h|
+              next if exclude.include?(name)
               shape = agg.eligible_def_shape(name)
               h[name] = shape.arity_req if shape
             end

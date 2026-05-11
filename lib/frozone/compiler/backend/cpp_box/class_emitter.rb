@@ -42,6 +42,11 @@ module Frozone
             # no user code calls log2) have no parent stub and must drop
             # `override`.
             @call_surface_set = call_surface.keys.to_set
+            # Natural-arity eligibility — populated when
+            # FROZONE_NATURAL_ARGS=1; empty Hash otherwise so all
+            # ineligible-path branches (universal-sig emission) stay
+            # unchanged. Hash[Symbol, Int] of ruby_name → arity_req.
+            @natural_arity_names = (emit.respond_to?(:natural_arity_names) ? emit.natural_arity_names : nil) || {}
             # Constant surface — names referenced via dynamic-receiver
             # paths (`self.class::X`). Each gets a `c_X` virtual on
             # BasicObject + overrides on every eigenclass that has X.
@@ -181,6 +186,8 @@ module Frozone
                 end
               end
               write_method_vt(emit, method_ids)
+              write_natural_arity_default_bodies(emit, call_surface, classes.find { |k| k.name == "BasicObject" })
+              write_trampoline_defs(emit, method_ids)
               write_trampoline_vt(emit, method_ids)
               write_send_body(emit, method_ids)
               write_is_a_lut(emit, class_ids, is_a_lut)
@@ -368,16 +375,85 @@ module Frozone
           def self.write_method_vt(emit, method_ids)
             emit.line "// Member-function-pointer vtable indexed by method_id."
             emit.line "// `(this->*METHOD_VT[id])(args, kw, blk)` does virtual dispatch."
+            emit.line "// Entries are nullptr for natural-arity-eligible names — the"
+            emit.line "// universal-sig method doesn't exist on those classes, so the"
+            emit.line "// member pointer can't be taken. Dispatch routes via TRAMPOLINE_VT"
+            emit.line "// for those names (m_send / m___send__ check that first)."
             emit.line "using __MethodFn__ = BasicObject* (BasicObject::*)(Array*, Hash*, BasicObject*);"
             emit.line "static const __MethodFn__ METHOD_VT[] = {"
             emit.indented do
               method_ids.each do |cpp, id|
                 ruby = cpp_name_to_ruby(cpp)
-                emit.line "&BasicObject::#{cpp},  // id #{id}: #{ruby}"
+                if @natural_arity_names[ruby.to_sym]
+                  emit.line "static_cast<__MethodFn__>(nullptr),  // id #{id}: #{ruby} (natural-arity)"
+                else
+                  emit.line "&BasicObject::#{cpp},  // id #{id}: #{ruby}"
+                end
               end
             end
             emit.line "};"
             emit.line "static constexpr int METHOD_VT_SIZE = #{method_ids.size};"
+            emit.blank
+          end
+
+          # Out-of-line bodies for BasicObject's natural-arity defaults.
+          # The struct only declares — the body needs `new Array()`
+          # which can't be inline while Array is still forward-
+          # declared (Array inherits from BasicObject so its struct
+          # comes after). Emit here, after class struct definitions
+          # are complete and Array is fully visible. The fallthrough
+          # path packs the named params back into an Array and
+          # delegates to mm_dispatch — only exercised when no
+          # subclass overrides the slot.
+          def self.write_natural_arity_default_bodies(emit, call_surface, basic_object_klass)
+            return if @natural_arity_names.empty?
+            # Same skip set as write_universal_surface — names where
+            # BasicObject already has a concrete out-of-line definition
+            # (hand-coded or overlay override) would collide at link
+            # time if we also emit a default body here.
+            skip = (Runtime::BASIC_OBJECT.hand_coded_method_names || []).to_set
+            (basic_object_klass&.overrides || {}).each_key { |cpp| skip << cpp }
+            call_surface.each do |cpp_name, ruby_name|
+              next if skip.include?(cpp_name)
+              arity = @natural_arity_names[ruby_name.to_sym]
+              next unless arity
+              ruby_lit = ruby_name.gsub('\\', '\\\\\\\\').gsub('"', '\\"')
+              params = (0...arity).map { |i| "BasicObject* a#{i}" }.join(', ')
+              pack = (0...arity).map { |i| "_args->data.push_back(a#{i});" }.join(' ')
+              emit.line "BasicObject* BasicObject::#{cpp_name}(#{params}) { Array* _args = new Array(); #{pack} return mm_dispatch(this, _args, &EMPTY_KWARGS, nil_instance(), \"#{ruby_lit}\"); }"
+            end
+            emit.blank
+          end
+
+          # Emit one free-function trampoline per natural-arity-eligible
+          # name. Each trampoline takes the universal-shape args
+          # (Array, Hash, Block) — so send / mm_dispatch can call it
+          # uniformly — and forwards to recv->m_<name>(a0, a1, ...) on
+          # the natural-arity virtual slot. Validates arity, raises on
+          # unexpected kwargs (eligible methods have no kw params).
+          # Block is silently ignored per the v1 contract: eligibility
+          # disqualifies block-bearing callers; sending with a block to
+          # an eligible name reaches here, but the natural-arity body
+          # never sees it (yield in body would LocalJumpError).
+          def self.write_trampoline_defs(emit, method_ids)
+            return if @natural_arity_names.empty?
+            method_ids.each_key do |cpp_name|
+              ruby = cpp_name_to_ruby(cpp_name)
+              arity = @natural_arity_names[ruby.to_sym]
+              next unless arity
+              emit.line "static BasicObject* trampoline_#{cpp_name}(BasicObject* recv, Array* args, Hash* kwargs, BasicObject* /*block*/) {"
+              emit.indented do
+                # Ruby2-style fold preserves trailing-Hash binding —
+                # rare for eligible names (no kw params, so kwargs are
+                # never explicitly bound, but a caller might still
+                # pass a Hash positionally via :foo(x: 1)).
+                emit.line "if (!kwargs->data.empty()) { Array* _ext = new Array(); _ext->data = args->data; Hash* _h = new Hash(); _h->data = kwargs->data; _ext->data.push_back(static_cast<BasicObject*>(_h)); args = _ext; }"
+                emit.line "check_arity_fixed(args->data.size(), #{arity});"
+                args_call = (0...arity).map { |i| "args->data[#{i}]" }.join(', ')
+                emit.line "return recv->#{cpp_name}(#{args_call});"
+              end
+              emit.line "}"
+            end
             emit.blank
           end
 
@@ -730,7 +806,18 @@ module Frozone
             call_surface.each do |cpp_name, ruby_name|
               next if skip.include?(cpp_name)
               ruby_lit = ruby_name.gsub('\\', '\\\\\\\\').gsub('"', '\\"')
-              emit.line %(virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) { return mm_dispatch(this, args, kwargs, block, "#{ruby_lit}"); })
+              if (arity = @natural_arity_names[ruby_name.to_sym])
+                # Natural-arity default — DECLARATION only here;
+                # body emits out-of-line via
+                # write_natural_arity_default_bodies after Array's
+                # struct is complete (the body needs `new Array()` for
+                # the mm_dispatch fallthrough, which can't sit inline
+                # while Array is still forward-declared).
+                params = (0...arity).map { |i| "BasicObject* a#{i}" }.join(', ')
+                emit.line %(virtual BasicObject* #{cpp_name}(#{params});)
+              else
+                emit.line %(virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) { return mm_dispatch(this, args, kwargs, block, "#{ruby_lit}"); })
+              end
             end
             # Constant-lookup surface — c_X() per dynamic-receiver
             # constant name. Default on BasicObject: TypeError (matches
@@ -929,7 +1016,12 @@ module Frozone
               return
             end
             override_kw = (klass.name == "BasicObject" || !@call_surface_set&.include?(name)) ? "" : " override"
-            emit.line "virtual BasicObject* #{name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance())#{override_kw};"
+            if (arity = @natural_arity_names[cpp_name_to_ruby(name).to_sym])
+              params = (0...arity).map { |i| "BasicObject* a#{i}" }.join(', ')
+              emit.line "virtual BasicObject* #{name}(#{params})#{override_kw};"
+            else
+              emit.line "virtual BasicObject* #{name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance())#{override_kw};"
+            end
           end
 
           # Out-of-line override definition. spec[:params] is a list of
@@ -949,6 +1041,37 @@ module Frozone
               emit.indented do
                 spec[:body].each_line { |l| emit.line l.chomp }
               end
+              emit.line "}"
+              emit.blank
+              return
+            end
+            if (arity = @natural_arity_names[cpp_name_to_ruby(name).to_sym])
+              # Natural-arity override out-of-line def. Params come in
+              # named (a0..aN-1); we still rebind them to whatever the
+              # spec named them, since the spec body references those
+              # names. For specs that declared no params (universal-
+              # protocol auto-overrides like m_class), the natural-
+              # arity signature still gets the right shape via arity.
+              param_names = (spec[:params] || []).map { |decl| decl.split(/\s+/).last.delete_prefix('*') }
+              if param_names.length != arity
+                # Spec doesn't match natural-arity contract — fall back
+                # to universal sig so the def stays consistent with
+                # something. Shouldn't happen if eligibility is sound.
+                emit.line "BasicObject* #{class_name}::#{name}(Array* args, Hash* kwargs, BasicObject* block) {"
+                emit.indented do
+                  (spec[:params] || []).each_with_index do |param_decl, i|
+                    param_name = param_decl.split(/\s+/).last.delete_prefix('*')
+                    emit.line "BasicObject* #{param_name} = array_at(args, #{i});"
+                  end
+                  spec[:body].each_line { |l| emit.line l.chomp }
+                end
+                emit.line "}"
+                emit.blank
+                return
+              end
+              fn_params = param_names.map { |n| "BasicObject* #{n}" }.join(', ')
+              emit.line "BasicObject* #{class_name}::#{name}(#{fn_params}) {"
+              emit.indented { spec[:body].each_line { |l| emit.line l.chomp } }
               emit.line "}"
               emit.blank
               return

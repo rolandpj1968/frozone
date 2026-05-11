@@ -393,8 +393,55 @@ module Frozone
             # a Proc and pass as the third call-protocol arg.
             has_block = node.block_node && !(name == :times && recv)
             block_arg = has_block ? from_block_as_proc(node.block_node, locals) : "nil_instance()"
+
+            # Natural-arity dispatch (Phase 2 Commit B, gated by
+            # FROZONE_NATURAL_ARGS=1 — eligibility set empty otherwise).
+            # If the target name is eligible AND the call shape is
+            # compatible (positional only, no block, no kwargs, no splat,
+            # arity matches), emit a direct natural-arity virtual call
+            # that skips Array allocation. Incompatible-shape calls go
+            # through the trampoline free function (takes universal-
+            # shape args, forwards to the natural-arity slot). See
+            # project_natural_args.md.
+            na_arity = emit&.natural_arity_names&.dig(name)
+            na_compatible = na_arity &&
+                            arg_nodes.length == na_arity &&
+                            arg_nodes.none? { |a| a.is_a?(Ast::SplatArg) } &&
+                            (node.kw_arg_nodes || []).empty? &&
+                            (node.kw_splat_nodes || []).empty? &&
+                            !has_block
+
+            if na_compatible && recv
+              recv_str = from_expr(recv, locals)
+              args_csv = arg_nodes.map { |a| from_expr(a, locals) }.join(', ')
+              if node.safe_nav
+                return "([&]() -> BasicObject* { auto* _r = #{recv_str}; return (_r == nil_instance()) ? nil_instance() : _r->#{Cpp.method_name(name)}(#{args_csv}); }())"
+              else
+                return "#{recv_str}->#{Cpp.method_name(name)}(#{args_csv})"
+              end
+            elsif na_compatible && !recv
+              args_csv = arg_nodes.map { |a| from_expr(a, locals) }.join(', ')
+              return "this->#{Cpp.method_name(name)}(#{args_csv})"
+            end
+
             args_array = build_args_array(arg_nodes, locals)
             kwargs_arg = build_kwargs_hash(node.kw_arg_nodes || [], locals)
+
+            # Eligible name but incompatible call shape: trampoline
+            # takes the universal-shape args and forwards. Same
+            # construction as the universal path; just the called
+            # function differs.
+            if na_arity && recv
+              recv_str = from_expr(recv, locals)
+              tramp_call = "trampoline_#{Cpp.method_name(name)}(#{recv_str}, #{args_array}, #{kwargs_arg}, #{block_arg})"
+              if node.safe_nav
+                return "([&]() -> BasicObject* { auto* _r = #{recv_str}; return (_r == nil_instance()) ? nil_instance() : trampoline_#{Cpp.method_name(name)}(_r, #{args_array}, #{kwargs_arg}, #{block_arg}); }())"
+              else
+                return tramp_call
+              end
+            elsif na_arity && !recv
+              return "trampoline_#{Cpp.method_name(name)}(this, #{args_array}, #{kwargs_arg}, #{block_arg})"
+            end
 
             call_expr =
               if recv
@@ -771,6 +818,27 @@ module Frozone
               else
                 Cpp.shadowed_method_name(ctx[:method_name], next_origin)
               end
+            # Natural-arity super (Phase 2 Commit B). The enclosing
+            # method's name is eligible iff its body is natural-arity.
+            # Super target is the same Ruby name on a different class,
+            # so it's also natural-arity. Pass positional args directly.
+            method_name = ctx[:method_name]
+            na_arity = emit&.natural_arity_names&.dig(method_name)
+            if na_arity
+              args_csv =
+                if node.forwarding
+                  # Bare `super` — forward the enclosing method's
+                  # named params. ctx[:method_params] captures them in
+                  # natural-arity order.
+                  (ctx[:method_params] || []).join(', ')
+                elsif node.arg_nodes.empty?
+                  ""
+                else
+                  node.arg_nodes.map { |a| from_expr(a, locals) }.join(', ')
+                end
+              return "this->#{qualifier_class}::#{cpp_name}(#{args_csv})"
+            end
+
             args_expr =
               if node.forwarding
                 "args"
