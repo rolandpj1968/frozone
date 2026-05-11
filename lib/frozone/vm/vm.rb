@@ -854,6 +854,9 @@ module Frozone
       def evaluate(script, dump_ast = false, filepath: nil, raise_syntax_errors: false)
         parse_result = parse(script, dump_ast, filepath: filepath, raise_syntax_errors: raise_syntax_errors)
         ast = parse_result.ast
+        if ast.nil?
+          raise "[FROZONE_BUG] vm.rb#evaluate: parse returned nil ast for #{filepath.inspect}"
+        end
 
         # When AOT compiling with --hoist-class-consts, walk every
         # parsed file (not just the top-level entry) for expensive

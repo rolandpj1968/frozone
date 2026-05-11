@@ -857,6 +857,27 @@ inline BasicObject* intrinsic_kernel_catch(BasicObject* /*self_*/, BasicObject* 
   throw new ThrownTag(tag, value);
 }
 
+// `Intrinsics.dbg_write(str)` — bespoke raw-write to stderr for AOT-mode
+// debugging. Bypasses ALL Ruby dispatch (no Symbol#to_s, no IO#puts, no
+// $stdout introspection). Direct fputs(stderr) of the String's bytes +
+// fflush so output appears immediately even on abort. Use when the
+// regular puts chain is broken (e.g. during dispatch-table bring-up).
+inline BasicObject* intrinsic_dbg_write(BasicObject* /*self_*/, BasicObject* s) {
+  if (auto* str = dynamic_cast<String*>(s)) {
+    std::fwrite(str->bytes.data(), 1, str->bytes.size(), stderr);
+    std::fputc('\n', stderr);
+    std::fflush(stderr);
+  } else if (s) {
+    const char* cn = s->ruby_class_name();
+    std::fprintf(stderr, "[dbg_write: non-String %s]\n", cn ? cn : "(null)");
+    std::fflush(stderr);
+  } else {
+    std::fputs("[dbg_write: nullptr]\n", stderr);
+    std::fflush(stderr);
+  }
+  return nil_instance();
+}
+
 // `Kernel#puts(*args)` via send/dynamic dispatch (direct `puts` already
 // routes through ruby_puts at the call-site).
 inline BasicObject* intrinsic_kernel_puts(BasicObject* /*self_*/, BasicObject* args_arr) {

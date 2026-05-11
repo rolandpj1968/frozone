@@ -138,6 +138,7 @@ module Frozone
           elsif raise_syntax_errors && !suppress_wq_error?(msg)
             raise FrozoneException.make(:SyntaxError, normalize_syntax_error_message(msg))
           else
+            Intrinsics.dbg_write(self, "[FROZONE_WQ_SWALLOW] #{buf.name}: #{e.class.name}: #{msg[0, 200]}")
             nil
           end
         end

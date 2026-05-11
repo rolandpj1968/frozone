@@ -59,6 +59,7 @@ module Frozone
           # cases — one-liner inline expressions, closure-using
           # intrinsics that reference _block, helper-renames.)
           HPP_INTRINSICS = Set.new(%i[
+            dbg_write
             string_index string_slice string_split string_chars
             string_inspect string_hash string_to_sym string_to_i_base
             string_format string_replace string_initialize string_tr_raw

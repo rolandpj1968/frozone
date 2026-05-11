@@ -54,6 +54,22 @@ module Frozone
           real ? n2f_str(real, frozen: true) : FNIL
         end
 
+        # Bespoke raw-write to host stderr. Bypasses dispatch chains —
+        # use when the regular puts path is broken. Mirrors the box-first
+        # HPP intrinsic so the same Ruby call works in both modes.
+        # 2-arg signature (no context): we're called from host vm.rb as a
+        # normal Ruby method, not through Ast::IntrinsicCall.evaluate.
+        # The matching HPP intrinsic is intrinsic_dbg_write(self_, s).
+        # Accepts either a Frozone Vm::StringObject (host MRI value) or a
+        # plain String literal (which is how vm.rb's calls compile).
+        def dbg_write(_receiver, s)
+          raw = fstr?(s) ? s.raw : s.to_s
+          $stderr.write(raw)
+          $stderr.write("\n")
+          $stderr.flush
+          FNIL
+        end
+
         def kernel_puts(context, _receiver, args)
           stdout_vm = GLOBALS[:"$stdout"]
           if frozone_stdout_replaced?(stdout_vm)
