@@ -35,7 +35,7 @@ module Marshal
   TYPE_REGEXP   = '/'
   TYPE_DATA     = 'd'
 
-  # ─── Dumper ────────────────────────────────────────────────────────────────
+  # --- Dumper ----------------------------------------------------------------
 
   class Dumper
     def initialize(limit)
@@ -182,7 +182,7 @@ module Marshal
       write_long(index)
     end
 
-    # ── Integers ──────────────────────────────────────────────────────────────
+    # -- Integers --------------------------------------------------------------
 
     def write_integer(n)
       @out << TYPE_INTEGER
@@ -233,7 +233,7 @@ module Marshal
       end
     end
 
-    # ── Bignum ────────────────────────────────────────────────────────────────
+    # -- Bignum ----------------------------------------------------------------
 
     def write_bignum(n)
       @out << TYPE_BIGNUM
@@ -259,7 +259,7 @@ module Marshal
       bytes
     end
 
-    # ── Float ─────────────────────────────────────────────────────────────────
+    # -- Float -----------------------------------------------------------------
 
     def write_float(f)
       @out << TYPE_FLOAT
@@ -288,7 +288,7 @@ module Marshal
       end
     end
 
-    # ── Symbol ────────────────────────────────────────────────────────────────
+    # -- Symbol ----------------------------------------------------------------
 
     def write_symbol(sym)
       str = sym.to_s
@@ -328,7 +328,7 @@ module Marshal
       end
     end
 
-    # ── String ────────────────────────────────────────────────────────────────
+    # -- String ----------------------------------------------------------------
 
     def write_string_with_ivar(obj)
       # Determine modules and ivars
@@ -437,7 +437,7 @@ module Marshal
       write_symbol_str(real_class_name(klass))
     end
 
-    # ── Array ─────────────────────────────────────────────────────────────────
+    # -- Array -----------------------------------------------------------------
 
     def write_array_with_wraps(obj)
       mods = extended_modules(obj)
@@ -469,7 +469,7 @@ module Marshal
       obj.each { |e| write_object(e) }
     end
 
-    # ── Hash ──────────────────────────────────────────────────────────────────
+    # -- Hash ------------------------------------------------------------------
 
     def write_hash_with_wraps(obj)
       if obj.default_proc
@@ -517,7 +517,7 @@ module Marshal
       write_object(obj.default) if has_default
     end
 
-    # ── Regexp ────────────────────────────────────────────────────────────────
+    # -- Regexp ----------------------------------------------------------------
 
     def write_regexp_with_ivar(obj)
       mods = extended_modules(obj)
@@ -558,7 +558,7 @@ module Marshal
       @out << (obj.options & 0x7f).chr
     end
 
-    # ── Class / Module ────────────────────────────────────────────────────────
+    # -- Class / Module --------------------------------------------------------
 
     def write_class(klass)
       check_anonymous(klass)
@@ -618,7 +618,7 @@ module Marshal
       end
     end
 
-    # ── Struct ────────────────────────────────────────────────────────────────
+    # -- Struct ----------------------------------------------------------------
 
     def write_struct_with_wraps(obj)
       mods = extended_modules(obj)
@@ -671,7 +671,7 @@ module Marshal
       end
     end
 
-    # ── User-defined (_dump/_load) ────────────────────────────────────────────
+    # -- User-defined (_dump/_load) --------------------------------------------
 
     def write_user_defined(obj)
       mods = extended_modules(obj)
@@ -723,7 +723,7 @@ module Marshal
       track(obj)
     end
 
-    # ── User-marshal (marshal_dump/marshal_load) ───────────────────────────────
+    # -- User-marshal (marshal_dump/marshal_load) -------------------------------
 
     def write_user_marshal(obj)
       mods = extended_modules(obj)
@@ -741,7 +741,7 @@ module Marshal
       write_object(data)
     end
 
-    # ── Exception ─────────────────────────────────────────────────────────────
+    # -- Exception -------------------------------------------------------------
 
     EXCEPTION_SKIP_IVARS = %i[@mesg @message @bt @backtrace @_has_locations @backtrace_locations].freeze
 
@@ -792,7 +792,7 @@ module Marshal
       end
     end
 
-    # ── Range ────────────────────────────────────────────────────────────────
+    # -- Range ----------------------------------------------------------------
 
     def write_range(obj)
       klass = obj.class
@@ -829,7 +829,7 @@ module Marshal
       end
     end
 
-    # ── Generic object ────────────────────────────────────────────────────────
+    # -- Generic object --------------------------------------------------------
 
     def write_generic_object(obj)
       klass = begin
@@ -883,7 +883,7 @@ module Marshal
     end
   end
 
-  # ─── Loader ────────────────────────────────────────────────────────────────
+  # --- Loader ----------------------------------------------------------------
 
   class Loader
     def initialize(data, proc_arg, freeze: false)
@@ -1871,7 +1871,7 @@ module Marshal
     end
   end
 
-  # ─── Public API ────────────────────────────────────────────────────────────
+  # --- Public API ------------------------------------------------------------
 
   def dump(obj, io = nil, limit = -1)
     if io.is_a?(Integer) && limit == -1

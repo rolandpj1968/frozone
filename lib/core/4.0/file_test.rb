@@ -1,6 +1,6 @@
 module FileTest
-  # Bypass — meta-programming form (DELEGATED.each { define_method ... } +
-  # module_function(*DELEGATED)) is currently O(N²)-feeling under the
+  # Bypass -- meta-programming form (DELEGATED.each { define_method ... } +
+  # module_function(*DELEGATED)) is currently O(N2)-feeling under the
   # box-first interpreter due to dispatch overhead from Module/Class fusion.
   # Explicit defs keep the same behaviour and are trivial to interpret.
   module_function

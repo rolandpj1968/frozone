@@ -152,7 +152,7 @@ class StringIO
     @internal_encoding = internal_encoding
   end
 
-  # ── Underlying string ──────────────────────────────────────────────────
+  # -- Underlying string --------------------------------------------------
 
   def string = @string
 
@@ -164,7 +164,7 @@ class StringIO
     str
   end
 
-  # ── State ──────────────────────────────────────────────────────────────
+  # -- State --------------------------------------------------------------
 
   def size   = @string.bytesize
   alias length size
@@ -205,7 +205,7 @@ class StringIO
   end
   alias eof eof?
 
-  # ── Encoding ───────────────────────────────────────────────────────────
+  # -- Encoding -----------------------------------------------------------
 
   def binmode? = @binary
 
@@ -226,7 +226,7 @@ class StringIO
     self
   end
 
-  # ── Closing ────────────────────────────────────────────────────────────
+  # -- Closing ------------------------------------------------------------
 
   def closed?       = @closed_r && @closed_w
   def closed_read?  = @closed_r || !@readable
@@ -250,7 +250,7 @@ class StringIO
     nil
   end
 
-  # ── Reading ────────────────────────────────────────────────────────────
+  # -- Reading ------------------------------------------------------------
 
   def read(length = nil, buffer = nil)
     _check_readable
@@ -450,7 +450,7 @@ class StringIO
     chomp ? _chomp(line, sep) : line
   end
 
-  # ── Writing ────────────────────────────────────────────────────────────
+  # -- Writing ------------------------------------------------------------
 
   def write(*strs)
     _check_writable
@@ -532,7 +532,7 @@ class StringIO
     len
   end
 
-  # ── Iteration ─────────────────────────────────────────────────────────
+  # -- Iteration ---------------------------------------------------------
 
   def bytes      = each_byte.to_a
   def chars      = each_char.to_a
@@ -579,7 +579,7 @@ class StringIO
     self
   end
 
-  # ── sysread / read_nonblock / readpartial ─────────────────────────────
+  # -- sysread / read_nonblock / readpartial -----------------------------
 
   def sysread(length = nil, buffer = nil)
     _check_readable
@@ -687,7 +687,7 @@ class StringIO
     data
   end
 
-  # ── reopen ────────────────────────────────────────────────────────────
+  # -- reopen ------------------------------------------------------------
 
   def reopen(*args)
     case args.length
@@ -726,7 +726,7 @@ class StringIO
     self
   end
 
-  # ── set_encoding_by_bom ───────────────────────────────────────────────
+  # -- set_encoding_by_bom -----------------------------------------------
 
   def set_encoding_by_bom
     __check_frozen__
@@ -760,7 +760,7 @@ class StringIO
     nil
   end
 
-  # ── IO compatibility stubs ────────────────────────────────────────────
+  # -- IO compatibility stubs --------------------------------------------
 
   def flush          = self
   def sync           = true

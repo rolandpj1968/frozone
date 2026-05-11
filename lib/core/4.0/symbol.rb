@@ -9,8 +9,8 @@ class Symbol
   def inspect = Intrinsics.symbol_inspect(self)
   def hash = Intrinsics.symbol_hash(self)
   def eql?(v) = self == v
-  # Symbols are interned (Intrinsics.symbol → unique pointer per name),
-  # so identity == equality. Symbol#hash is identity-based too — if two
+  # Symbols are interned (Intrinsics.symbol -> unique pointer per name),
+  # so identity == equality. Symbol#hash is identity-based too -- if two
   # Symbol instances ever bypassed interning, hash/eql? would already be
   # broken, so a to_s fallback wouldn't help. Just identity.
   def ==(v) = equal?(v)
