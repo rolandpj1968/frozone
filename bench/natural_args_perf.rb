@@ -18,9 +18,10 @@ ONIGMO_DIR   = File.join(PROJECT_ROOT, 'vendor', 'Onigmo', '_install')
 ONIGMO_INC   = File.join(ONIGMO_DIR, 'include')
 ONIGMO_LIB   = File.join(ONIGMO_DIR, 'lib', 'libonigmo.a')
 
-PARALLEL = (ENV['JOBS'] || 12).to_i
+PARALLEL = (ENV['JOBS'] || 4).to_i
 TIMEOUT  = (ENV['TIMEOUT'] || 600).to_i
 RUNS     = (ENV['RUNS'] || 3).to_i
+OPT      = ENV['OPT'] || '-O0'
 
 def aot(name, natural_args:)
   Dir.chdir(PROJECT_ROOT) do
@@ -49,7 +50,7 @@ def compile_link(name, dest_bin)
         loop do
           cpp = (queue.pop(true) rescue break)
           obj = cpp.sub(/\.cpp\z/, '.o')
-          out, status = Open3.capture2e('g++', '-std=c++20', '-O0', '-c', cpp, '-I', ONIGMO_INC, '-o', obj)
+          out, status = Open3.capture2e('g++', '-std=c++20', OPT, '-c', cpp, '-I', ONIGMO_INC, '-o', obj)
           mutex.synchronize do
             if status.success?
               objs << obj
@@ -61,7 +62,7 @@ def compile_link(name, dest_bin)
       end
     end.each(&:join)
     return false, errors.first unless errors.empty?
-    link_args = ['g++', '-std=c++20', '-O0', *objs.sort, ONIGMO_LIB, '-lgc', '-o', dest_bin]
+    link_args = ['g++', '-std=c++20', OPT, *objs.sort, ONIGMO_LIB, '-lgc', '-o', dest_bin]
     out, status = Open3.capture2e(*link_args)
     return false, "link:\n#{out}" unless status.success?
     [true, nil]
