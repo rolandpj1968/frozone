@@ -27,7 +27,7 @@ module Frozone
     module Backend
       module CppBox
         class Emitter
-          attr_reader :cpp, :top_level_scope, :user_classes, :user_constants, :natural_arity_names
+          attr_reader :cpp, :top_level_scope, :user_classes, :user_constants, :natural_arity_names, :multi_arity_table
           # When true, emission errors inside method bodies re-raise
           # under FROZONE_BOX_HARD_FAIL=1 instead of graceful-skipping.
           # Toggled true while emitting user-class bodies + the
@@ -161,17 +161,21 @@ module Frozone
             @const_surface = collect_dynamic_constant_surface
             print_method_def_analysis if ENV['FROZONE_BOX_ANALYSIS'] == '1'
             @natural_arity_names = {}
+            @multi_arity_table = {}
             if ENV['FROZONE_METHOD_SHAPES'] == '1' || ENV['FROZONE_NATURAL_ARGS'] == '1'
               agg = build_method_shape_survey
               MethodShapeSurvey.report(agg) if ENV['FROZONE_METHOD_SHAPES'] == '1'
               if ENV['FROZONE_NATURAL_ARGS'] == '1'
                 exclude = compute_hand_coded_disqualified_names | (@internal_block_users || Set.new)
                 @natural_arity_names = MethodShapeSurvey.eligibility_table(agg, exclude: exclude)
+                @multi_arity_table = MethodShapeSurvey.multi_arity_table(agg, exclude: exclude)
                 override_collisions = prune_override_arity_collisions
+                multi_collisions = prune_multi_arity_override_collisions
                 $stderr.puts "[box-first] natural-args: #{@natural_arity_names.size} eligible names " \
                              "(excluded: #{compute_hand_coded_disqualified_names.size} hand-coded, " \
                              "#{(@internal_block_users || Set.new).size} use internal yield/block_given?, " \
-                             "#{override_collisions} cpp-name arity collisions)"
+                             "#{override_collisions} cpp-name arity collisions); " \
+                             "#{@multi_arity_table.size} multi-arity (defaults; -#{multi_collisions} override collisions)"
               end
             end
             all_classes = overlay_universe_methods(Runtime::ALL_CLASSES) + build_user_class_defs
@@ -2110,6 +2114,27 @@ module Frozone
                 singleton_spec = singleton[cpp]
                 (instance && (instance[:params] || []).length != n) ||
                   (singleton_spec && (singleton_spec[:params] || []).length != n)
+              end
+              pruned += 1 if collide
+              collide
+            end
+            pruned
+          end
+
+          # Drop multi-arity names whose cpp slot has a hand-coded /
+          # overlay override with an arity outside the family. Those
+          # would link-clash with the per-arity overloads.
+          def prune_multi_arity_override_collisions
+            pruned = 0
+            @multi_arity_table.delete_if do |ruby_name, family|
+              cpp = Cpp.method_name(ruby_name)
+              arities = family.arities
+              collide = Runtime::ALL_CLASSES.any? do |k|
+                instance = (k.overrides || {})[cpp]
+                singleton = (k.respond_to?(:eigenclass_overrides) ? k.eigenclass_overrides : nil) || {}
+                singleton_spec = singleton[cpp]
+                (instance && !arities.include?((instance[:params] || []).length)) ||
+                  (singleton_spec && !arities.include?((singleton_spec[:params] || []).length))
               end
               pruned += 1 if collide
               collide
