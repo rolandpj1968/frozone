@@ -445,6 +445,28 @@ module Frozone
               end
             end
 
+            # Multi-arity dispatch — same shape as natural-arity but
+            # picks the overload by argument count. Compatible call:
+            # static positional arity in family, no kwargs/splat/block.
+            mu_family = emit&.multi_arity_table&.dig(name)
+            mu_compatible = mu_family &&
+                            arg_nodes.none? { |a| a.is_a?(Ast::SplatArg) } &&
+                            (node.kw_arg_nodes || []).empty? &&
+                            (node.kw_splat_nodes || []).empty? &&
+                            !has_block &&
+                            mu_family.arities.include?(arg_nodes.length)
+            if mu_compatible
+              pos_csv = arg_nodes.map { |a| from_expr(a, locals) }.join(', ')
+              if recv && node.safe_nav
+                recv_str = from_expr(recv, locals)
+                return "([&]() -> BasicObject* { auto* _r = #{recv_str}; return (_r == nil_instance()) ? nil_instance() : _r->#{Cpp.method_name(name)}(#{pos_csv}); }())"
+              elsif recv
+                return "#{from_expr(recv, locals)}->#{Cpp.method_name(name)}(#{pos_csv})"
+              else
+                return "this->#{Cpp.method_name(name)}(#{pos_csv})"
+              end
+            end
+
             args_array = build_args_array(arg_nodes, locals)
             kwargs_arg = build_kwargs_hash(node.kw_arg_nodes || [], node.kw_splat_nodes || [], locals)
 
@@ -452,7 +474,7 @@ module Frozone
             # takes the universal-shape args and forwards. Same
             # construction as the universal path; just the called
             # function differs.
-            if na_sig && recv
+            if (na_sig || mu_family) && recv
               recv_str = from_expr(recv, locals)
               tramp_call = "trampoline_#{Cpp.method_name(name)}(#{recv_str}, #{args_array}, #{kwargs_arg}, #{block_arg})"
               if node.safe_nav
@@ -460,7 +482,7 @@ module Frozone
               else
                 return tramp_call
               end
-            elsif na_sig && !recv
+            elsif (na_sig || mu_family) && !recv
               return "trampoline_#{Cpp.method_name(name)}(this, #{args_array}, #{kwargs_arg}, #{block_arg})"
             end
 

@@ -47,6 +47,12 @@ module Frozone
             # ineligible-path branches (universal-sig emission) stay
             # unchanged. Hash[Symbol, Int] of ruby_name → arity_req.
             @natural_arity_names = (emit.respond_to?(:natural_arity_names) ? emit.natural_arity_names : nil) || {}
+            # Multi-arity defaults beachhead: names with one def shape
+            # and optional positionals. Expand into per-arity overloads
+            # (same C++ name, different param counts — C++ overload
+            # resolution disambiguates). Universal slot drops; send /
+            # mm_dispatch routes via the switch trampoline.
+            @multi_arity_table = (emit.respond_to?(:multi_arity_table) ? emit.multi_arity_table : nil) || {}
             # Constant surface — names referenced via dynamic-receiver
             # paths (`self.class::X`). Each gets a `c_X` virtual on
             # BasicObject + overrides on every eigenclass that has X.
@@ -368,6 +374,30 @@ module Frozone
             s
           end
 
+          # Chain shadow slot `sm_<ruby_name>__from_<Origin>` (or its
+          # op-name encoding) shares the head's ruby name for purposes
+          # of natural-arity sig lookup — `super` from a natural-arity
+          # head body calls the shadow slot with positional args, so
+          # the shadow must use the same signature.
+          def self.cpp_name_head_ruby(cpp)
+            s = cpp.to_s
+            return cpp_name_to_ruby(cpp) unless s.start_with?('sm_')
+            # Strip "sm_" prefix and "__from_<Origin>" suffix.
+            inner = s[3..]
+            head = inner.split('__from_').first
+            # Reverse op-name encoding for the head body.
+            inv = Cpp::OP_NAMES.invert
+            return inv["m_#{head}"].to_s if inv.key?("m_#{head}")
+            if head.start_with?('mm_')
+              body = head[3..]
+              return "#{body[0..-3]}?" if body.end_with?('_q')
+              return "#{body[0..-6]}!" if body.end_with?('_bang')
+              return "#{body[0..-4]}=" if body.end_with?('_eq')
+              return body
+            end
+            head
+          end
+
           # Member-function-pointer table indexed by method_id. Each
           # entry points at the BasicObject:: declaration of the
           # method; calling through it does virtual dispatch on `this`,
@@ -386,6 +416,8 @@ module Frozone
                 ruby = cpp_name_to_ruby(cpp)
                 if @natural_arity_names[ruby.to_sym]
                   emit.line "static_cast<__MethodFn__>(nullptr),  // id #{id}: #{ruby} (natural-arity)"
+                elsif @multi_arity_table[ruby.to_sym]
+                  emit.line "static_cast<__MethodFn__>(nullptr),  // id #{id}: #{ruby} (multi-arity)"
                 else
                   emit.line "&BasicObject::#{cpp},  // id #{id}: #{ruby}"
                 end
@@ -406,7 +438,7 @@ module Frozone
           # delegates to mm_dispatch — only exercised when no
           # subclass overrides the slot.
           def self.write_natural_arity_default_bodies(emit, call_surface, basic_object_klass)
-            return if @natural_arity_names.empty?
+            return if @natural_arity_names.empty? && @multi_arity_table.empty?
             # Same skip set as write_universal_surface — names where
             # BasicObject already has a concrete out-of-line definition
             # (hand-coded or overlay override) would collide at link
@@ -415,21 +447,27 @@ module Frozone
             (basic_object_klass&.overrides || {}).each_key { |cpp| skip << cpp }
             call_surface.each do |cpp_name, ruby_name|
               next if skip.include?(cpp_name)
-              sig = @natural_arity_names[ruby_name.to_sym]
-              next unless sig
               ruby_lit = ruby_name.gsub('\\', '\\\\\\\\').gsub('"', '\\"')
-              n = sig.arity_req
-              pos_params = (0...n).map { |i| "BasicObject* a#{i}" }
-              kw_params = sig.required_kw_names.map { |kn| "BasicObject* k_#{kn}" }
-              params = (pos_params + kw_params).join(', ')
-              pack = (0...n).map { |i| "_args->data.push_back(a#{i});" }.join(' ')
-              # Pack kw params back into a Hash for mm_dispatch — the
-              # fallthrough path doesn't know the natural-arity shape.
-              if sig.required_kw_names.empty?
-                emit.line "BasicObject* BasicObject::#{cpp_name}(#{params}) { Array* _args = new Array(); #{pack} return mm_dispatch(this, _args, &EMPTY_KWARGS, nil_instance(), \"#{ruby_lit}\"); }"
-              else
-                kw_pack = sig.required_kw_names.map { |kn| %|_kw->data[intern("#{kn}")] = k_#{kn};| }.join(' ')
-                emit.line "BasicObject* BasicObject::#{cpp_name}(#{params}) { Array* _args = new Array(); #{pack} Hash* _kw = new Hash(); #{kw_pack} return mm_dispatch(this, _args, _kw, nil_instance(), \"#{ruby_lit}\"); }"
+              if (sig = @natural_arity_names[ruby_name.to_sym])
+                n = sig.arity_req
+                pos_params = (0...n).map { |i| "BasicObject* a#{i}" }
+                kw_params = sig.required_kw_names.map { |kn| "BasicObject* k_#{kn}" }
+                params = (pos_params + kw_params).join(', ')
+                pack = (0...n).map { |i| "_args->data.push_back(a#{i});" }.join(' ')
+                # Pack kw params back into a Hash for mm_dispatch — the
+                # fallthrough path doesn't know the natural-arity shape.
+                if sig.required_kw_names.empty?
+                  emit.line "BasicObject* BasicObject::#{cpp_name}(#{params}) { Array* _args = new Array(); #{pack} return mm_dispatch(this, _args, &EMPTY_KWARGS, nil_instance(), \"#{ruby_lit}\"); }"
+                else
+                  kw_pack = sig.required_kw_names.map { |kn| %|_kw->data[intern("#{kn}")] = k_#{kn};| }.join(' ')
+                  emit.line "BasicObject* BasicObject::#{cpp_name}(#{params}) { Array* _args = new Array(); #{pack} Hash* _kw = new Hash(); #{kw_pack} return mm_dispatch(this, _args, _kw, nil_instance(), \"#{ruby_lit}\"); }"
+                end
+              elsif (family = @multi_arity_table[ruby_name.to_sym])
+                family.arities.to_a.sort.each do |k|
+                  params = (0...k).map { |i| "BasicObject* a#{i}" }.join(', ')
+                  pack = (0...k).map { |i| "_args->data.push_back(a#{i});" }.join(' ')
+                  emit.line "BasicObject* BasicObject::#{cpp_name}(#{params}) { Array* _args = new Array(); #{pack} return mm_dispatch(this, _args, &EMPTY_KWARGS, nil_instance(), \"#{ruby_lit}\"); }"
+                end
               end
             end
             emit.blank
@@ -446,11 +484,38 @@ module Frozone
           # an eligible name reaches here, but the natural-arity body
           # never sees it (yield in body would LocalJumpError).
           def self.write_trampoline_defs(emit, method_ids)
-            return if @natural_arity_names.empty?
+            return if @natural_arity_names.empty? && @multi_arity_table.empty?
             method_ids.each_key do |cpp_name|
               ruby = cpp_name_to_ruby(cpp_name)
               sig = @natural_arity_names[ruby.to_sym]
-              next unless sig
+              family = @multi_arity_table[ruby.to_sym]
+              next unless sig || family
+              if family
+                # Multi-arity switch trampoline. Universal-sig callers
+                # (send / mm_dispatch / splat) land here and route into
+                # the right per-arity overload based on args.size.
+                # Out-of-family arity raises ArgumentError — the method
+                # exists, just doesn't serve that arity.
+                arities = family.arities.to_a.sort
+                min_arity = arities.first
+                max_arity = arities.last
+                emit.line "static BasicObject* trampoline_#{cpp_name}(BasicObject* recv, Array* args, Hash* kwargs, BasicObject* /*block*/) {"
+                emit.indented do
+                  emit.line "if (!kwargs->data.empty()) { Array* _ext = new Array(); _ext->data = args->data; Hash* _h = new Hash(); _h->data = kwargs->data; _ext->data.push_back(static_cast<BasicObject*>(_h)); args = _ext; }"
+                  emit.line "check_arity_range(args->data.size(), #{min_arity}, #{max_arity});"
+                  emit.line "switch (args->data.size()) {"
+                  emit.indented do
+                    arities.each do |k|
+                      args_call = (0...k).map { |i| "args->data[#{i}]" }.join(', ')
+                      emit.line "case #{k}: return recv->#{cpp_name}(#{args_call});"
+                    end
+                    emit.line "default: return nil_instance();  // unreachable: check_arity_range raises"
+                  end
+                  emit.line "}"
+                end
+                emit.line "}"
+                next
+              end
               n = sig.arity_req
               emit.line "static BasicObject* trampoline_#{cpp_name}(BasicObject* recv, Array* args, Hash* kwargs, BasicObject* /*block*/) {"
               emit.indented do
@@ -492,14 +557,15 @@ module Frozone
           # to positional, and calls recv->m_<name>(a1,...,aN) virtually.
           def self.write_trampoline_vt(emit, method_ids)
             tramps = (emit.respond_to?(:natural_arity_names) ? emit.natural_arity_names : nil) || {}
-            emit.line "// Parallel trampoline table — populated only for natural-arity-eligible names."
+            multi  = (emit.respond_to?(:multi_arity_table) ? emit.multi_arity_table : nil) || {}
+            emit.line "// Parallel trampoline table — populated for natural-arity and multi-arity names."
             emit.line "// nullptr → fall through to METHOD_VT (universal calling convention)."
             emit.line "using __TrampolineFn__ = BasicObject* (*)(BasicObject*, Array*, Hash*, BasicObject*);"
             emit.line "static const __TrampolineFn__ TRAMPOLINE_VT[] = {"
             emit.indented do
               method_ids.each do |cpp, id|
                 ruby = cpp_name_to_ruby(cpp)
-                if tramps.key?(ruby.to_sym)
+                if tramps.key?(ruby.to_sym) || multi.key?(ruby.to_sym)
                   emit.line "&trampoline_#{cpp},  // id #{id}: #{ruby}"
                 else
                   emit.line "nullptr,  // id #{id}: #{ruby}"
@@ -842,6 +908,16 @@ module Frozone
                 kw_params = sig.required_kw_names.map { |kn| "BasicObject* k_#{kn}" }
                 params = (pos_params + kw_params).join(', ')
                 emit.line %(virtual BasicObject* #{cpp_name}(#{params});)
+              elsif (family = @multi_arity_table[ruby_name.to_sym])
+                # Per-arity overloads — one virtual per servable arity,
+                # all sharing the same cpp_name. C++ overload resolution
+                # at call sites picks the right slot by argument count.
+                # Universal slot drops; send / mm_dispatch routes via
+                # the per-name switch trampoline.
+                family.arities.to_a.sort.each do |k|
+                  params = (0...k).map { |i| "BasicObject* a#{i}" }.join(', ')
+                  emit.line %(virtual BasicObject* #{cpp_name}(#{params});)
+                end
               else
                 emit.line %(virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) { return mm_dispatch(this, args, kwargs, block, "#{ruby_lit}"); })
               end
@@ -1043,10 +1119,16 @@ module Frozone
               return
             end
             override_kw = (klass.name == "BasicObject" || !@call_surface_set&.include?(name)) ? "" : " override"
-            if (sig = @natural_arity_names[cpp_name_to_ruby(name).to_sym])
+            ruby_name = cpp_name_head_ruby(name).to_sym
+            if (sig = @natural_arity_names[ruby_name])
               pos_params = (0...sig.arity_req).map { |i| "BasicObject* a#{i}" }
               kw_params = sig.required_kw_names.map { |kn| "BasicObject* k_#{kn}" }
               emit.line "virtual BasicObject* #{name}(#{(pos_params + kw_params).join(', ')})#{override_kw};"
+            elsif (family = @multi_arity_table[ruby_name])
+              family.arities.to_a.sort.each do |k|
+                params = (0...k).map { |i| "BasicObject* a#{i}" }.join(', ')
+                emit.line "virtual BasicObject* #{name}(#{params})#{override_kw};"
+              end
             else
               emit.line "virtual BasicObject* #{name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance())#{override_kw};"
             end
@@ -1073,7 +1155,23 @@ module Frozone
               emit.blank
               return
             end
-            if (sig = @natural_arity_names[cpp_name_to_ruby(name).to_sym])
+            # Multi-arity beachhead: spec carries N (params, body) pairs,
+            # one per servable arity. Emit one out-of-line definition per
+            # entry — they all share the cpp_name and dispatch by overload
+            # resolution at call sites.
+            if (entries = spec[:multi_arity])
+              entries.each do |entry|
+                params = entry[:params] || []
+                emit.line "BasicObject* #{class_name}::#{name}(#{params.join(', ')}) {"
+                emit.indented do
+                  entry[:body].each_line { |l| emit.line l.chomp }
+                end
+                emit.line "}"
+                emit.blank
+              end
+              return
+            end
+            if (sig = @natural_arity_names[cpp_name_head_ruby(name).to_sym])
               # Natural-arity override out-of-line def. The spec's
               # params list names the BODY-visible locals; for
               # positional-only natural-arity (no kw), this is the

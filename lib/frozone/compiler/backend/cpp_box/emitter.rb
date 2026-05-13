@@ -1951,6 +1951,76 @@ module Frozone
             }
           end
 
+          # Defaults beachhead: a single def shape with optional
+          # positionals expands into N entry points (one per servable
+          # arity), each filling unset defaults in declaration order
+          # then running the shared body. spec[:multi_arity] is a list
+          # of (params, body) pairs; write_override_decl / def expand
+          # this list into N C++ overloads sharing the same cpp name.
+          def build_multi_arity_override(method, family)
+            required = method.required_params || []
+            optional = method.optional_params || []
+            arity_req = required.length
+            arity_max = arity_req + optional.length
+            # Shape sanity-check: the family's arities should match the
+            # def's servable range. If a survey/codegen drift breaks
+            # this invariant, surface it loudly rather than silently
+            # emitting wrong C++.
+            unless family.arities.to_a.sort == (arity_req..arity_max).to_a
+              raise Cpp::EmissionError,
+                    "multi-arity shape mismatch for :#{method.name}: " \
+                    "family #{family.arities.to_a.sort.inspect} vs def arities #{(arity_req..arity_max).to_a.inspect}"
+            end
+            if !(method.post_params || []).empty? ||
+               method.rest_param ||
+               method.kw_rest_param ||
+               !(method.required_kw_params || []).empty? ||
+               !(method.optional_kw_params || []).empty? ||
+               method.block_param
+              raise Cpp::EmissionError, "multi-arity beachhead requires pure-positional def"
+            end
+            captured = method.body ? MethodEmitter.collect_method_captured(method) : Set.new
+            entries = family.arities.to_a.sort.map do |k|
+              bound_opt = k - arity_req
+              body = @cpp.with_captured_locals(captured) do
+                capture do
+                  locals = Set.new
+                  required.each_with_index do |p, i|
+                    line MethodEmitter.decl_local_line(self, p, "_arg#{i}")
+                    locals << p.to_s
+                  end
+                  # Caller-bound optionals
+                  optional.first(bound_opt).each_with_index do |(p, _), j|
+                    idx = arity_req + j
+                    line MethodEmitter.decl_local_line(self, p, "_arg#{idx}")
+                    locals << p.to_s
+                  end
+                  # Default-fill the rest, in declaration order — later
+                  # defaults can reference earlier ones (def m(a, b=a+1)).
+                  optional.drop(bound_opt).each do |(p, default_node)|
+                    default_str = default_node ? @cpp.from_expr(default_node, locals) : "nil_instance()"
+                    line MethodEmitter.decl_local_line(self, p, default_str)
+                    locals << p.to_s
+                  end
+                  seen_writes = MethodEmitter.collect_local_writes(method.body)
+                  ((method.locals || []) + seen_writes.to_a).uniq.each do |loc|
+                    s = loc.to_s
+                    next if s.empty? || locals.include?(s)
+                    line MethodEmitter.decl_local_line(self, s, "nil_instance()")
+                    locals << s
+                  end
+                  ExprEmitter.write_body(self, method.body, locals: locals, last_is_return: true) if method.body
+                end
+              end
+              indented = body.each_line.map { |l| "  #{l}" }.join
+              {
+                params: (0...k).map { |i| "BasicObject* _arg#{i}" },
+                body: "std::uint64_t __frame_id__ = next_frame_id();\ntry {\n#{indented}  return nil_instance();\n} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }\n",
+              }
+            end
+            { multi_arity: entries }
+          end
+
           def build_override(method, super_ctx: nil, fall_through_on_error: false, storage_name: nil)
             with_method_scope(method) do
               with_super_context(super_ctx) do
@@ -1967,6 +2037,8 @@ module Frozone
                 lookup_name = storage_name || method.name
                 sig = @natural_arity_names && @natural_arity_names[lookup_name]
                 return build_natural_arity_override(method, sig) if sig
+                family = @multi_arity_table && @multi_arity_table[lookup_name]
+                return build_multi_arity_override(method, family) if family
                 # Pre-walk for captured locals (inner-block-referenced
                 # locals get heap-cell storage; see CppBox::Cpp.captured_locals).
                 # Includes block-locals hoisted by collect_local_writes
@@ -2029,10 +2101,18 @@ module Frozone
             # build_override entry).
             lookup_name = storage_name || (method.respond_to?(:name) ? method.name : nil)
             sig = lookup_name && @natural_arity_names && @natural_arity_names[lookup_name]
+            family = lookup_name && @multi_arity_table && @multi_arity_table[lookup_name]
+            abort_body = %|std::fprintf(stderr, "%s\\n", #{@cpp.cpp_string_literal(msg)});\nstd::abort();\n|
+            if family
+              entries = family.arities.to_a.sort.map do |k|
+                { params: (0...k).map { |i| "BasicObject* _arg#{i}" }, body: abort_body }
+              end
+              return { multi_arity: entries }
+            end
             params = sig ? (0...sig.arity_req).map { |i| "BasicObject* _arg#{i}" } : []
             {
               params: params,
-              body: %|std::fprintf(stderr, "%s\\n", #{@cpp.cpp_string_literal(msg)});\nstd::abort();\n|,
+              body: abort_body,
             }
           end
 
@@ -2121,20 +2201,22 @@ module Frozone
             pruned
           end
 
-          # Drop multi-arity names whose cpp slot has a hand-coded /
-          # overlay override with an arity outside the family. Those
-          # would link-clash with the per-arity overloads.
+          # Drop multi-arity names where any class has a hand-coded
+          # method or overlay override at the cpp slot. A hand-coded
+          # body has a single fixed signature that can't simultaneously
+          # cover every per-arity overload in the family — the
+          # cross-class wrong-args stub work needed to fill the gaps is
+          # post-beachhead. Conservative prune today; relax once full
+          # per-arity emission lands.
           def prune_multi_arity_override_collisions
             pruned = 0
-            @multi_arity_table.delete_if do |ruby_name, family|
+            @multi_arity_table.delete_if do |ruby_name, _family|
               cpp = Cpp.method_name(ruby_name)
-              arities = family.arities
               collide = Runtime::ALL_CLASSES.any? do |k|
-                instance = (k.overrides || {})[cpp]
+                hc = (k.hand_coded_method_names || []).include?(cpp)
+                override = (k.overrides || {})[cpp]
                 singleton = (k.respond_to?(:eigenclass_overrides) ? k.eigenclass_overrides : nil) || {}
-                singleton_spec = singleton[cpp]
-                (instance && !arities.include?((instance[:params] || []).length)) ||
-                  (singleton_spec && !arities.include?((singleton_spec[:params] || []).length))
+                hc || override || singleton[cpp]
               end
               pruned += 1 if collide
               collide

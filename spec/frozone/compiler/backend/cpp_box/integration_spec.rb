@@ -199,4 +199,10 @@ RSpec.describe 'box-first end-to-end' do
   it 'lowers required-kw methods to natural-arity positional dispatch' do
     expect(run_box_first('kw_test').strip.split("\n")).to eq(%w[50 307 307 411 411 411])
   end
+
+  it 'dispatches per-arity overloads for methods with optional positionals' do
+    expect(run_box_first('multi_arity_test').strip.split("\n")).to eq(
+      %w[111 103 6 1024 1060 1059 111 103 6 117 115 24]
+    )
+  end
 end

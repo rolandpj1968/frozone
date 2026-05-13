@@ -21,8 +21,11 @@ module Frozone
           def self.write_user_method(emit, name, method)
             cpp_name = Cpp.method_name(name)
             sig = emit.natural_arity_names[name]
+            family = emit.respond_to?(:multi_arity_table) ? emit.multi_arity_table[name] : nil
             if sig
               write_natural_arity_method(emit, name, method, cpp_name, sig)
+            elsif family
+              write_multi_arity_method(emit, name, method, cpp_name, family)
             else
               write_universal_method(emit, name, method, cpp_name)
             end
@@ -30,13 +33,24 @@ module Frozone
             raise if ENV['FROZONE_BOX_HARD_FAIL'] == '1' && emit.strict_emit
             loc = method&.source_location || "(unknown)"
             $stderr.puts "[box-first] skip user_method :#{name} @ #{loc}: #{e.message}" if ENV['FROZONE_BOX_DEBUG'] == '1'
-            # Abort-stub body so the runtime fails loudly with a
-            # "compiler limitation" message if the method is actually
-            # called. Signature matches the corresponding entry on
-            # BasicObject — natural-arity for eligible names, universal
-            # otherwise — so the override resolves and links.
             msg = "[frozone-box-first] unimplemented method :#{name} (def @ #{loc}): #{e.message}"
             sig = emit.natural_arity_names[name]
+            family = emit.respond_to?(:multi_arity_table) ? emit.multi_arity_table[name] : nil
+            abort_body = lambda do
+              emit.indented do
+                emit.line %|std::fprintf(stderr, "%s\\n", #{emit.cpp.cpp_string_literal(msg)});|
+                emit.line "std::abort();"
+              end
+              emit.line "}"
+            end
+            if family
+              family.arities.to_a.sort.each do |k|
+                params = (0...k).map { |i| "BasicObject* l_a#{i}" }.join(', ')
+                emit.line "virtual BasicObject* #{cpp_name}(#{params}) {"
+                abort_body.call
+              end
+              return
+            end
             if sig
               pos = (0...sig.arity_req).map { |i| "BasicObject* l_a#{i}" }
               kw = sig.required_kw_names.map { |kn| "BasicObject* #{local_cpp_name(kn)}" }
@@ -44,11 +58,7 @@ module Frozone
             else
               emit.line "virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) {"
             end
-            emit.indented do
-              emit.line %|std::fprintf(stderr, "%s\\n", #{emit.cpp.cpp_string_literal(msg)});|
-              emit.line "std::abort();"
-            end
-            emit.line "}"
+            abort_body.call
           end
 
           # Today's universal-signature emission. Body unpacks args via
@@ -161,6 +171,63 @@ module Frozone
             emit.line "virtual BasicObject* #{cpp_name}(#{param_decls.join(', ')}) {"
             emit.indented { body_buf.each_line { |l| emit.line l.chomp } }
             emit.line "}"
+          end
+
+          # Defaults beachhead: emit one inline entry point per servable
+          # arity. Each fills its remaining defaults in declaration
+          # order (later defaults can reference earlier params via
+          # decl_local_line) before running the shared body. Method
+          # body emission is the same as natural-arity; only the
+          # default-fill prefix differs across entries.
+          def self.write_multi_arity_method(emit, _name, method, cpp_name, family)
+            required = method.required_params || []
+            optional = method.optional_params || []
+            arity_req = required.length
+            arity_max = arity_req + optional.length
+            unless family.arities.to_a.sort == (arity_req..arity_max).to_a
+              raise Cpp::EmissionError, "multi-arity shape mismatch for #{cpp_name}"
+            end
+            captured = method.body ? collect_method_captured(method) : Set.new
+            family.arities.to_a.sort.each do |k|
+              bound_opt = k - arity_req
+              body_buf = emit.cpp.with_captured_locals(captured) do
+                emit.capture do
+                  locals = Set.new
+                  required.each_with_index do |p, i|
+                    emit.line decl_local_line(emit, p, "_arg#{i}")
+                    locals << p.to_s
+                  end
+                  optional.first(bound_opt).each_with_index do |(p, _), j|
+                    idx = arity_req + j
+                    emit.line decl_local_line(emit, p, "_arg#{idx}")
+                    locals << p.to_s
+                  end
+                  optional.drop(bound_opt).each do |(p, default_node)|
+                    default_str = default_node ? emit.cpp.from_expr(default_node, locals) : "nil_instance()"
+                    emit.line decl_local_line(emit, p, default_str)
+                    locals << p.to_s
+                  end
+                  seen_writes = collect_local_writes(method.body)
+                  ((method.locals || []) + seen_writes.to_a).uniq.each do |loc|
+                    s = loc.to_s
+                    next if s.empty? || locals.include?(s)
+                    emit.line decl_local_line(emit, s, "nil_instance()")
+                    locals << s
+                  end
+                  emit.line "std::uint64_t __frame_id__ = next_frame_id();"
+                  emit.line "try {"
+                  emit.indented do
+                    ExprEmitter.write_body(emit, method.body, locals: locals, last_is_return: true) if method.body
+                    emit.line "return nil_instance();"
+                  end
+                  emit.line "} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }"
+                end
+              end
+              params = (0...k).map { |i| "BasicObject* _arg#{i}" }.join(', ')
+              emit.line "virtual BasicObject* #{cpp_name}(#{params}) {"
+              emit.indented { body_buf.each_line { |l| emit.line l.chomp } }
+              emit.line "}"
+            end
           end
 
           # C++ reserved words / contextual keywords that surface as
