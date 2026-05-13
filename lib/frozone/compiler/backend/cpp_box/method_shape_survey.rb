@@ -281,6 +281,28 @@ module Frozone
             end
           end
 
+          # Defaults-only beachhead: names with a single def shape that
+          # is natural_eligible_pos? with optional positionals (opt > 0)
+          # and no required kw. Such names produce a multi-arity family
+          # served by a single defining shape — every class that defines
+          # the name supplies a real body at every arity (no cross-class
+          # arity divergence yet, so no wrong-args stubs needed in
+          # non-defining classes). Mutually exclusive with
+          # `eligibility_table` (which excludes opt > 0 via simple?).
+          def multi_arity_table(agg, exclude: Set.new)
+            agg.all_names.each_with_object({}) do |name, h|
+              next if exclude.include?(name)
+              shapes = agg.defs[name]
+              next unless shapes.size == 1
+              shape = shapes.keys.first
+              next unless shape.natural_eligible_pos?
+              next if shape.opt.zero?              # arity 1 only → v1 path
+              next unless shape.required_kw_names.empty?
+              next if agg.calls[name].any? { |c, _| c.blk_pass || c.do_block }
+              h[name] = NaturalArityFamily.new(shape.arities_servable.to_set, false)
+            end
+          end
+
           def report(agg, io: $stderr)
             names = agg.all_names
             eligible = names.select { |n| agg.eligible?(n) }
@@ -303,11 +325,21 @@ module Frozone
             per_arity_slot_pairs = per_arity_names.values.sum { |f| f.arities.size }
             per_arity_calls = per_arity_names.keys.sum { |n| agg.per_arity_compatible_calls(n) }
             v1_calls = eligible.sum { |n| agg.compatible_calls(n) }
+            defaults_only = multi_arity_table(agg)
+            defaults_only_calls = defaults_only.keys.sum { |n| agg.per_arity_compatible_calls(n) }
             io.puts '[method-shape survey]'
             io.puts "  total method names:  #{names.size}"
             io.puts "  eligible (v1):       #{eligible.size} names, #{v1_calls} compatible calls"
             io.puts "  non-eligible (v1):   #{non_eligible.size}"
             io.puts "  per-arity (v2):      #{per_arity_names.size} names, #{per_arity_slot_pairs} (name, arity) slots, #{per_arity_calls} compatible calls"
+            io.puts "  defaults beachhead:  #{defaults_only.size} names, #{defaults_only_calls} compatible calls"
+            if defaults_only.any?
+              top_defaults = defaults_only.sort_by { |n, _| -agg.per_arity_compatible_calls(n) }.first(10)
+              top_defaults.each do |n, f|
+                shape = agg.defs[n].keys.first
+                io.puts "    :#{n.to_s.ljust(38)} arities=#{f.arities.to_a.sort} (#{shape}) — #{agg.per_arity_compatible_calls(n)} calls"
+              end
+            end
             io.puts "  single-defn names:   #{single_defn.size} (#{single_defn_calls} call sites)"
             io.puts "  +kw-lift candidates: #{kw_lift.size} names, #{kw_lift_calls} call sites"
             io.puts ''
