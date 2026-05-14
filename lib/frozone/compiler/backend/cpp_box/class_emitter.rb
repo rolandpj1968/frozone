@@ -509,9 +509,12 @@ module Frozone
               if kw_sig
                 min_arity = kw_sig.arity_req
                 max_arity = kw_sig.arity_req + kw_sig.opt
+                check_call = min_arity == max_arity ?
+                  "check_arity_fixed(args->data.size(), #{min_arity});" :
+                  "check_arity_range(args->data.size(), #{min_arity}, #{max_arity});"
                 emit.line "BasicObject* BasicObject::#{cpp_name}(Array* args, Hash* kwargs, BasicObject* /*block*/) {"
                 emit.indented do
-                  emit.line "check_arity_range(args->data.size(), #{min_arity}, #{max_arity});"
+                  emit.line check_call
                   # Extract kw values — required must be present, optional defaults to UNSET.
                   kw_sig.all_kw_names.each do |kn|
                     key_lit = kn.to_s.gsub('\\', '\\\\\\\\').gsub('"', '\\"')

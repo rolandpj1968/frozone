@@ -22,12 +22,16 @@ module Frozone
             cpp_name = Cpp.method_name(name)
             sig = emit.natural_arity_names[name]
             family = emit.respond_to?(:multi_arity_table) ? emit.multi_arity_table[name] : nil
+            kw_sig = emit.respond_to?(:kw_unset_table) ? emit.kw_unset_table[name] : nil
             if sig
               emit.line "using BasicObject::#{cpp_name};"
               write_natural_arity_method(emit, name, method, cpp_name, sig)
             elsif family
               emit.line "using BasicObject::#{cpp_name};"
               write_multi_arity_method(emit, name, method, cpp_name, family)
+            elsif kw_sig
+              emit.line "using BasicObject::#{cpp_name};"
+              write_kw_unset_method(emit, name, method, cpp_name, kw_sig)
             else
               write_universal_method(emit, name, method, cpp_name)
             end
@@ -38,6 +42,7 @@ module Frozone
             msg = "[frozone-box-first] unimplemented method :#{name} (def @ #{loc}): #{e.message}"
             sig = emit.natural_arity_names[name]
             family = emit.respond_to?(:multi_arity_table) ? emit.multi_arity_table[name] : nil
+            kw_sig = emit.respond_to?(:kw_unset_table) ? emit.kw_unset_table[name] : nil
             abort_body = lambda do
               emit.indented do
                 emit.line %|std::fprintf(stderr, "%s\\n", #{emit.cpp.cpp_string_literal(msg)});|
@@ -51,6 +56,14 @@ module Frozone
                 emit.line "virtual BasicObject* #{cpp_name}(#{params}) {"
                 abort_body.call
               end
+              return
+            end
+            if kw_sig
+              n_pos = kw_sig.arity_req + kw_sig.opt
+              pos = (0...n_pos).map { |i| "BasicObject* l_a#{i}" }
+              kw = kw_sig.all_kw_names.map { |kn| "BasicObject* #{local_cpp_name(kn)}" }
+              emit.line "virtual BasicObject* #{cpp_name}(#{(pos + kw).join(', ')}) {"
+              abort_body.call
               return
             end
             if sig
@@ -243,6 +256,69 @@ module Frozone
               emit.indented { body_buf.each_line { |l| emit.line l.chomp } }
               emit.line "}"
             end
+          end
+
+          # Kw-bearing top-level method emission. Slot signature: required
+          # pos → opt pos (UNSET-able) → kws alphabetical. Body declares
+          # locals from slot params, default-filling UNSET-marked slots
+          # in source order so later defaults can read earlier params.
+          def self.write_kw_unset_method(emit, _name, method, cpp_name, sig)
+            required = method.required_params || []
+            optional = method.optional_params || []
+            opt_kw_pairs = method.optional_kw_params || []
+            opt_kw_defaults = opt_kw_pairs.to_h { |p, default| [p.to_sym, default] }
+            if !(method.post_params || []).empty? || method.rest_param || method.kw_rest_param || method.block_param
+              raise Cpp::EmissionError, "kw-unset requires pure positional+kw def"
+            end
+            if required.length != sig.arity_req || optional.length != sig.opt
+              raise Cpp::EmissionError, "kw-unset shape mismatch for #{cpp_name}"
+            end
+            captured = method.body ? collect_method_captured(method) : Set.new
+            body_buf = emit.cpp.with_captured_locals(captured) do
+              emit.capture do
+                locals = Set.new
+                required.each_with_index do |p, i|
+                  emit.line decl_local_line(emit, p, "_arg#{i}")
+                  locals << p.to_s
+                end
+                optional.each_with_index do |(p, default_node), i|
+                  slot = "_arg#{sig.arity_req + i}"
+                  default_str = default_node ? emit.cpp.from_expr(default_node, locals) : "nil_instance()"
+                  emit.line decl_local_line(emit, p, "(#{slot} == unset_instance()) ? (#{default_str}) : #{slot}")
+                  locals << p.to_s
+                end
+                sig.all_kw_names.each do |kn|
+                  if sig.kw_required?(kn)
+                    emit.line decl_local_line(emit, kn, "_kw_#{kn}")
+                  else
+                    default_node = opt_kw_defaults[kn]
+                    default_str = default_node ? emit.cpp.from_expr(default_node, locals) : "nil_instance()"
+                    emit.line decl_local_line(emit, kn, "(_kw_#{kn} == unset_instance()) ? (#{default_str}) : _kw_#{kn}")
+                  end
+                  locals << kn.to_s
+                end
+                seen_writes = collect_local_writes(method.body)
+                ((method.locals || []) + seen_writes.to_a).uniq.each do |loc|
+                  s = loc.to_s
+                  next if s.empty? || locals.include?(s)
+                  emit.line decl_local_line(emit, s, "nil_instance()")
+                  locals << s
+                end
+                emit.line "std::uint64_t __frame_id__ = next_frame_id();"
+                emit.line "try {"
+                emit.indented do
+                  ExprEmitter.write_body(emit, method.body, locals: locals, last_is_return: true) if method.body
+                  emit.line "return nil_instance();"
+                end
+                emit.line "} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }"
+              end
+            end
+            pos_params = (0...sig.arity_req).map { |i| "BasicObject* _arg#{i}" } +
+                         (0...sig.opt).map { |i| "BasicObject* _arg#{sig.arity_req + i}" }
+            kw_params = sig.all_kw_names.map { |kn| "BasicObject* _kw_#{kn}" }
+            emit.line "virtual BasicObject* #{cpp_name}(#{(pos_params + kw_params).join(', ')}) {"
+            emit.indented { body_buf.each_line { |l| emit.line l.chomp } }
+            emit.line "}"
           end
 
           # C++ reserved words / contextual keywords that surface as

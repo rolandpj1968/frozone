@@ -217,16 +217,16 @@ module Frozone
 
             # Returns the DefShape for an eligible name, else nil.
             # Eligible iff the def-histogram has exactly one bin AND
-            # that shape is either pure simple-positional or required-
-            # kw-only (no opt, rest, kwrest, optional_kw, block_param).
-            # Block-bearing call sites disqualify the name regardless
-            # of def-shape — the natural-arity signature has no Block
-            # slot.
+            # that shape is pure simple-positional (no opt, rest, kw,
+            # kwrest, block_param). Block-bearing call sites disqualify
+            # the name regardless of def-shape — the natural-arity
+            # signature has no Block slot. Kw-bearing shapes flow
+            # through kw_unset_table instead.
             def eligible_def_shape(name)
               shapes = @defs[name]
               return nil unless shapes.size == 1
               shape = shapes.keys.first
-              return nil unless shape.simple? || shape.simple_kw_only?
+              return nil unless shape.simple?
               return nil if @calls[name].any? { |c, _| c.blk_pass || c.do_block }
               shape
             end
@@ -314,10 +314,7 @@ module Frozone
           # def shape includes at least one kw (required or optional)
           # and is otherwise pure positional + kw. Optional positionals
           # and optional kws use the UnsetSentinel at call sites.
-          # Mutually exclusive with `eligibility_table` (the simple_kw_only?
-          # subset) — for first commit, eligibility_table claims those
-          # names; this table picks up the strict superset
-          # (opt_kw cases, mixed positional defaults + kw).
+          # Subsumes the old simple_kw_only? subset of eligibility_table.
           def kw_unset_table(agg, exclude: Set.new)
             agg.all_names.each_with_object({}) do |name, h|
               next if exclude.include?(name)
@@ -326,10 +323,6 @@ module Frozone
               next unless shapes.size == 1
               shape = shapes.keys.first
               next unless shape.kw_unset_eligible?
-              # Leave simple_kw_only? names on the v1 path for now to
-              # avoid churning kw_test.rb's expected output. Migration
-              # to a single kw path is a follow-up cleanup.
-              next if shape.simple_kw_only?
               next if agg.calls[name].any? { |c, _| c.blk_pass || c.do_block }
               h[name] = KwUnsetSig.new(
                 shape.arity_req,
