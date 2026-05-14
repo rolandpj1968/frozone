@@ -1510,6 +1510,34 @@ module Frozone
             CPP
           )
 
+          RAISE_MISSING_KW_FN = KernelFn.new(
+            name: "raise_missing_kw",
+            signature: "[[noreturn]] void raise_missing_kw(const char* name)",
+            body: <<~CPP.chomp,
+              char buf[128];
+              int n = std::snprintf(buf, sizeof(buf), "missing keyword: :%s", name);
+              if (n < 0) n = 0;
+              if (n >= (int)sizeof(buf)) n = (int)sizeof(buf) - 1;
+              throw static_cast<Exception*>(
+                (&ArgumentError_CLASS)->m_new(new Array({static_cast<BasicObject*>(new String(buf, n))}))
+              );
+            CPP
+          )
+
+          RAISE_UNKNOWN_KW_FN = KernelFn.new(
+            name: "raise_unknown_kw",
+            signature: "[[noreturn]] void raise_unknown_kw(const char* name)",
+            body: <<~CPP.chomp,
+              char buf[128];
+              int n = std::snprintf(buf, sizeof(buf), "unknown keyword: :%s", name);
+              if (n < 0) n = 0;
+              if (n >= (int)sizeof(buf)) n = (int)sizeof(buf) - 1;
+              throw static_cast<Exception*>(
+                (&ArgumentError_CLASS)->m_new(new Array({static_cast<BasicObject*>(new String(buf, n))}))
+              );
+            CPP
+          )
+
           BUILD_INT_ARRAY_FN = KernelFn.new(
             name: "build_int_array",
             signature: "Array* build_int_array(const std::int64_t* data, std::size_t n)",
@@ -2074,6 +2102,7 @@ module Frozone
             BUILD_INT_ARRAY_FN, INT_BOX_FN,
             COERCE_TO_INT_FN, RAISE_ARITY_FN,
             RAISE_ARITY_FIXED_FN, RAISE_ARITY_RANGE_FN, RAISE_ARITY_MIN_FN,
+            RAISE_MISSING_KW_FN, RAISE_UNKNOWN_KW_FN,
             MM_DISPATCH_FN, CM_DISPATCH_FN,
             INIT_ONIGMO_FN, MATCH_DATA_GLOBAL, REGEXP_MATCH_FN, MATCH_DATA_CAP_FN,
             STRING_GSUB_FN, STRING_SCAN_FN, STRING_UNPACK_FN,

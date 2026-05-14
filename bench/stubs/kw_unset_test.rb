@@ -117,3 +117,11 @@ puts w.rec(5)               # 15
 # Default expression invoking another method.
 puts w.from_method(3)            # 342
 puts w.from_method(3, x: 99)     # 399
+
+# Missing required kw — direct + via send. Both raise ArgumentError.
+begin; w.mixed(1); rescue ArgumentError => e; puts e.message; end
+begin; w.send(:mixed, 1); rescue ArgumentError => e; puts e.message; end
+
+# Unknown kw — direct + via send. Both raise ArgumentError.
+begin; w.opt(1, bogus: 99); rescue ArgumentError => e; puts e.message; end
+begin; w.send(:opt, 1, bogus: 99); rescue ArgumentError => e; puts e.message; end

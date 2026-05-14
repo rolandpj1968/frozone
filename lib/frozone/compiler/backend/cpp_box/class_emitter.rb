@@ -518,11 +518,19 @@ module Frozone
                     key_lit = kn.to_s.gsub('\\', '\\\\\\\\').gsub('"', '\\"')
                     emit.line %|auto _it_#{kn} = kwargs->data.find(intern("#{key_lit}"));|
                     if kw_sig.kw_required?(kn)
-                      emit.line %|if (_it_#{kn} == kwargs->data.end()) { std::fprintf(stderr, "[box-first] missing required kw arg :#{kn}\\n"); std::abort(); }|
+                      emit.line %|if (_it_#{kn} == kwargs->data.end()) raise_missing_kw("#{key_lit}");|
                       emit.line "BasicObject* _kv_#{kn} = _it_#{kn}->second;"
                     else
                       emit.line "BasicObject* _kv_#{kn} = (_it_#{kn} == kwargs->data.end()) ? unset_instance() : _it_#{kn}->second;"
                     end
+                  end
+                  # Unknown-kw check: every key in kwargs must be in
+                  # the expected set (required ∪ optional).
+                  expected_set = kw_sig.all_kw_names.map { |kn| %|intern("#{kn.to_s.gsub('\\', '\\\\\\\\').gsub('"', '\\"')}")| }.join(', ')
+                  if expected_set.empty?
+                    emit.line %|if (!kwargs->data.empty()) raise_unknown_kw(static_cast<Symbol*>(kwargs->data.begin()->first)->name_);|
+                  else
+                    emit.line %|for (auto& _kv : kwargs->data) { Symbol* _k = static_cast<Symbol*>(_kv.first); bool _ok = false; for (auto _e : {#{expected_set}}) { if (_k == _e) { _ok = true; break; } } if (!_ok) raise_unknown_kw(_k->name_); }|
                   end
                   # Positional slot values: required pos from args, optional pos from args or UNSET.
                   pos_slot_vals = (0...kw_sig.arity_req).map { |i| "args->data[#{i}]" }
@@ -571,8 +579,13 @@ module Frozone
                   sig.required_kw_names.each do |kn|
                     key_lit = kn.to_s.gsub('\\', '\\\\\\\\').gsub('"', '\\"')
                     emit.line %|auto _it_#{kn} = kwargs->data.find(intern("#{key_lit}"));|
-                    emit.line %|if (_it_#{kn} == kwargs->data.end()) { std::fprintf(stderr, "[box-first] missing required kw arg :#{kn}\\n"); std::abort(); }|
+                    emit.line %|if (_it_#{kn} == kwargs->data.end()) raise_missing_kw("#{key_lit}");|
                   end
+                  # Unknown-kw check: every key in kwargs must be a
+                  # required kw for this name. Any extra raises
+                  # ArgumentError matching MRI semantics.
+                  expected_set = sig.required_kw_names.map { |kn| %|intern("#{kn.to_s.gsub('\\', '\\\\\\\\').gsub('"', '\\"')}")| }.join(', ')
+                  emit.line %|for (auto& _kv : kwargs->data) { Symbol* _k = static_cast<Symbol*>(_kv.first); bool _ok = false; for (auto _e : {#{expected_set}}) { if (_k == _e) { _ok = true; break; } } if (!_ok) raise_unknown_kw(_k->name_); }|
                   pos_args = (0...n).map { |i| "args->data[#{i}]" }
                   kw_args = sig.required_kw_names.map { |kn| "_it_#{kn}->second" }
                   emit.line "return this->#{cpp_name}(#{(pos_args + kw_args).join(', ')});"

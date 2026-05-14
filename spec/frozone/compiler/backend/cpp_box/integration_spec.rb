@@ -213,6 +213,10 @@ RSpec.describe 'box-first end-to-end' do
       '[hi-alice!]', '[hi-alice?]',            # super
       '15',                                    # recursive
       '342', '399',                            # default-via-method
+      'missing keyword: :must',                # direct missing required kw
+      'missing keyword: :must',                # via send
+      'unknown keyword: :bogus',               # direct unknown kw
+      'unknown keyword: :bogus',               # via send
     ])
   end
 
