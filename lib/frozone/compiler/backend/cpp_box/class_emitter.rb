@@ -896,7 +896,7 @@ module Frozone
               if klass.name == "BasicObject"
                 write_universal_surface(emit, call_surface, klass)
               end
-              klass.overrides&.each { |name, _| write_override_decl(emit, name, klass) }
+              klass.overrides&.each { |name, spec| write_override_decl(emit, name, klass, spec) }
             end
             emit.line "};"
             emit.blank
@@ -1147,7 +1147,7 @@ module Frozone
           # itself has no parent, and methods unique to a runtime
           # eigenclass (e.g. Math.log2 when no user code calls log2) lack
           # a parent stub so can't carry `override` either.
-          def self.write_override_decl(emit, name, klass)
+          def self.write_override_decl(emit, name, klass, spec = nil)
             if name.start_with?("c_")
               # Constant-lookup slot — empty arg list. `override` only
               # if the slot exists on BasicObject (i.e. is in the
@@ -1178,8 +1178,12 @@ module Frozone
                 params = (0...k).map { |i| "BasicObject* a#{i}" }.join(', ')
                 emit.line "virtual BasicObject* #{name}(#{params})#{override_kw};"
               end
-              if klass.name == "BasicObject"
-                emit.line "virtual BasicObject* #{name}(Array* args, Hash* kwargs, BasicObject* block);"
+              # Per-class universal-sig override (class-specific arity
+              # range) when spec carries a universal_entry, or always
+              # on BasicObject (the family-wide trampoline body).
+              if klass.name == "BasicObject" || (spec && spec[:universal_entry])
+                ovk = klass.name == "BasicObject" ? "" : " override"
+                emit.line "virtual BasicObject* #{name}(Array* args, Hash* kwargs, BasicObject* block)#{ovk};"
               end
             elsif (kw_sig = @kw_unset_table[ruby_name])
               emit.line "using BasicObject::#{name};" if emit_using
@@ -1227,6 +1231,17 @@ module Frozone
                 emit.indented do
                   entry[:body].each_line { |l| emit.line l.chomp }
                 end
+                emit.line "}"
+                emit.blank
+              end
+              # Per-class universal-sig override (class-specific arity
+              # error). Emitted when this class's arity range is
+              # narrower than the family's — body re-runs the check
+              # with class arities so the error message matches MRI.
+              if (univ = spec[:universal_entry])
+                params = univ[:params] || []
+                emit.line "BasicObject* #{class_name}::#{name}(#{params.join(', ')}) {"
+                emit.indented { univ[:body].each_line { |l| emit.line l.chomp } }
                 emit.line "}"
                 emit.blank
               end

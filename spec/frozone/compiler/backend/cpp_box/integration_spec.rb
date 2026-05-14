@@ -240,7 +240,7 @@ RSpec.describe 'box-first end-to-end' do
       'wrong number of arguments (given 3, expected 1..2)',
       '347', '345',                                   # FastStepper arities 2, 3
       'wrong number of arguments (given 1, expected 2..3)',
-      'wrong number of arguments (given 0, expected 1..3)',  # family-wide range
+      'wrong number of arguments (given 0, expected 1..2)',  # class-specific (out-of-class)
       'wrong number of arguments (given 3, expected 1..2)',  # class-specific (in family)
       '15',                                           # Walker.walk(5)
       '311', '322',                                   # default-via-method

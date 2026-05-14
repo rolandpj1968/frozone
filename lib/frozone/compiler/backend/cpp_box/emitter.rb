@@ -2023,7 +2023,36 @@ module Frozone
                 body: "std::uint64_t __frame_id__ = next_frame_id();\ntry {\n#{indented}  return nil_instance();\n} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }\n",
               }
             end
-            { multi_arity: entries }
+            spec = { multi_arity: entries }
+            # Class-specific universal-sig override: when this class's
+            # arity range is narrower than the family, the family-wide
+            # check_arity_range message ("expected 1..3") differs from
+            # MRI's class-specific ("expected 1..2"). Emit a per-class
+            # universal-sig override that re-runs the arity check with
+            # class arities before dispatching into per-arity slots.
+            class_arities = (arity_req..arity_max).to_a
+            family_arities = family.arities.to_a.sort
+            if class_arities != family_arities
+              check_call = arity_req == arity_max ?
+                "check_arity_fixed(args->data.size(), #{arity_req});" :
+                "check_arity_range(args->data.size(), #{arity_req}, #{arity_max});"
+              switch_lines = family_arities.map do |k|
+                args_call = (0...k).map { |i| "args->data[#{i}]" }.join(', ')
+                "    case #{k}: return this->#{Cpp.method_name(method.name)}(#{args_call});"
+              end.join("\n")
+              spec[:universal_entry] = {
+                params: ["Array* args", "Hash* kwargs", "BasicObject* /*block*/"],
+                body: <<~CPP,
+                  if (!kwargs->data.empty()) { Array* _ext = new Array(); _ext->data = args->data; Hash* _h = new Hash(); _h->data = kwargs->data; _ext->data.push_back(static_cast<BasicObject*>(_h)); args = _ext; }
+                  #{check_call}
+                  switch (args->data.size()) {
+                  #{switch_lines}
+                      default: return nil_instance();  // unreachable: check_arity raises
+                  }
+                CPP
+              }
+            end
+            spec
           end
 
           # Kw-bearing override (UNSET path). Single slot signature:
