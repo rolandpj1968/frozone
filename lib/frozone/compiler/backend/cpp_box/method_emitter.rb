@@ -23,8 +23,10 @@ module Frozone
             sig = emit.natural_arity_names[name]
             family = emit.respond_to?(:multi_arity_table) ? emit.multi_arity_table[name] : nil
             if sig
+              emit.line "using BasicObject::#{cpp_name};"
               write_natural_arity_method(emit, name, method, cpp_name, sig)
             elsif family
+              emit.line "using BasicObject::#{cpp_name};"
               write_multi_arity_method(emit, name, method, cpp_name, family)
             else
               write_universal_method(emit, name, method, cpp_name)

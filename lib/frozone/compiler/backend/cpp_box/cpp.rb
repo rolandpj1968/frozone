@@ -470,20 +470,19 @@ module Frozone
             args_array = build_args_array(arg_nodes, locals)
             kwargs_arg = build_kwargs_hash(node.kw_arg_nodes || [], node.kw_splat_nodes || [], locals)
 
-            # Eligible name but incompatible call shape: trampoline
-            # takes the universal-shape args and forwards. Same
-            # construction as the universal path; just the called
-            # function differs.
+            # Eligible name but incompatible call shape: dispatch via
+            # the universal-sig overload on the receiver — its body is
+            # the per-name trampoline that routes into the right
+            # per-arity overload. No parallel TRAMPOLINE_VT.
             if (na_sig || mu_family) && recv
               recv_str = from_expr(recv, locals)
-              tramp_call = "trampoline_#{Cpp.method_name(name)}(#{recv_str}, #{args_array}, #{kwargs_arg}, #{block_arg})"
               if node.safe_nav
-                return "([&]() -> BasicObject* { auto* _r = #{recv_str}; return (_r == nil_instance()) ? nil_instance() : trampoline_#{Cpp.method_name(name)}(_r, #{args_array}, #{kwargs_arg}, #{block_arg}); }())"
+                return "([&]() -> BasicObject* { auto* _r = #{recv_str}; return (_r == nil_instance()) ? nil_instance() : _r->#{Cpp.method_name(name)}(#{args_array}, #{kwargs_arg}, #{block_arg}); }())"
               else
-                return tramp_call
+                return "#{recv_str}->#{Cpp.method_name(name)}(#{args_array}, #{kwargs_arg}, #{block_arg})"
               end
             elsif (na_sig || mu_family) && !recv
-              return "trampoline_#{Cpp.method_name(name)}(this, #{args_array}, #{kwargs_arg}, #{block_arg})"
+              return "this->#{Cpp.method_name(name)}(#{args_array}, #{kwargs_arg}, #{block_arg})"
             end
 
             call_expr =

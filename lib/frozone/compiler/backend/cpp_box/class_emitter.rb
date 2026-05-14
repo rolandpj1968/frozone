@@ -405,22 +405,18 @@ module Frozone
           def self.write_method_vt(emit, method_ids)
             emit.line "// Member-function-pointer vtable indexed by method_id."
             emit.line "// `(this->*METHOD_VT[id])(args, kw, blk)` does virtual dispatch."
-            emit.line "// Entries are nullptr for natural-arity-eligible names — the"
-            emit.line "// universal-sig method doesn't exist on those classes, so the"
-            emit.line "// member pointer can't be taken. Dispatch routes via TRAMPOLINE_VT"
-            emit.line "// for those names (m_send / m___send__ check that first)."
+            emit.line "// For natural-arity and multi-arity names, the universal-sig"
+            emit.line "// slot on BasicObject is the trampoline that switches into the"
+            emit.line "// per-arity overload."
             emit.line "using __MethodFn__ = BasicObject* (BasicObject::*)(Array*, Hash*, BasicObject*);"
             emit.line "static const __MethodFn__ METHOD_VT[] = {"
             emit.indented do
               method_ids.each do |cpp, id|
                 ruby = cpp_name_to_ruby(cpp)
-                if @natural_arity_names[ruby.to_sym]
-                  emit.line "static_cast<__MethodFn__>(nullptr),  // id #{id}: #{ruby} (natural-arity)"
-                elsif @multi_arity_table[ruby.to_sym]
-                  emit.line "static_cast<__MethodFn__>(nullptr),  // id #{id}: #{ruby} (multi-arity)"
-                else
-                  emit.line "&BasicObject::#{cpp},  // id #{id}: #{ruby}"
-                end
+                # Cast disambiguates the universal-sig overload when
+                # natural-arity / multi-arity names have multiple
+                # overloads on BasicObject sharing the same cpp name.
+                emit.line "static_cast<__MethodFn__>(&BasicObject::#{cpp}),  // id #{id}: #{ruby}"
               end
             end
             emit.line "};"
@@ -483,6 +479,13 @@ module Frozone
           # disqualifies block-bearing callers; sending with a block to
           # an eligible name reaches here, but the natural-arity body
           # never sees it (yield in body would LocalJumpError).
+          # Universal-sig slot bodies for natural-arity and multi-arity
+          # names. Each is the per-name trampoline — universal-sig
+          # callers (send / mm_dispatch / splat call sites) land here
+          # and the body routes into the right per-arity overload.
+          # METHOD_VT[id] now points at this universal slot (no parallel
+          # TRAMPOLINE_VT). Body is out-of-line because it accesses
+          # Array's `data` field which isn't complete inside BasicObject.
           def self.write_trampoline_defs(emit, method_ids)
             return if @natural_arity_names.empty? && @multi_arity_table.empty?
             method_ids.each_key do |cpp_name|
@@ -491,15 +494,10 @@ module Frozone
               family = @multi_arity_table[ruby.to_sym]
               next unless sig || family
               if family
-                # Multi-arity switch trampoline. Universal-sig callers
-                # (send / mm_dispatch / splat) land here and route into
-                # the right per-arity overload based on args.size.
-                # Out-of-family arity raises ArgumentError — the method
-                # exists, just doesn't serve that arity.
                 arities = family.arities.to_a.sort
                 min_arity = arities.first
                 max_arity = arities.last
-                emit.line "static BasicObject* trampoline_#{cpp_name}(BasicObject* recv, Array* args, Hash* kwargs, BasicObject* /*block*/) {"
+                emit.line "BasicObject* BasicObject::#{cpp_name}(Array* args, Hash* kwargs, BasicObject* /*block*/) {"
                 emit.indented do
                   emit.line "if (!kwargs->data.empty()) { Array* _ext = new Array(); _ext->data = args->data; Hash* _h = new Hash(); _h->data = kwargs->data; _ext->data.push_back(static_cast<BasicObject*>(_h)); args = _ext; }"
                   emit.line "check_arity_range(args->data.size(), #{min_arity}, #{max_arity});"
@@ -507,7 +505,7 @@ module Frozone
                   emit.indented do
                     arities.each do |k|
                       args_call = (0...k).map { |i| "args->data[#{i}]" }.join(', ')
-                      emit.line "case #{k}: return recv->#{cpp_name}(#{args_call});"
+                      emit.line "case #{k}: return this->#{cpp_name}(#{args_call});"
                     end
                     emit.line "default: return nil_instance();  // unreachable: check_arity_range raises"
                   end
@@ -517,21 +515,14 @@ module Frozone
                 next
               end
               n = sig.arity_req
-              emit.line "static BasicObject* trampoline_#{cpp_name}(BasicObject* recv, Array* args, Hash* kwargs, BasicObject* /*block*/) {"
+              emit.line "BasicObject* BasicObject::#{cpp_name}(Array* args, Hash* kwargs, BasicObject* /*block*/) {"
               emit.indented do
                 if sig.required_kw_names.empty?
-                  # Ruby2-style fold preserves trailing-Hash binding —
-                  # rare for eligible names (no kw params, so kwargs
-                  # are never explicitly bound, but a caller might
-                  # still pass a Hash positionally via :foo(x: 1)).
                   emit.line "if (!kwargs->data.empty()) { Array* _ext = new Array(); _ext->data = args->data; Hash* _h = new Hash(); _h->data = kwargs->data; _ext->data.push_back(static_cast<BasicObject*>(_h)); args = _ext; }"
                   emit.line "check_arity_fixed(args->data.size(), #{n});"
                   args_call = (0...n).map { |i| "args->data[#{i}]" }.join(', ')
-                  emit.line "return recv->#{cpp_name}(#{args_call});"
+                  emit.line "return this->#{cpp_name}(#{args_call});"
                 else
-                  # Required-kw entry: extract each kw value by name
-                  # from the kwargs Hash. Missing required-kw aborts
-                  # the same way unpack_params would today.
                   emit.line "check_arity_fixed(args->data.size(), #{n});"
                   sig.required_kw_names.each do |kn|
                     key_lit = kn.to_s.gsub('\\', '\\\\\\\\').gsub('"', '\\"')
@@ -540,7 +531,7 @@ module Frozone
                   end
                   pos_args = (0...n).map { |i| "args->data[#{i}]" }
                   kw_args = sig.required_kw_names.map { |kn| "_it_#{kn}->second" }
-                  emit.line "return recv->#{cpp_name}(#{(pos_args + kw_args).join(', ')});"
+                  emit.line "return this->#{cpp_name}(#{(pos_args + kw_args).join(', ')});"
                 end
               end
               emit.line "}"
@@ -555,26 +546,12 @@ module Frozone
           # related dispatch paths check TRAMPOLINE_VT[id] first; if
           # non-null, the trampoline validates Array-packed args, unpacks
           # to positional, and calls recv->m_<name>(a1,...,aN) virtually.
-          def self.write_trampoline_vt(emit, method_ids)
-            tramps = (emit.respond_to?(:natural_arity_names) ? emit.natural_arity_names : nil) || {}
-            multi  = (emit.respond_to?(:multi_arity_table) ? emit.multi_arity_table : nil) || {}
-            emit.line "// Parallel trampoline table — populated for natural-arity and multi-arity names."
-            emit.line "// nullptr → fall through to METHOD_VT (universal calling convention)."
-            emit.line "using __TrampolineFn__ = BasicObject* (*)(BasicObject*, Array*, Hash*, BasicObject*);"
-            emit.line "static const __TrampolineFn__ TRAMPOLINE_VT[] = {"
-            emit.indented do
-              method_ids.each do |cpp, id|
-                ruby = cpp_name_to_ruby(cpp)
-                if tramps.key?(ruby.to_sym) || multi.key?(ruby.to_sym)
-                  emit.line "&trampoline_#{cpp},  // id #{id}: #{ruby}"
-                else
-                  emit.line "nullptr,  // id #{id}: #{ruby}"
-                end
-              end
-            end
-            emit.line "};"
-            emit.blank
-          end
+          # Stub kept so callers don't break — the parallel trampoline
+          # table is gone (METHOD_VT now points at the universal-sig
+          # overload directly for natural-arity / multi-arity names,
+          # whose body is the trampoline). Remove once all call sites
+          # of write_trampoline_vt are dropped from the emit pipeline.
+          def self.write_trampoline_vt(_emit, _method_ids); end
 
           # Compute IS_A LUT: bool[N][N] where IS_A[i][j] = true iff
           # class/module i has class/module j in its ancestry. Captures
@@ -898,26 +875,23 @@ module Frozone
               next if skip.include?(cpp_name)
               ruby_lit = ruby_name.gsub('\\', '\\\\\\\\').gsub('"', '\\"')
               if (sig = @natural_arity_names[ruby_name.to_sym])
-                # Natural-arity default — DECLARATION only here;
-                # body emits out-of-line via
-                # write_natural_arity_default_bodies after Array's
-                # struct is complete (the body needs `new Array()` for
-                # the mm_dispatch fallthrough, which can't sit inline
-                # while Array is still forward-declared).
+                # Natural-arity: per-arity slot decl + universal-sig
+                # slot decl (its body is the trampoline that switches
+                # universal-sig callers into the natural-arity slot).
+                # Universal slot drops its default-arg values to avoid
+                # overload-resolution ambiguity with the 0-arg per-arity
+                # slot — callers always pass explicit args/kwargs/block.
                 pos_params = (0...sig.arity_req).map { |i| "BasicObject* a#{i}" }
                 kw_params = sig.required_kw_names.map { |kn| "BasicObject* k_#{kn}" }
                 params = (pos_params + kw_params).join(', ')
                 emit.line %(virtual BasicObject* #{cpp_name}(#{params});)
+                emit.line %(virtual BasicObject* #{cpp_name}(Array* args, Hash* kwargs, BasicObject* block);)
               elsif (family = @multi_arity_table[ruby_name.to_sym])
-                # Per-arity overloads — one virtual per servable arity,
-                # all sharing the same cpp_name. C++ overload resolution
-                # at call sites picks the right slot by argument count.
-                # Universal slot drops; send / mm_dispatch routes via
-                # the per-name switch trampoline.
                 family.arities.to_a.sort.each do |k|
                   params = (0...k).map { |i| "BasicObject* a#{i}" }.join(', ')
                   emit.line %(virtual BasicObject* #{cpp_name}(#{params});)
                 end
+                emit.line %(virtual BasicObject* #{cpp_name}(Array* args, Hash* kwargs, BasicObject* block);)
               else
                 emit.line %(virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) { return mm_dispatch(this, args, kwargs, block, "#{ruby_lit}"); })
               end
@@ -962,12 +936,10 @@ module Frozone
                 # Unknown id → m_method_missing path (mm_dispatch builds the
                 # symbol-prepended args array and virtual-dispatches).
                 emit.line "if (_id < 0 || _id >= METHOD_VT_SIZE) return mm_dispatch(this, _rest, kwargs, block, _name->name_);"
-                # Natural-args specialization (Option F): TRAMPOLINE_VT[id]
-                # is non-null for eligible names; trampoline validates args
-                # + calls recv->m_<name>(a1,...,aN) virtually on the
-                # natural-arity slot. nullptr → fall through to universal.
-                emit.line "auto _tramp = TRAMPOLINE_VT[_id];"
-                emit.line "if (_tramp) return _tramp(this, _rest, kwargs, block);"
+                # Single dispatch through METHOD_VT. For natural-arity
+                # and multi-arity names, the universal-sig slot's body
+                # is the trampoline that switches into the per-arity
+                # overload — no parallel table needed.
                 emit.line "return (this->*METHOD_VT[_id])(_rest, kwargs, block);"
               end
               emit.line "}"
@@ -1120,14 +1092,28 @@ module Frozone
             end
             override_kw = (klass.name == "BasicObject" || !@call_surface_set&.include?(name)) ? "" : " override"
             ruby_name = cpp_name_head_ruby(name).to_sym
+            # `using` un-hides BasicObject's universal-sig overload so
+            # `this->m_foo(args, kwargs, block)` calls inside the class
+            # body still resolve. Only emit for slots that actually
+            # exist on BasicObject (the head slot, not sm_X__from_Y
+            # chain shadows which live only on the defining class).
+            emit_using = !name.start_with?("sm_") && klass.name != "BasicObject"
             if (sig = @natural_arity_names[ruby_name])
+              emit.line "using BasicObject::#{name};" if emit_using
               pos_params = (0...sig.arity_req).map { |i| "BasicObject* a#{i}" }
               kw_params = sig.required_kw_names.map { |kn| "BasicObject* k_#{kn}" }
               emit.line "virtual BasicObject* #{name}(#{(pos_params + kw_params).join(', ')})#{override_kw};"
+              if klass.name == "BasicObject"
+                emit.line "virtual BasicObject* #{name}(Array* args, Hash* kwargs, BasicObject* block);"
+              end
             elsif (family = @multi_arity_table[ruby_name])
+              emit.line "using BasicObject::#{name};" if emit_using
               family.arities.to_a.sort.each do |k|
                 params = (0...k).map { |i| "BasicObject* a#{i}" }.join(', ')
                 emit.line "virtual BasicObject* #{name}(#{params})#{override_kw};"
+              end
+              if klass.name == "BasicObject"
+                emit.line "virtual BasicObject* #{name}(Array* args, Hash* kwargs, BasicObject* block);"
               end
             else
               emit.line "virtual BasicObject* #{name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance())#{override_kw};"
