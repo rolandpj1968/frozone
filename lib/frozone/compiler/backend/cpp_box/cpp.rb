@@ -906,6 +906,22 @@ module Frozone
                 end
               return "this->#{qualifier_class}::#{cpp_name}(#{args_csv})"
             end
+            # Multi-arity super: forward all bound params (required +
+            # optional, defaults filled if not caller-supplied) to the
+            # chain shadow at the full arity. Ruby semantics — bare
+            # super propagates the current method's bound state.
+            mu_family = emit&.multi_arity_table&.dig(method_name)
+            if mu_family
+              args_csv =
+                if node.forwarding
+                  (ctx[:method_params] || []).join(', ')
+                elsif node.arg_nodes.empty?
+                  ""
+                else
+                  node.arg_nodes.map { |a| from_expr(a, locals) }.join(', ')
+                end
+              return "this->#{qualifier_class}::#{cpp_name}(#{args_csv})"
+            end
 
             args_expr =
               if node.forwarding

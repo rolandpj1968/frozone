@@ -482,7 +482,7 @@ module Frozone
                 next if merged.key?(cpp_name)
                 ctx = {
                   host_name: host_name, method_name: mname, origin_index: idx, chain: entries,
-                  method_params: (method.required_params || []).map { |p| MethodEmitter.local_cpp_name(p) },
+                  method_params: ((method.required_params || []) + (method.optional_params || []).map(&:first)).map { |p| MethodEmitter.local_cpp_name(p) },
                   # kw_params is set in from_super; here we only need
                   # positional. Super forwarding reads kw locals from
                   # the natural-arity sig in the survey table directly.
@@ -1624,7 +1624,7 @@ module Frozone
                 cpp_name = idx.zero? ? Cpp.method_name(mname) : Cpp.shadowed_method_name(mname, origin)
                 ctx = {
                   host_name: host_name, method_name: mname, origin_index: idx, chain: entries,
-                  method_params: (method.required_params || []).map { |p| MethodEmitter.local_cpp_name(p) },
+                  method_params: ((method.required_params || []) + (method.optional_params || []).map(&:first)).map { |p| MethodEmitter.local_cpp_name(p) },
                   # kw_params is set in from_super; here we only need
                   # positional. Super forwarding reads kw locals from
                   # the natural-arity sig in the survey table directly.
