@@ -35,26 +35,28 @@ module Frozone
                   kw:                  !method.required_kw_params.empty? || !method.optional_kw_params.empty?,
                   opt_kw:              !method.optional_kw_params.empty?,
                   required_kw_names:   method.required_kw_params.map(&:to_sym).sort,
+                  optional_kw_names:   method.optional_kw_params.map { |p, _| p.to_sym }.sort,
                   kwrest:              !method.kw_rest_param.nil? && method.kw_rest_param != :__no_kwargs__,
                   block_param:         !method.block_param.nil?,
                 )
               end
 
-              def intern(arity_req:, opt:, rest:, kw:, opt_kw:, required_kw_names:, kwrest:, block_param:)
-                key = [arity_req, opt, rest, kw, opt_kw, required_kw_names, kwrest, block_param]
+              def intern(arity_req:, opt:, rest:, kw:, opt_kw:, required_kw_names:, optional_kw_names:, kwrest:, block_param:)
+                key = [arity_req, opt, rest, kw, opt_kw, required_kw_names, optional_kw_names, kwrest, block_param]
                 @intern[key] ||= new(*key).freeze
               end
             end
 
-            attr_reader :arity_req, :opt, :rest, :kw, :opt_kw, :required_kw_names, :kwrest, :block_param
+            attr_reader :arity_req, :opt, :rest, :kw, :opt_kw, :required_kw_names, :optional_kw_names, :kwrest, :block_param
 
-            def initialize(arity_req, opt, rest, kw, opt_kw, required_kw_names, kwrest, block_param)
+            def initialize(arity_req, opt, rest, kw, opt_kw, required_kw_names, optional_kw_names, kwrest, block_param)
               @arity_req = arity_req
               @opt = opt
               @rest = rest
               @kw = kw
               @opt_kw = opt_kw
               @required_kw_names = required_kw_names
+              @optional_kw_names = optional_kw_names
               @kwrest = kwrest
               @block_param = block_param
             end
@@ -72,6 +74,12 @@ module Frozone
             # kw / kwrest / block_param. Optional positionals (defaults)
             # are fine — they expand into multiple servable arities.
             def natural_eligible_pos? = !rest && !kw && !kwrest && !block_param
+
+            # Kw-bearing eligibility (kw_unset path): has at least one
+            # kw param (required or optional). Pure positional + kw,
+            # no rest / kwrest / block_param. Optional positionals
+            # and optional kws use UNSET sentinel at call sites.
+            def kw_unset_eligible? = kw && !rest && !kwrest && !block_param
 
             # The set of positional arities this def can serve. A def
             # with arity_req=A and opt=O serves {A, A+1, …, A+O}. rest
@@ -175,6 +183,19 @@ module Frozone
           # The universal slot coexists with per-arity overloads.
           NaturalArityFamily = Struct.new(:arities, :needs_universal) do
             def empty? = arities.empty?
+          end
+
+          # Slot signature for a kw-bearing method (UNSET path). Slot
+          # parameter count = arity_req + opt + |all_kw_names|. Order:
+          #   - arity_req required positionals (named via the def)
+          #   - opt optional positionals (UNSET-able)
+          #   - all_kw_names (sorted alphabetical, mix of required +
+          #     optional — required slots must be caller-supplied, optional
+          #     slots are UNSET-able)
+          KwUnsetSig = Struct.new(:arity_req, :opt, :required_kw_names, :optional_kw_names) do
+            def all_kw_names = (required_kw_names + optional_kw_names).sort
+            def total_slots = arity_req + opt + required_kw_names.length + optional_kw_names.length
+            def kw_required?(name) = required_kw_names.include?(name)
           end
 
           # Per-name histograms over interned DefShape / CallShape keys.
@@ -289,6 +310,36 @@ module Frozone
           # call sites disqualify the whole family too (no block slot
           # in the per-arity overloads).
           #
+          # Kw-bearing eligibility (single shape v1). Names whose one
+          # def shape includes at least one kw (required or optional)
+          # and is otherwise pure positional + kw. Optional positionals
+          # and optional kws use the UnsetSentinel at call sites.
+          # Mutually exclusive with `eligibility_table` (the simple_kw_only?
+          # subset) — for first commit, eligibility_table claims those
+          # names; this table picks up the strict superset
+          # (opt_kw cases, mixed positional defaults + kw).
+          def kw_unset_table(agg, exclude: Set.new)
+            agg.all_names.each_with_object({}) do |name, h|
+              next if exclude.include?(name)
+              shapes = agg.defs[name]
+              next if shapes.empty?
+              next unless shapes.size == 1
+              shape = shapes.keys.first
+              next unless shape.kw_unset_eligible?
+              # Leave simple_kw_only? names on the v1 path for now to
+              # avoid churning kw_test.rb's expected output. Migration
+              # to a single kw path is a follow-up cleanup.
+              next if shape.simple_kw_only?
+              next if agg.calls[name].any? { |c, _| c.blk_pass || c.do_block }
+              h[name] = KwUnsetSig.new(
+                shape.arity_req,
+                shape.opt,
+                shape.required_kw_names.dup,
+                shape.optional_kw_names.dup,
+              )
+            end
+          end
+
           # Mutually exclusive with `eligibility_table` (v1 single-arity
           # pure-positional). Single-shape with opt > 0 (defaults
           # beachhead) and multi-shape cross-class both flow through
@@ -340,12 +391,15 @@ module Frozone
             v1_calls = eligible.sum { |n| agg.compatible_calls(n) }
             defaults_only = multi_arity_table(agg)
             defaults_only_calls = defaults_only.keys.sum { |n| agg.per_arity_compatible_calls(n) }
+            kw_unset = kw_unset_table(agg)
+            kw_unset_calls = kw_unset.keys.sum { |n| agg.call_total(n) }
             io.puts '[method-shape survey]'
             io.puts "  total method names:  #{names.size}"
             io.puts "  eligible (v1):       #{eligible.size} names, #{v1_calls} compatible calls"
             io.puts "  non-eligible (v1):   #{non_eligible.size}"
             io.puts "  per-arity (v2):      #{per_arity_names.size} names, #{per_arity_slot_pairs} (name, arity) slots, #{per_arity_calls} compatible calls"
             io.puts "  defaults beachhead:  #{defaults_only.size} names, #{defaults_only_calls} compatible calls"
+            io.puts "  kw-unset eligible:   #{kw_unset.size} names, #{kw_unset_calls} call sites"
             if defaults_only.any?
               top_defaults = defaults_only.sort_by { |n, _| -agg.per_arity_compatible_calls(n) }.first(10)
               top_defaults.each do |n, f|
