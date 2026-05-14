@@ -65,6 +65,25 @@ class Greeter < Base
   end
 end
 
+class Logger
+  def initialize
+    @log = []
+  end
+  def tick(label)
+    @log << label
+    label
+  end
+  def log
+    @log
+  end
+end
+
+class Recorder
+  def via(x: nil, y: nil, z: nil)
+    0
+  end
+end
+
 w = W.new
 
 # Optional kw — default and explicit.
@@ -125,3 +144,10 @@ begin; w.send(:mixed, 1); rescue ArgumentError => e; puts e.message; end
 # Unknown kw — direct + via send. Both raise ArgumentError.
 begin; w.opt(1, bogus: 99); rescue ArgumentError => e; puts e.message; end
 begin; w.send(:opt, 1, bogus: 99); rescue ArgumentError => e; puts e.message; end
+
+# kw value evaluation order — MRI evaluates kw value expressions in
+# source order regardless of slot/alpha order. Logger captures side-
+# effect ordering; expected [:Z, :X, :Y] (call-site source order).
+logger = Logger.new
+Recorder.new.via(z: logger.tick(:Z), x: logger.tick(:X), y: logger.tick(:Y))
+puts logger.log.inspect

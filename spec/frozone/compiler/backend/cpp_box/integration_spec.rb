@@ -217,6 +217,7 @@ RSpec.describe 'box-first end-to-end' do
       'missing keyword: :must',                # via send
       'unknown keyword: :bogus',               # direct unknown kw
       'unknown keyword: :bogus',               # via send
+      '[:Z, :X, :Y]',                          # kw value eval — source order
     ])
   end
 

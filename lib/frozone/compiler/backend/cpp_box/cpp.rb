@@ -490,29 +490,39 @@ module Frozone
               # all_kw_names) disqualify the static lowering.
               required_present = kw_sig.required_kw_names.all? { |kn| call_kw_map.key?(kn) }
               extras = call_kw_map.keys - kw_sig.all_kw_names
-              if required_present && extras.empty?
-                pos_vals = arg_nodes.map { |a| from_expr(a, locals) }
-                pos_pad = Array.new(kw_sig.arity_req + kw_sig.opt - arg_nodes.length, "unset_instance()")
-                kw_vals = kw_sig.all_kw_names.map do |kn|
-                  if call_kw_map.key?(kn)
-                    from_expr(call_kw_map[kn], locals)
-                  else
-                    "unset_instance()"
-                  end
-                end
-                kw_call_csv = (pos_vals + pos_pad + kw_vals).join(', ')
-              else
+              if !(required_present && extras.empty?)
                 ku_compatible = false
               end
             end
             if ku_compatible
+              # Pre-evaluate every arg expression in Ruby source order
+              # (positionals left-to-right, then kws in source order).
+              # C++ argument evaluation order is unspecified, so building
+              # the call directly would risk reordering side effects.
+              # IIFE with temp bindings gives MRI-matching semantics; the
+              # compiler optimises away pure temps.
+              pos_temps = arg_nodes.each_with_index.map do |a, i|
+                ["_pos_#{i}", from_expr(a, locals)]
+              end
+              kw_source_temps = (node.kw_arg_nodes || []).map do |k, v|
+                kn = k.value.to_sym
+                ["_kw_#{kn}_v", from_expr(v, locals)]
+              end
+              decls = (pos_temps + kw_source_temps).map { |n, e| "BasicObject* #{n} = #{e};" }.join(' ')
+              pos_refs = pos_temps.map(&:first)
+              pos_pad_refs = Array.new(kw_sig.arity_req + kw_sig.opt - arg_nodes.length, "unset_instance()")
+              kw_refs = kw_sig.all_kw_names.map do |kn|
+                call_kw_map.key?(kn) ? "_kw_#{kn}_v" : "unset_instance()"
+              end
+              call_csv = (pos_refs + pos_pad_refs + kw_refs).join(', ')
               if recv && node.safe_nav
                 recv_str = from_expr(recv, locals)
-                return "([&]() -> BasicObject* { auto* _r = #{recv_str}; return (_r == nil_instance()) ? nil_instance() : _r->#{Cpp.method_name(name)}(#{kw_call_csv}); }())"
+                return "([&]() -> BasicObject* { auto* _r = #{recv_str}; if (_r == nil_instance()) return nil_instance(); #{decls} return _r->#{Cpp.method_name(name)}(#{call_csv}); }())"
               elsif recv
-                return "#{from_expr(recv, locals)}->#{Cpp.method_name(name)}(#{kw_call_csv})"
+                recv_str = from_expr(recv, locals)
+                return "([&]() -> BasicObject* { auto* _r = #{recv_str}; #{decls} return _r->#{Cpp.method_name(name)}(#{call_csv}); }())"
               else
-                return "this->#{Cpp.method_name(name)}(#{kw_call_csv})"
+                return "([&]() -> BasicObject* { #{decls} return this->#{Cpp.method_name(name)}(#{call_csv}); }())"
               end
             end
 
