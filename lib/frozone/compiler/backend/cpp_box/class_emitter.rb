@@ -199,7 +199,6 @@ module Frozone
               write_method_vt(emit, method_ids)
               write_natural_arity_default_bodies(emit, call_surface, classes.find { |k| k.name == "BasicObject" })
               write_trampoline_defs(emit, method_ids)
-              write_trampoline_vt(emit, method_ids)
               write_send_body(emit, method_ids)
               write_is_a_lut(emit, class_ids, is_a_lut)
               write_method_missing_default(emit)
@@ -595,20 +594,6 @@ module Frozone
             end
             emit.blank
           end
-
-          # Parallel free-function-pointer table indexed by method_id —
-          # nullptr for ineligible names, &trampoline_<name> for names
-          # that have a natural-arity specialization (set under
-          # FROZONE_NATURAL_ARGS=1; all-null otherwise). m_send and
-          # related dispatch paths check TRAMPOLINE_VT[id] first; if
-          # non-null, the trampoline validates Array-packed args, unpacks
-          # to positional, and calls recv->m_<name>(a1,...,aN) virtually.
-          # Stub kept so callers don't break — the parallel trampoline
-          # table is gone (METHOD_VT now points at the universal-sig
-          # overload directly for natural-arity / multi-arity names,
-          # whose body is the trampoline). Remove once all call sites
-          # of write_trampoline_vt are dropped from the emit pipeline.
-          def self.write_trampoline_vt(_emit, _method_ids); end
 
           # Compute IS_A LUT: bool[N][N] where IS_A[i][j] = true iff
           # class/module i has class/module j in its ancestry. Captures
