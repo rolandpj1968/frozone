@@ -200,6 +200,12 @@ RSpec.describe 'box-first end-to-end' do
     expect(run_box_first('kw_test').strip.split("\n")).to eq(%w[50 307 307 411 411 411])
   end
 
+  it 'dispatches kw-bearing methods via UNSET sentinel slot' do
+    expect(run_box_first('kw_unset_test').strip.split("\n")).to eq(
+      %w[15 109 10 6 103 106 53 56 1060 1080 1139 25 27 12 12]
+    )
+  end
+
   it 'dispatches per-arity overloads for methods with optional positionals' do
     expect(run_box_first('multi_arity_test').strip.split("\n")).to eq([
       '111', '103', '6',

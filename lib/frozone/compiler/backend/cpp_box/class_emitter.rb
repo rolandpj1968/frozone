@@ -53,6 +53,11 @@ module Frozone
             # resolution disambiguates). Universal slot drops; send /
             # mm_dispatch routes via the switch trampoline.
             @multi_arity_table = (emit.respond_to?(:multi_arity_table) ? emit.multi_arity_table : nil) || {}
+            # Kw-bearing (UNSET) path: names whose def has at least one
+            # kw param. Single slot signature: required pos → opt pos
+            # (UNSET-able) → kws alphabetical (required slots required,
+            # optional UNSET-able). Default-fill happens in callee body.
+            @kw_unset_table = (emit.respond_to?(:kw_unset_table) ? emit.kw_unset_table : nil) || {}
             # Constant surface — names referenced via dynamic-receiver
             # paths (`self.class::X`). Each gets a `c_X` virtual on
             # BasicObject + overrides on every eigenclass that has X.
@@ -434,7 +439,7 @@ module Frozone
           # delegates to mm_dispatch — only exercised when no
           # subclass overrides the slot.
           def self.write_natural_arity_default_bodies(emit, call_surface, basic_object_klass)
-            return if @natural_arity_names.empty? && @multi_arity_table.empty?
+            return if @natural_arity_names.empty? && @multi_arity_table.empty? && @kw_unset_table.empty?
             # Same skip set as write_universal_surface — names where
             # BasicObject already has a concrete out-of-line definition
             # (hand-coded or overlay override) would collide at link
@@ -464,6 +469,14 @@ module Frozone
                   pack = (0...k).map { |i| "_args->data.push_back(a#{i});" }.join(' ')
                   emit.line "BasicObject* BasicObject::#{cpp_name}(#{params}) { Array* _args = new Array(); #{pack} return mm_dispatch(this, _args, &EMPTY_KWARGS, nil_instance(), \"#{ruby_lit}\"); }"
                 end
+              elsif (kw_sig = @kw_unset_table[ruby_name.to_sym])
+                n_pos = kw_sig.arity_req + kw_sig.opt
+                pos_params = (0...n_pos).map { |i| "BasicObject* a#{i}" }
+                kw_params = kw_sig.all_kw_names.map { |kn| "BasicObject* k_#{kn}" }
+                params = (pos_params + kw_params).join(', ')
+                pack = (0...n_pos).map { |i| "_args->data.push_back(a#{i});" }.join(' ')
+                kw_pack = kw_sig.all_kw_names.map { |kn| %|if (k_#{kn} != unset_instance()) _kw->data[intern("#{kn}")] = k_#{kn};| }.join(' ')
+                emit.line "BasicObject* BasicObject::#{cpp_name}(#{params}) { Array* _args = new Array(); #{pack} Hash* _kw = new Hash(); #{kw_pack} return mm_dispatch(this, _args, _kw, nil_instance(), \"#{ruby_lit}\"); }"
               end
             end
             emit.blank
@@ -487,12 +500,43 @@ module Frozone
           # TRAMPOLINE_VT). Body is out-of-line because it accesses
           # Array's `data` field which isn't complete inside BasicObject.
           def self.write_trampoline_defs(emit, method_ids)
-            return if @natural_arity_names.empty? && @multi_arity_table.empty?
+            return if @natural_arity_names.empty? && @multi_arity_table.empty? && @kw_unset_table.empty?
             method_ids.each_key do |cpp_name|
               ruby = cpp_name_to_ruby(cpp_name)
               sig = @natural_arity_names[ruby.to_sym]
               family = @multi_arity_table[ruby.to_sym]
-              next unless sig || family
+              kw_sig = @kw_unset_table[ruby.to_sym]
+              next unless sig || family || kw_sig
+              if kw_sig
+                min_arity = kw_sig.arity_req
+                max_arity = kw_sig.arity_req + kw_sig.opt
+                emit.line "BasicObject* BasicObject::#{cpp_name}(Array* args, Hash* kwargs, BasicObject* /*block*/) {"
+                emit.indented do
+                  emit.line "check_arity_range(args->data.size(), #{min_arity}, #{max_arity});"
+                  # Extract kw values — required must be present, optional defaults to UNSET.
+                  kw_sig.all_kw_names.each do |kn|
+                    key_lit = kn.to_s.gsub('\\', '\\\\\\\\').gsub('"', '\\"')
+                    emit.line %|auto _it_#{kn} = kwargs->data.find(intern("#{key_lit}"));|
+                    if kw_sig.kw_required?(kn)
+                      emit.line %|if (_it_#{kn} == kwargs->data.end()) { std::fprintf(stderr, "[box-first] missing required kw arg :#{kn}\\n"); std::abort(); }|
+                      emit.line "BasicObject* _kv_#{kn} = _it_#{kn}->second;"
+                    else
+                      emit.line "BasicObject* _kv_#{kn} = (_it_#{kn} == kwargs->data.end()) ? unset_instance() : _it_#{kn}->second;"
+                    end
+                  end
+                  # Positional slot values: required pos from args, optional pos from args or UNSET.
+                  pos_slot_vals = (0...kw_sig.arity_req).map { |i| "args->data[#{i}]" }
+                  opt_slot_vals = (0...kw_sig.opt).map do |i|
+                    idx = kw_sig.arity_req + i
+                    "((std::size_t)args->data.size() > #{idx}) ? args->data[#{idx}] : unset_instance()"
+                  end
+                  kw_slot_vals = kw_sig.all_kw_names.map { |kn| "_kv_#{kn}" }
+                  all_vals = (pos_slot_vals + opt_slot_vals + kw_slot_vals).join(', ')
+                  emit.line "return this->#{cpp_name}(#{all_vals});"
+                end
+                emit.line "}"
+                next
+              end
               if family
                 arities = family.arities.to_a.sort
                 min_arity = arities.first
@@ -892,6 +936,15 @@ module Frozone
                   emit.line %(virtual BasicObject* #{cpp_name}(#{params});)
                 end
                 emit.line %(virtual BasicObject* #{cpp_name}(Array* args, Hash* kwargs, BasicObject* block);)
+              elsif (kw_sig = @kw_unset_table[ruby_name.to_sym])
+                # Kw-bearing: single slot signature with required pos →
+                # opt pos (UNSET-able) → kws alphabetical. Universal-sig
+                # slot decl carries the per-name trampoline body.
+                pos_params = (0...kw_sig.total_slots - kw_sig.all_kw_names.length).map { |i| "BasicObject* a#{i}" }
+                kw_params = kw_sig.all_kw_names.map { |kn| "BasicObject* k_#{kn}" }
+                params = (pos_params + kw_params).join(', ')
+                emit.line %(virtual BasicObject* #{cpp_name}(#{params});)
+                emit.line %(virtual BasicObject* #{cpp_name}(Array* args, Hash* kwargs, BasicObject* block);)
               else
                 emit.line %(virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) { return mm_dispatch(this, args, kwargs, block, "#{ruby_lit}"); })
               end
@@ -1115,6 +1168,15 @@ module Frozone
               if klass.name == "BasicObject"
                 emit.line "virtual BasicObject* #{name}(Array* args, Hash* kwargs, BasicObject* block);"
               end
+            elsif (kw_sig = @kw_unset_table[ruby_name])
+              emit.line "using BasicObject::#{name};" if emit_using
+              n_pos = kw_sig.arity_req + kw_sig.opt
+              pos_params = (0...n_pos).map { |i| "BasicObject* a#{i}" }
+              kw_params = kw_sig.all_kw_names.map { |kn| "BasicObject* k_#{kn}" }
+              emit.line "virtual BasicObject* #{name}(#{(pos_params + kw_params).join(', ')})#{override_kw};"
+              if klass.name == "BasicObject"
+                emit.line "virtual BasicObject* #{name}(Array* args, Hash* kwargs, BasicObject* block);"
+              end
             else
               emit.line "virtual BasicObject* #{name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance())#{override_kw};"
             end
@@ -1155,6 +1217,17 @@ module Frozone
                 emit.line "}"
                 emit.blank
               end
+              return
+            end
+            # Kw-unset out-of-line def — spec[:params] already lists the
+            # full slot signature (required pos → opt pos → all kws);
+            # body is the default-fill prologue + method body.
+            if spec[:kw_unset]
+              params = spec[:params] || []
+              emit.line "BasicObject* #{class_name}::#{name}(#{params.join(', ')}) {"
+              emit.indented { spec[:body].each_line { |l| emit.line l.chomp } }
+              emit.line "}"
+              emit.blank
               return
             end
             if (sig = @natural_arity_names[cpp_name_head_ruby(name).to_sym])

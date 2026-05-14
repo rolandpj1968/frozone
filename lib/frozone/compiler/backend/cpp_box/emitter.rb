@@ -27,7 +27,7 @@ module Frozone
     module Backend
       module CppBox
         class Emitter
-          attr_reader :cpp, :top_level_scope, :user_classes, :user_constants, :natural_arity_names, :multi_arity_table
+          attr_reader :cpp, :top_level_scope, :user_classes, :user_constants, :natural_arity_names, :multi_arity_table, :kw_unset_table
           # When true, emission errors inside method bodies re-raise
           # under FROZONE_BOX_HARD_FAIL=1 instead of graceful-skipping.
           # Toggled true while emitting user-class bodies + the
@@ -162,6 +162,7 @@ module Frozone
             print_method_def_analysis if ENV['FROZONE_BOX_ANALYSIS'] == '1'
             @natural_arity_names = {}
             @multi_arity_table = {}
+            @kw_unset_table = {}
             if ENV['FROZONE_METHOD_SHAPES'] == '1' || ENV['FROZONE_NATURAL_ARGS'] == '1'
               agg = build_method_shape_survey
               MethodShapeSurvey.report(agg) if ENV['FROZONE_METHOD_SHAPES'] == '1'
@@ -169,13 +170,16 @@ module Frozone
                 exclude = compute_hand_coded_disqualified_names | (@internal_block_users || Set.new)
                 @natural_arity_names = MethodShapeSurvey.eligibility_table(agg, exclude: exclude)
                 @multi_arity_table = MethodShapeSurvey.multi_arity_table(agg, exclude: exclude)
+                @kw_unset_table = MethodShapeSurvey.kw_unset_table(agg, exclude: exclude)
                 override_collisions = prune_override_arity_collisions
                 multi_collisions = prune_multi_arity_override_collisions
+                kw_unset_collisions = prune_kw_unset_override_collisions
                 $stderr.puts "[box-first] natural-args: #{@natural_arity_names.size} eligible names " \
                              "(excluded: #{compute_hand_coded_disqualified_names.size} hand-coded, " \
                              "#{(@internal_block_users || Set.new).size} use internal yield/block_given?, " \
                              "#{override_collisions} cpp-name arity collisions); " \
-                             "#{@multi_arity_table.size} multi-arity (defaults; -#{multi_collisions} override collisions)"
+                             "#{@multi_arity_table.size} multi-arity (defaults; -#{multi_collisions} override collisions); " \
+                             "#{@kw_unset_table.size} kw-unset (-#{kw_unset_collisions} override collisions)"
               end
             end
             all_classes = overlay_universe_methods(Runtime::ALL_CLASSES) + build_user_class_defs
@@ -2022,6 +2026,67 @@ module Frozone
             { multi_arity: entries }
           end
 
+          # Kw-bearing override (UNSET path). Single slot signature:
+          # required pos → opt pos (UNSET-able) → kws alphabetical.
+          # Body declares locals from slot params, default-filling
+          # UNSET slots in source order so later defaults can read
+          # earlier-bound params.
+          def build_kw_unset_override(method, sig)
+            required = method.required_params || []
+            optional = method.optional_params || []
+            opt_kw_pairs = method.optional_kw_params || []
+            opt_kw_defaults = opt_kw_pairs.to_h { |p, default| [p.to_sym, default] }
+            if !(method.post_params || []).empty? || method.rest_param || method.kw_rest_param || method.block_param
+              raise Cpp::EmissionError, "kw-unset requires pure positional+kw def"
+            end
+            if required.length != sig.arity_req || optional.length != sig.opt
+              raise Cpp::EmissionError, "kw-unset shape mismatch for :#{method.name}"
+            end
+            captured = method.body ? MethodEmitter.collect_method_captured(method) : Set.new
+            body = @cpp.with_captured_locals(captured) do
+              capture do
+                locals = Set.new
+                required.each_with_index do |p, i|
+                  line MethodEmitter.decl_local_line(self, p, "_arg#{i}")
+                  locals << p.to_s
+                end
+                optional.each_with_index do |(p, default_node), i|
+                  slot = "_arg#{sig.arity_req + i}"
+                  default_str = default_node ? @cpp.from_expr(default_node, locals) : "nil_instance()"
+                  line MethodEmitter.decl_local_line(self, p, "(#{slot} == unset_instance()) ? (#{default_str}) : #{slot}")
+                  locals << p.to_s
+                end
+                sig.all_kw_names.each do |kn|
+                  if sig.kw_required?(kn)
+                    line MethodEmitter.decl_local_line(self, kn, "_kw_#{kn}")
+                  else
+                    default_node = opt_kw_defaults[kn]
+                    default_str = default_node ? @cpp.from_expr(default_node, locals) : "nil_instance()"
+                    line MethodEmitter.decl_local_line(self, kn, "(_kw_#{kn} == unset_instance()) ? (#{default_str}) : _kw_#{kn}")
+                  end
+                  locals << kn.to_s
+                end
+                seen_writes = MethodEmitter.collect_local_writes(method.body)
+                ((method.locals || []) + seen_writes.to_a).uniq.each do |loc|
+                  s = loc.to_s
+                  next if s.empty? || locals.include?(s)
+                  line MethodEmitter.decl_local_line(self, s, "nil_instance()")
+                  locals << s
+                end
+                ExprEmitter.write_body(self, method.body, locals: locals, last_is_return: true) if method.body
+              end
+            end
+            indented_body = body.each_line.map { |l| "  #{l}" }.join
+            slot_params = (0...sig.arity_req).map { |i| "BasicObject* _arg#{i}" } +
+                          (0...sig.opt).map { |i| "BasicObject* _arg#{sig.arity_req + i}" } +
+                          sig.all_kw_names.map { |kn| "BasicObject* _kw_#{kn}" }
+            {
+              params: slot_params,
+              body: "std::uint64_t __frame_id__ = next_frame_id();\ntry {\n#{indented_body}  return nil_instance();\n} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }\n",
+              kw_unset: true,
+            }
+          end
+
           def build_override(method, super_ctx: nil, fall_through_on_error: false, storage_name: nil)
             with_method_scope(method) do
               with_super_context(super_ctx) do
@@ -2040,6 +2105,8 @@ module Frozone
                 return build_natural_arity_override(method, sig) if sig
                 family = @multi_arity_table && @multi_arity_table[lookup_name]
                 return build_multi_arity_override(method, family) if family
+                kw_sig = @kw_unset_table && @kw_unset_table[lookup_name]
+                return build_kw_unset_override(method, kw_sig) if kw_sig
                 # Pre-walk for captured locals (inner-block-referenced
                 # locals get heap-cell storage; see CppBox::Cpp.captured_locals).
                 # Includes block-locals hoisted by collect_local_writes
@@ -2212,6 +2279,27 @@ module Frozone
           def prune_multi_arity_override_collisions
             pruned = 0
             @multi_arity_table.delete_if do |ruby_name, _family|
+              cpp = Cpp.method_name(ruby_name)
+              collide = Runtime::ALL_CLASSES.any? do |k|
+                hc = (k.hand_coded_method_names || []).include?(cpp)
+                override = (k.overrides || {})[cpp]
+                singleton = (k.respond_to?(:eigenclass_overrides) ? k.eigenclass_overrides : nil) || {}
+                hc || override || singleton[cpp]
+              end
+              pruned += 1 if collide
+              collide
+            end
+            pruned
+          end
+
+          # Same conservative prune as multi-arity: drop kw_unset names
+          # where any class has a hand-coded or overlay override at the
+          # cpp slot. The kw_unset slot signature has a fixed param
+          # count that wouldn't match a hand-coded body, and per-class
+          # overlap with hand-coded paths is too risky for a first pass.
+          def prune_kw_unset_override_collisions
+            pruned = 0
+            @kw_unset_table.delete_if do |ruby_name, _sig|
               cpp = Cpp.method_name(ruby_name)
               collide = Runtime::ALL_CLASSES.any? do |k|
                 hc = (k.hand_coded_method_names || []).include?(cpp)

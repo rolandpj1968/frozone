@@ -467,6 +467,55 @@ module Frozone
               end
             end
 
+            # Kw-unset dispatch — kw-bearing names whose call shape we
+            # can resolve statically: positional count in [arity_req,
+            # arity_req+opt], no splat, no kw_splat, no block. Required
+            # kws must be supplied by the caller; optional kws are
+            # filled with UNSET when not supplied. Slot order: required
+            # pos → opt pos (UNSET-able) → all kws sorted alphabetical.
+            kw_sig = emit&.kw_unset_table&.dig(name)
+            ku_compatible = kw_sig &&
+                            arg_nodes.none? { |a| a.is_a?(Ast::SplatArg) } &&
+                            (node.kw_splat_nodes || []).empty? &&
+                            !has_block &&
+                            arg_nodes.length >= kw_sig.arity_req &&
+                            arg_nodes.length <= kw_sig.arity_req + kw_sig.opt
+            kw_call_csv = nil
+            if ku_compatible
+              call_kw_map = (node.kw_arg_nodes || []).each_with_object({}) do |(k, v), h|
+                kn = k.respond_to?(:value) ? k.value.to_sym : nil
+                h[kn] = v if kn
+              end
+              # Every required kw must be supplied; extras (not in
+              # all_kw_names) disqualify the static lowering.
+              required_present = kw_sig.required_kw_names.all? { |kn| call_kw_map.key?(kn) }
+              extras = call_kw_map.keys - kw_sig.all_kw_names
+              if required_present && extras.empty?
+                pos_vals = arg_nodes.map { |a| from_expr(a, locals) }
+                pos_pad = Array.new(kw_sig.arity_req + kw_sig.opt - arg_nodes.length, "unset_instance()")
+                kw_vals = kw_sig.all_kw_names.map do |kn|
+                  if call_kw_map.key?(kn)
+                    from_expr(call_kw_map[kn], locals)
+                  else
+                    "unset_instance()"
+                  end
+                end
+                kw_call_csv = (pos_vals + pos_pad + kw_vals).join(', ')
+              else
+                ku_compatible = false
+              end
+            end
+            if ku_compatible
+              if recv && node.safe_nav
+                recv_str = from_expr(recv, locals)
+                return "([&]() -> BasicObject* { auto* _r = #{recv_str}; return (_r == nil_instance()) ? nil_instance() : _r->#{Cpp.method_name(name)}(#{kw_call_csv}); }())"
+              elsif recv
+                return "#{from_expr(recv, locals)}->#{Cpp.method_name(name)}(#{kw_call_csv})"
+              else
+                return "this->#{Cpp.method_name(name)}(#{kw_call_csv})"
+              end
+            end
+
             args_array = build_args_array(arg_nodes, locals)
             kwargs_arg = build_kwargs_hash(node.kw_arg_nodes || [], node.kw_splat_nodes || [], locals)
 
@@ -474,14 +523,14 @@ module Frozone
             # the universal-sig overload on the receiver — its body is
             # the per-name trampoline that routes into the right
             # per-arity overload. No parallel TRAMPOLINE_VT.
-            if (na_sig || mu_family) && recv
+            if (na_sig || mu_family || kw_sig) && recv
               recv_str = from_expr(recv, locals)
               if node.safe_nav
                 return "([&]() -> BasicObject* { auto* _r = #{recv_str}; return (_r == nil_instance()) ? nil_instance() : _r->#{Cpp.method_name(name)}(#{args_array}, #{kwargs_arg}, #{block_arg}); }())"
               else
                 return "#{recv_str}->#{Cpp.method_name(name)}(#{args_array}, #{kwargs_arg}, #{block_arg})"
               end
-            elsif (na_sig || mu_family) && !recv
+            elsif (na_sig || mu_family || kw_sig) && !recv
               return "this->#{Cpp.method_name(name)}(#{args_array}, #{kwargs_arg}, #{block_arg})"
             end
 
