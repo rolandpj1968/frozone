@@ -971,6 +971,40 @@ module Frozone
                 end
               return "this->#{qualifier_class}::#{cpp_name}(#{args_csv})"
             end
+            # Kw-unset super: parent slot has the same uniform slot
+            # signature (required pos → opt pos → kws sorted). Bare
+            # `super` forwards all positionals + all kw locals (each
+            # already either caller-bound or default-filled in this
+            # entry). Explicit super(...) with kw overrides — pass
+            # provided args and look up kw locals from the current
+            # method's bound state.
+            kw_sig = emit&.kw_unset_table&.dig(method_name)
+            if kw_sig
+              all_kw_locals = kw_sig.all_kw_names.map { |kn| MethodEmitter.local_cpp_name(kn) }
+              args_csv =
+                if node.forwarding
+                  ((ctx[:method_params] || []) + all_kw_locals).join(', ')
+                elsif node.arg_nodes.empty? && (node.kw_arg_nodes || []).empty?
+                  ""
+                else
+                  pos = node.arg_nodes.map { |a| from_expr(a, locals) }
+                  # Pad positionals up to arity_req + opt with UNSET.
+                  pad = Array.new(kw_sig.arity_req + kw_sig.opt - pos.length, "unset_instance()")
+                  call_kw_map = (node.kw_arg_nodes || []).each_with_object({}) do |(k, v), h|
+                    kn = k.respond_to?(:value) ? k.value.to_sym : nil
+                    h[kn] = v if kn
+                  end
+                  kw_vals = kw_sig.all_kw_names.map do |kn|
+                    if call_kw_map.key?(kn)
+                      from_expr(call_kw_map[kn], locals)
+                    else
+                      MethodEmitter.local_cpp_name(kn)
+                    end
+                  end
+                  (pos + pad + kw_vals).join(', ')
+                end
+              return "this->#{qualifier_class}::#{cpp_name}(#{args_csv})"
+            end
 
             args_expr =
               if node.forwarding

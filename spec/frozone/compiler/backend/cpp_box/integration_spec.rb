@@ -201,9 +201,19 @@ RSpec.describe 'box-first end-to-end' do
   end
 
   it 'dispatches kw-bearing methods via UNSET sentinel slot' do
-    expect(run_box_first('kw_unset_test').strip.split("\n")).to eq(
-      %w[15 109 10 6 103 106 53 56 1060 1080 1139 25 27 12 12]
-    )
+    expect(run_box_first('kw_unset_test').strip.split("\n")).to eq([
+      '15', '109',
+      '10', '6',
+      '103', '106', '53', '56',
+      '1060', '1080', '1139',
+      '25', '27', '12', '12',
+      '35', '37',                              # splat
+      '19',                                    # kw_splat
+      '1123', '1193', '1528', '1598',          # multi opt kws
+      '[hi-alice!]', '[hi-alice?]',            # super
+      '15',                                    # recursive
+      '342', '399',                            # default-via-method
+    ])
   end
 
   it 'dispatches per-arity overloads for methods with optional positionals' do
