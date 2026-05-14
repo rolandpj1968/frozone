@@ -281,25 +281,38 @@ module Frozone
             end
           end
 
-          # Defaults-only beachhead: names with a single def shape that
-          # is natural_eligible_pos? with optional positionals (opt > 0)
-          # and no required kw. Such names produce a multi-arity family
-          # served by a single defining shape — every class that defines
-          # the name supplies a real body at every arity (no cross-class
-          # arity divergence yet, so no wrong-args stubs needed in
-          # non-defining classes). Mutually exclusive with
-          # `eligibility_table` (which excludes opt > 0 via simple?).
+          # Names with one or more pure-positional def shapes (no kw /
+          # splat / block_param / kwrest). The family unions every
+          # servable arity from every defining class. Every shape must
+          # be natural_eligible_pos? — if any def needs the universal
+          # slot (kw / splat / block), drop the name. Block-bearing
+          # call sites disqualify the whole family too (no block slot
+          # in the per-arity overloads).
+          #
+          # Mutually exclusive with `eligibility_table` (v1 single-arity
+          # pure-positional). Single-shape with opt > 0 (defaults
+          # beachhead) and multi-shape cross-class both flow through
+          # here — codegen distinguishes them per-class by emitting
+          # wrong-args stubs for arities a class's def doesn't serve.
           def multi_arity_table(agg, exclude: Set.new)
             agg.all_names.each_with_object({}) do |name, h|
               next if exclude.include?(name)
               shapes = agg.defs[name]
-              next unless shapes.size == 1
-              shape = shapes.keys.first
-              next unless shape.natural_eligible_pos?
-              next if shape.opt.zero?              # arity 1 only → v1 path
-              next unless shape.required_kw_names.empty?
+              next if shapes.empty?
+              next unless shapes.keys.all?(&:natural_eligible_pos?)
+              next if shapes.keys.all? { |s| !s.required_kw_names.empty? }
+              # Drop required_kw shapes — required-kw lowering lives on
+              # a separate (v1) slot signature today; mixing it with
+              # per-arity positional would need a third overload family.
+              next if shapes.keys.any? { |s| !s.required_kw_names.empty? }
               next if agg.calls[name].any? { |c, _| c.blk_pass || c.do_block }
-              h[name] = NaturalArityFamily.new(shape.arities_servable.to_set, false)
+              arities = shapes.keys.flat_map(&:arities_servable).to_set
+              next if arities.empty?
+              # v1 (eligibility_table) covers single-arity pure-positional
+              # — leave those there to keep the per-arity machinery
+              # focused on multi-arity dispatch.
+              next if arities.size == 1 && shapes.keys.all? { |s| s.opt.zero? }
+              h[name] = NaturalArityFamily.new(arities, false)
             end
           end
 

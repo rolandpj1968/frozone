@@ -201,8 +201,14 @@ RSpec.describe 'box-first end-to-end' do
   end
 
   it 'dispatches per-arity overloads for methods with optional positionals' do
-    expect(run_box_first('multi_arity_test').strip.split("\n")).to eq(
-      %w[111 103 6 1024 1060 1059 111 103 6 117 115 24]
-    )
+    expect(run_box_first('multi_arity_test').strip.split("\n")).to eq([
+      '111', '103', '6',
+      '1024', '1060', '1059',
+      '111', '103', '6',
+      '117', '115', '24',
+      '500', '11',
+      'wrong number of arguments (given 2, expected 1)',
+      'wrong number of arguments (given 1, expected 2)',
+    ])
   end
 end

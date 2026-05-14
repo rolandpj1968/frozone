@@ -1951,36 +1951,37 @@ module Frozone
             }
           end
 
-          # Defaults beachhead: a single def shape with optional
-          # positionals expands into N entry points (one per servable
-          # arity), each filling unset defaults in declaration order
-          # then running the shared body. spec[:multi_arity] is a list
-          # of (params, body) pairs; write_override_decl / def expand
-          # this list into N C++ overloads sharing the same cpp name.
+          # Per-arity entry points for a pure-positional def. For arities
+          # the def serves (arity_req..arity_req+opt), emit the body
+          # with appropriate default-fill prefix. For other family
+          # arities (cross-class divergence — another class defines the
+          # name at an arity this def doesn't serve), emit a wrong-args
+          # stub so call sites at those arities raise ArgumentError on
+          # an instance of this class rather than method_missing.
           def build_multi_arity_override(method, family)
             required = method.required_params || []
             optional = method.optional_params || []
             arity_req = required.length
             arity_max = arity_req + optional.length
-            # Shape sanity-check: the family's arities should match the
-            # def's servable range. If a survey/codegen drift breaks
-            # this invariant, surface it loudly rather than silently
-            # emitting wrong C++.
-            unless family.arities.to_a.sort == (arity_req..arity_max).to_a
-              raise Cpp::EmissionError,
-                    "multi-arity shape mismatch for :#{method.name}: " \
-                    "family #{family.arities.to_a.sort.inspect} vs def arities #{(arity_req..arity_max).to_a.inspect}"
-            end
             if !(method.post_params || []).empty? ||
                method.rest_param ||
                method.kw_rest_param ||
                !(method.required_kw_params || []).empty? ||
                !(method.optional_kw_params || []).empty? ||
                method.block_param
-              raise Cpp::EmissionError, "multi-arity beachhead requires pure-positional def"
+              raise Cpp::EmissionError, "multi-arity requires pure-positional def"
             end
             captured = method.body ? MethodEmitter.collect_method_captured(method) : Set.new
             entries = family.arities.to_a.sort.map do |k|
+              if k < arity_req || k > arity_max
+                check_call = arity_req == arity_max ?
+                  "check_arity_fixed(#{k}, #{arity_req});" :
+                  "check_arity_range(#{k}, #{arity_req}, #{arity_max});"
+                next({
+                  params: (0...k).map { |i| "BasicObject* _arg#{i}" },
+                  body: "#{check_call}\nreturn nil_instance();\n",
+                })
+              end
               bound_opt = k - arity_req
               body = @cpp.with_captured_locals(captured) do
                 capture do

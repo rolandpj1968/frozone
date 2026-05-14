@@ -2,13 +2,12 @@
 #
 # Exercises per-arity natural-args dispatch for methods with optional
 # positional params (defaults beachhead — single def shape, multiple
-# servable arities). The integration spec asserts exact stdout match.
+# servable arities) AND for cross-class arity divergence (two classes
+# define the same name at different arities; per-arity overload
+# resolution routes to the right slot, wrong-arity calls raise
+# ArgumentError on the receiver's actual class).
 #
-# Coverage:
-#   - Direct call at every servable arity
-#   - Default expression using prior bound param
-#   - Subclass inheriting the default-bearing method
-#   - send-dispatch at every arity (exercises universal slot path)
+# The integration spec asserts exact stdout match.
 
 class Adder
   def add(a, b = 10, c = 100)
@@ -22,6 +21,15 @@ class Adder
 end
 
 class SubAdder < Adder
+end
+
+# Cross-class divergence: Ans#act takes one arg; Box#act takes two.
+class Ans
+  def act(x); x * 100; end
+end
+
+class Box
+  def act(x, y); x + y; end
 end
 
 a = Adder.new
@@ -41,3 +49,10 @@ puts s.add(1, 2, 3)
 puts a.send(:add, 7)
 puts a.send(:add, 7, 8)
 puts a.send(:add, 7, 8, 9)
+
+an = Ans.new
+bx = Box.new
+puts an.act(5)
+puts bx.act(5, 6)
+begin; an.act(5, 6); rescue ArgumentError => e; puts e.message; end
+begin; bx.act(5); rescue ArgumentError => e; puts e.message; end

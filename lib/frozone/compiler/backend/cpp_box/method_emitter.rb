@@ -184,11 +184,25 @@ module Frozone
             optional = method.optional_params || []
             arity_req = required.length
             arity_max = arity_req + optional.length
-            unless family.arities.to_a.sort == (arity_req..arity_max).to_a
-              raise Cpp::EmissionError, "multi-arity shape mismatch for #{cpp_name}"
-            end
             captured = method.body ? collect_method_captured(method) : Set.new
             family.arities.to_a.sort.each do |k|
+              params = (0...k).map { |i| "BasicObject* _arg#{i}" }.join(', ')
+              if k < arity_req || k > arity_max
+                # Cross-class wrong-args stub — this method's def doesn't
+                # serve arity k, but another defining class does. Raise
+                # ArgumentError so a call at arity k on this class's
+                # instance gets the right error, not method_missing.
+                check_call = arity_req == arity_max ?
+                  "check_arity_fixed(#{k}, #{arity_req});" :
+                  "check_arity_range(#{k}, #{arity_req}, #{arity_max});"
+                emit.line "virtual BasicObject* #{cpp_name}(#{params}) {"
+                emit.indented do
+                  emit.line check_call
+                  emit.line "return nil_instance();"
+                end
+                emit.line "}"
+                next
+              end
               bound_opt = k - arity_req
               body_buf = emit.cpp.with_captured_locals(captured) do
                 emit.capture do
@@ -223,7 +237,6 @@ module Frozone
                   emit.line "} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }"
                 end
               end
-              params = (0...k).map { |i| "BasicObject* _arg#{i}" }.join(', ')
               emit.line "virtual BasicObject* #{cpp_name}(#{params}) {"
               emit.indented { body_buf.each_line { |l| emit.line l.chomp } }
               emit.line "}"
