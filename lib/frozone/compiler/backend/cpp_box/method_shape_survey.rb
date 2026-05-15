@@ -343,12 +343,11 @@ module Frozone
               next if exclude.include?(name)
               shapes = agg.defs[name]
               next if shapes.empty?
+              # natural_eligible_pos? already requires !kw, so any
+              # required_kw / optional_kw shape is filtered here.
+              # Mixed-shape names with kw flow through kw_unset_table
+              # (when single-shape) or universal (when multi-shape).
               next unless shapes.keys.all?(&:natural_eligible_pos?)
-              next if shapes.keys.all? { |s| !s.required_kw_names.empty? }
-              # Drop required_kw shapes — required-kw lowering lives on
-              # a separate (v1) slot signature today; mixing it with
-              # per-arity positional would need a third overload family.
-              next if shapes.keys.any? { |s| !s.required_kw_names.empty? }
               next if agg.calls[name].any? { |c, _| c.blk_pass || c.do_block }
               arities = shapes.keys.flat_map(&:arities_servable).to_set
               next if arities.empty?
