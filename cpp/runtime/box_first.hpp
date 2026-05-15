@@ -204,10 +204,13 @@ struct ProcFn {
 struct BreakException  { Ruby::BasicObject* value; };
 struct ReturnException { Ruby::BasicObject* value; std::uint64_t target_frame; };
 
-// Per-invocation frame ID. Atomic so concurrent threads don't collide.
-// Address-of-stack-local would also work but a counter is portable.
+// Per-invocation frame ID. Thread-local counter — each thread has its
+// own monotone sequence. Frame IDs only need to be unique within a
+// single thread (a `return` thrown from a block is caught by the
+// enclosing method on the same thread). Avoids the atomic RMW cost
+// of a shared counter on the hot path of every method call.
 inline std::uint64_t next_frame_id() {
-  static std::atomic<std::uint64_t> counter{0};
+  static thread_local std::uint64_t counter = 0;
   return ++counter;
 }
 
