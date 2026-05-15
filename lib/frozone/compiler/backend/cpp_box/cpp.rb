@@ -393,8 +393,156 @@ module Frozone
             # a Proc and pass as the third call-protocol arg.
             has_block = node.block_node && !(name == :times && recv)
             block_arg = has_block ? from_block_as_proc(node.block_node, locals) : "nil_instance()"
+
+            # Natural-arity dispatch. If the target name is eligible
+            # AND the call shape is compatible (positional only, no
+            # block, no kwargs, no splat, arity matches), emit a
+            # direct natural-arity virtual call that skips the args-
+            # Array allocation. Incompatible-shape calls (splat /
+            # kwargs) of eligible names go through the per-name
+            # trampoline free function which takes universal-shape
+            # args and forwards to the natural-arity slot.
+            na_sig = emit&.natural_arity_names&.dig(name)
+            # Compatibility for natural-arity dispatch: positional
+            # arg count matches sig.arity_req, no splat / kw-splat /
+            # block. If the sig has required-kw names, the call site
+            # must also supply EXACTLY that set of literal kw_arg
+            # names (no extras, no missing). Reorder the call's kw
+            # args to match the sig's declaration (sorted) order.
+            na_kw_csv = nil
+            kw_compat = if na_sig
+              call_kw_names = (node.kw_arg_nodes || []).map do |k, _|
+                k.respond_to?(:value) ? k.value.to_sym : nil
+              end
+              if na_sig.required_kw_names.empty?
+                (node.kw_arg_nodes || []).empty? && (node.kw_splat_nodes || []).empty?
+              elsif (node.kw_splat_nodes || []).any?
+                false
+              elsif call_kw_names.sort == na_sig.required_kw_names
+                kw_map = (node.kw_arg_nodes || []).to_h { |k, v| [k.value.to_sym, v] }
+                na_kw_csv = na_sig.required_kw_names.map { |kn| from_expr(kw_map[kn], locals) }
+                true
+              else
+                false
+              end
+            end
+            na_compatible = na_sig &&
+                            arg_nodes.length == na_sig.arity_req &&
+                            arg_nodes.none? { |a| a.is_a?(Ast::SplatArg) } &&
+                            !has_block &&
+                            kw_compat
+
+            if na_compatible
+              pos_csv = arg_nodes.map { |a| from_expr(a, locals) }
+              all_csv = (pos_csv + (na_kw_csv || [])).join(', ')
+              if recv && node.safe_nav
+                recv_str = from_expr(recv, locals)
+                return "([&]() -> BasicObject* { auto* _r = #{recv_str}; return (_r == nil_instance()) ? nil_instance() : _r->#{Cpp.method_name(name)}(#{all_csv}); }())"
+              elsif recv
+                return "#{from_expr(recv, locals)}->#{Cpp.method_name(name)}(#{all_csv})"
+              else
+                return "this->#{Cpp.method_name(name)}(#{all_csv})"
+              end
+            end
+
+            # Multi-arity dispatch — same shape as natural-arity but
+            # picks the overload by argument count. Compatible call:
+            # static positional arity in family, no kwargs/splat/block.
+            mu_family = emit&.multi_arity_table&.dig(name)
+            mu_compatible = mu_family &&
+                            arg_nodes.none? { |a| a.is_a?(Ast::SplatArg) } &&
+                            (node.kw_arg_nodes || []).empty? &&
+                            (node.kw_splat_nodes || []).empty? &&
+                            !has_block &&
+                            mu_family.arities.include?(arg_nodes.length)
+            if mu_compatible
+              pos_csv = arg_nodes.map { |a| from_expr(a, locals) }.join(', ')
+              if recv && node.safe_nav
+                recv_str = from_expr(recv, locals)
+                return "([&]() -> BasicObject* { auto* _r = #{recv_str}; return (_r == nil_instance()) ? nil_instance() : _r->#{Cpp.method_name(name)}(#{pos_csv}); }())"
+              elsif recv
+                return "#{from_expr(recv, locals)}->#{Cpp.method_name(name)}(#{pos_csv})"
+              else
+                return "this->#{Cpp.method_name(name)}(#{pos_csv})"
+              end
+            end
+
+            # Kw-unset dispatch — kw-bearing names whose call shape we
+            # can resolve statically: positional count in [arity_req,
+            # arity_req+opt], no splat, no kw_splat, no block. Required
+            # kws must be supplied by the caller; optional kws are
+            # filled with UNSET when not supplied. Slot order: required
+            # pos → opt pos (UNSET-able) → all kws sorted alphabetical.
+            kw_sig = emit&.kw_unset_table&.dig(name)
+            ku_compatible = kw_sig &&
+                            arg_nodes.none? { |a| a.is_a?(Ast::SplatArg) } &&
+                            (node.kw_splat_nodes || []).empty? &&
+                            !has_block &&
+                            arg_nodes.length >= kw_sig.arity_req &&
+                            arg_nodes.length <= kw_sig.arity_req + kw_sig.opt
+            kw_call_csv = nil
+            if ku_compatible
+              call_kw_map = (node.kw_arg_nodes || []).each_with_object({}) do |(k, v), h|
+                kn = k.respond_to?(:value) ? k.value.to_sym : nil
+                h[kn] = v if kn
+              end
+              # Every required kw must be supplied; extras (not in
+              # all_kw_names) disqualify the static lowering.
+              required_present = kw_sig.required_kw_names.all? { |kn| call_kw_map.key?(kn) }
+              extras = call_kw_map.keys - kw_sig.all_kw_names
+              if !(required_present && extras.empty?)
+                ku_compatible = false
+              end
+            end
+            if ku_compatible
+              # Pre-evaluate every arg expression in Ruby source order
+              # (positionals left-to-right, then kws in source order).
+              # C++ argument evaluation order is unspecified, so building
+              # the call directly would risk reordering side effects.
+              # IIFE with temp bindings gives MRI-matching semantics; the
+              # compiler optimises away pure temps.
+              pos_temps = arg_nodes.each_with_index.map do |a, i|
+                ["_pos_#{i}", from_expr(a, locals)]
+              end
+              kw_source_temps = (node.kw_arg_nodes || []).map do |k, v|
+                kn = k.value.to_sym
+                ["_kw_#{kn}_v", from_expr(v, locals)]
+              end
+              decls = (pos_temps + kw_source_temps).map { |n, e| "BasicObject* #{n} = #{e};" }.join(' ')
+              pos_refs = pos_temps.map(&:first)
+              pos_pad_refs = Array.new(kw_sig.arity_req + kw_sig.opt - arg_nodes.length, "unset_instance()")
+              kw_refs = kw_sig.all_kw_names.map do |kn|
+                call_kw_map.key?(kn) ? "_kw_#{kn}_v" : "unset_instance()"
+              end
+              call_csv = (pos_refs + pos_pad_refs + kw_refs).join(', ')
+              if recv && node.safe_nav
+                recv_str = from_expr(recv, locals)
+                return "([&]() -> BasicObject* { auto* _r = #{recv_str}; if (_r == nil_instance()) return nil_instance(); #{decls} return _r->#{Cpp.method_name(name)}(#{call_csv}); }())"
+              elsif recv
+                recv_str = from_expr(recv, locals)
+                return "([&]() -> BasicObject* { auto* _r = #{recv_str}; #{decls} return _r->#{Cpp.method_name(name)}(#{call_csv}); }())"
+              else
+                return "([&]() -> BasicObject* { #{decls} return this->#{Cpp.method_name(name)}(#{call_csv}); }())"
+              end
+            end
+
             args_array = build_args_array(arg_nodes, locals)
-            kwargs_arg = build_kwargs_hash(node.kw_arg_nodes || [], locals)
+            kwargs_arg = build_kwargs_hash(node.kw_arg_nodes || [], node.kw_splat_nodes || [], locals)
+
+            # Eligible name but incompatible call shape: dispatch via
+            # the universal-sig overload on the receiver — its body is
+            # the per-name trampoline that routes into the right
+            # per-arity overload. No parallel TRAMPOLINE_VT.
+            if (na_sig || mu_family || kw_sig) && recv
+              recv_str = from_expr(recv, locals)
+              if node.safe_nav
+                return "([&]() -> BasicObject* { auto* _r = #{recv_str}; return (_r == nil_instance()) ? nil_instance() : _r->#{Cpp.method_name(name)}(#{args_array}, #{kwargs_arg}, #{block_arg}); }())"
+              else
+                return "#{recv_str}->#{Cpp.method_name(name)}(#{args_array}, #{kwargs_arg}, #{block_arg})"
+              end
+            elsif (na_sig || mu_family || kw_sig) && !recv
+              return "this->#{Cpp.method_name(name)}(#{args_array}, #{kwargs_arg}, #{block_arg})"
+            end
 
             call_expr =
               if recv
@@ -438,18 +586,29 @@ module Frozone
             "([&]() -> BasicObject* { try { return #{call_expr}; } catch (BreakException& e_) { return e_.value; } }())"
           end
 
-          # Build the kwargs Hash for a call. Empty kw list → nullptr
-          # (no allocation cost when there are no kw args). Each entry
-          # is `{intern("key"), <value_expr>}` — Symbol keys.
-          # **splat handling deferred — kw_splat_nodes raise EmissionError.
-          def build_kwargs_hash(kw_arg_nodes, locals)
-            return "(&EMPTY_KWARGS)" if kw_arg_nodes.empty?
+          # Build the kwargs Hash for a call. Empty kw list AND no
+          # **splat → EMPTY_KWARGS singleton (no allocation). Literal
+          # kw pairs → `(new Hash({{intern("k"), v}, ...}))`. **splat
+          # forwards the source Hash directly when it's the only kw
+          # input; mixed literal+splat builds a fresh Hash and merges.
+          def build_kwargs_hash(kw_arg_nodes, kw_splat_nodes, locals)
+            return "(&EMPTY_KWARGS)" if kw_arg_nodes.empty? && kw_splat_nodes.empty?
             entries = kw_arg_nodes.map do |key_node, value_node|
               key_name = key_node.is_a?(Ast::SymbolLiteral) ? key_node.value.to_s : nil
               raise EmissionError, "non-symbol kw key not supported" unless key_name
               "{intern(#{cpp_string_literal(key_name)}), static_cast<BasicObject*>(#{from_expr(value_node, locals)})}"
             end
-            "(new Hash({#{entries.join(", ")}}))"
+            # Pure single-splat (`**h` with no literal pairs) — forward
+            # the source Hash directly, avoiding the alloc + copy.
+            if kw_arg_nodes.empty? && kw_splat_nodes.length == 1
+              return "static_cast<Hash*>(#{from_expr(kw_splat_nodes[0], locals)})"
+            end
+            # Mixed or multi: build a fresh Hash, populate with literal
+            # pairs, then copy each splat source's entries on top.
+            splat_pushes = kw_splat_nodes.map do |s|
+              "for (auto& _kv : static_cast<Hash*>(#{from_expr(s, locals)})->data) _h->data[_kv.first] = _kv.second;"
+            end.join(' ')
+            "([&]() -> Hash* { Hash* _h = new Hash({#{entries.join(', ')}}); #{splat_pushes} return _h; }())"
           end
 
           # Compose the trailing `(args, kwargs, block)` of a method
@@ -771,6 +930,92 @@ module Frozone
               else
                 Cpp.shadowed_method_name(ctx[:method_name], next_origin)
               end
+            # Natural-arity super. The enclosing method's name is
+            # eligible iff its body is natural-arity; the super
+            # target is the same Ruby name on a different class so
+            # it's also natural-arity. Pass positional args directly,
+            # bypassing the universal Array allocation.
+            method_name = ctx[:method_name]
+            na_sig = emit&.natural_arity_names&.dig(method_name)
+            if na_sig
+              # Forwarding super needs the kw locals too — they live
+              # under their declared param names (l_<kw_name>) and
+              # come after the positional locals in the signature.
+              kw_locals = na_sig.required_kw_names.map { |kn| MethodEmitter.local_cpp_name(kn) }
+              args_csv =
+                if node.forwarding
+                  # Bare `super` — forward the enclosing method's
+                  # named params. ctx[:method_params] holds the
+                  # positionals; append kw locals in sig order.
+                  ((ctx[:method_params] || []) + kw_locals).join(', ')
+                elsif node.arg_nodes.empty?
+                  # `super()` with no args — only legal if parent
+                  # has zero slots. Kw-bearing parent will fail to
+                  # compile (too few args), which is the right
+                  # outcome.
+                  ""
+                else
+                  # Explicit `super(x, y)` — pass the given args.
+                  # If enclosing has kw, parent expects them too;
+                  # we forward the enclosing's kw locals. This
+                  # matches Ruby semantics for explicit super in a
+                  # method whose parent shares the kw signature.
+                  pos = node.arg_nodes.map { |a| from_expr(a, locals) }
+                  (pos + kw_locals).join(', ')
+                end
+              return "this->#{qualifier_class}::#{cpp_name}(#{args_csv})"
+            end
+            # Multi-arity super: forward all bound params (required +
+            # optional, defaults filled if not caller-supplied) to the
+            # chain shadow at the full arity. Ruby semantics — bare
+            # super propagates the current method's bound state.
+            mu_family = emit&.multi_arity_table&.dig(method_name)
+            if mu_family
+              args_csv =
+                if node.forwarding
+                  (ctx[:method_params] || []).join(', ')
+                elsif node.arg_nodes.empty?
+                  ""
+                else
+                  node.arg_nodes.map { |a| from_expr(a, locals) }.join(', ')
+                end
+              return "this->#{qualifier_class}::#{cpp_name}(#{args_csv})"
+            end
+            # Kw-unset super: parent slot has the same uniform slot
+            # signature (required pos → opt pos → kws sorted). Bare
+            # `super` forwards all positionals + all kw locals (each
+            # already either caller-bound or default-filled in this
+            # entry). Explicit super(...) with kw overrides — pass
+            # provided args and look up kw locals from the current
+            # method's bound state.
+            kw_sig = emit&.kw_unset_table&.dig(method_name)
+            if kw_sig
+              all_kw_locals = kw_sig.all_kw_names.map { |kn| MethodEmitter.local_cpp_name(kn) }
+              args_csv =
+                if node.forwarding
+                  ((ctx[:method_params] || []) + all_kw_locals).join(', ')
+                elsif node.arg_nodes.empty? && (node.kw_arg_nodes || []).empty?
+                  ""
+                else
+                  pos = node.arg_nodes.map { |a| from_expr(a, locals) }
+                  # Pad positionals up to arity_req + opt with UNSET.
+                  pad = Array.new(kw_sig.arity_req + kw_sig.opt - pos.length, "unset_instance()")
+                  call_kw_map = (node.kw_arg_nodes || []).each_with_object({}) do |(k, v), h|
+                    kn = k.respond_to?(:value) ? k.value.to_sym : nil
+                    h[kn] = v if kn
+                  end
+                  kw_vals = kw_sig.all_kw_names.map do |kn|
+                    if call_kw_map.key?(kn)
+                      from_expr(call_kw_map[kn], locals)
+                    else
+                      MethodEmitter.local_cpp_name(kn)
+                    end
+                  end
+                  (pos + pad + kw_vals).join(', ')
+                end
+              return "this->#{qualifier_class}::#{cpp_name}(#{args_csv})"
+            end
+
             args_expr =
               if node.forwarding
                 "args"

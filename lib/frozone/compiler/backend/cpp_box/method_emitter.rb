@@ -20,14 +20,66 @@ module Frozone
           # which calls method_missing).
           def self.write_user_method(emit, name, method)
             cpp_name = Cpp.method_name(name)
-            # Pre-walk for captured locals so unpack_params + the body
-            # emission both know which locals need heap-cell storage.
-            # Include collect_local_writes — unpack_params hoists ALL
-            # body-decl LocalVariableWrites to method scope (block
-            # locals included), so they share method's `captured?`
-            # check; without this, a block-local declared at method
-            # level via the hoist gets a bare decl while inner blocks
-            # access it via *deref (mismatch).
+            sig = emit.natural_arity_names[name]
+            family = emit.respond_to?(:multi_arity_table) ? emit.multi_arity_table[name] : nil
+            kw_sig = emit.respond_to?(:kw_unset_table) ? emit.kw_unset_table[name] : nil
+            if sig
+              emit.line "using BasicObject::#{cpp_name};"
+              write_natural_arity_method(emit, name, method, cpp_name, sig)
+            elsif family
+              emit.line "using BasicObject::#{cpp_name};"
+              write_multi_arity_method(emit, name, method, cpp_name, family)
+            elsif kw_sig
+              emit.line "using BasicObject::#{cpp_name};"
+              write_kw_unset_method(emit, name, method, cpp_name, kw_sig)
+            else
+              write_universal_method(emit, name, method, cpp_name)
+            end
+          rescue Cpp::EmissionError => e
+            raise if ENV['FROZONE_BOX_HARD_FAIL'] == '1' && emit.strict_emit
+            loc = method&.source_location || "(unknown)"
+            $stderr.puts "[box-first] skip user_method :#{name} @ #{loc}: #{e.message}" if ENV['FROZONE_BOX_DEBUG'] == '1'
+            msg = "[frozone-box-first] unimplemented method :#{name} (def @ #{loc}): #{e.message}"
+            sig = emit.natural_arity_names[name]
+            family = emit.respond_to?(:multi_arity_table) ? emit.multi_arity_table[name] : nil
+            kw_sig = emit.respond_to?(:kw_unset_table) ? emit.kw_unset_table[name] : nil
+            abort_body = lambda do
+              emit.indented do
+                emit.line %|std::fprintf(stderr, "%s\\n", #{emit.cpp.cpp_string_literal(msg)});|
+                emit.line "std::abort();"
+              end
+              emit.line "}"
+            end
+            if family
+              family.arities.to_a.sort.each do |k|
+                params = (0...k).map { |i| "BasicObject* l_a#{i}" }.join(', ')
+                emit.line "virtual BasicObject* #{cpp_name}(#{params}) {"
+                abort_body.call
+              end
+              return
+            end
+            if kw_sig
+              n_pos = kw_sig.arity_req + kw_sig.opt
+              pos = (0...n_pos).map { |i| "BasicObject* l_a#{i}" }
+              kw = kw_sig.all_kw_names.map { |kn| "BasicObject* #{local_cpp_name(kn)}" }
+              emit.line "virtual BasicObject* #{cpp_name}(#{(pos + kw).join(', ')}) {"
+              abort_body.call
+              return
+            end
+            if sig
+              pos = (0...sig.arity_req).map { |i| "BasicObject* l_a#{i}" }
+              kw = sig.required_kw_names.map { |kn| "BasicObject* #{local_cpp_name(kn)}" }
+              emit.line "virtual BasicObject* #{cpp_name}(#{(pos + kw).join(', ')}) {"
+            else
+              emit.line "virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) {"
+            end
+            abort_body.call
+          end
+
+          # Today's universal-signature emission. Body unpacks args via
+          # array_at, runs under try/catch ReturnException for
+          # return-from-block semantics.
+          def self.write_universal_method(emit, _name, method, cpp_name)
             captured = method.body ? collect_method_captured(method) : Set.new
             body_buf = emit.cpp.with_captured_locals(captured) do
             emit.capture do
@@ -58,24 +110,214 @@ module Frozone
             emit.line "virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) {"
             emit.indented { body_buf.each_line { |l| emit.line l.chomp } }
             emit.line "}"
-          rescue Cpp::EmissionError => e
-            raise if ENV['FROZONE_BOX_HARD_FAIL'] == '1' && emit.strict_emit
-            loc = method&.source_location || "(unknown)"
-            $stderr.puts "[box-first] skip user_method :#{name} @ #{loc}: #{e.message}" if ENV['FROZONE_BOX_DEBUG'] == '1'
-            # Emit an abort-stub body so the runtime fails loudly with
-            # a "compiler limitation" message if the method is actually
-            # called. The previous silent-skip routed calls through
-            # mm_dispatch → method_missing → NoMethodError, which user
-            # code could rescue (silently swallowing a compiler gap),
-            # and which is indistinguishable from a real Ruby
-            # NoMethodError. Aborting can't be caught and points
-            # straight at the missing-feature site.
-            msg = "[frozone-box-first] unimplemented method :#{name} (def @ #{loc}): #{e.message}"
-            emit.line "virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) {"
-            emit.indented do
-              emit.line %|std::fprintf(stderr, "%s\\n", #{emit.cpp.cpp_string_literal(msg)});|
-              emit.line "std::abort();"
+          end
+
+          # Natural-arity method emission. Gated by
+          # FROZONE_NATURAL_ARGS=1 — when off, emit.natural_arity_names
+          # is empty and this path is unreachable.
+          #
+          # Emits a SINGLE virtual slot with positional signature
+          # `virtual m_<name>(BasicObject* l_a1, ..., BasicObject* l_aN)`.
+          # No universal-signature slot exists for eligible names:
+          # METHOD_VT[id] is nullptr, dynamic dispatch routes through
+          # TRAMPOLINE_VT[id] (send / mm_dispatch), and compatible
+          # direct call sites emit recv->m_<name>(a1, ...) bypassing
+          # the trampoline entirely (see cpp.rb#from_method_call).
+          #
+          # Body skips the universal-protocol unpack: params come in
+          # as named C++ parameters (no array_at), no arity check
+          # (signature enforces), no kwargs-fold (eligibility implies
+          # no kw params), no block alias (eligibility implies no
+          # caller passes a block and no body yields).
+          def self.write_natural_arity_method(emit, _name, method, cpp_name, sig)
+            required = method.required_params || []
+            req_kw = (method.required_kw_params || []).map(&:to_sym).sort
+            # The slot signature has arity_req positional slots
+            # followed by required_kw_names slots (sorted Symbol order
+            # — matches sig.required_kw_names). Each slot binds to a
+            # named local via decl_local_line in the body prologue.
+            if required.length != sig.arity_req ||
+               !(method.optional_params || []).empty? ||
+               !(method.post_params || []).empty? ||
+               method.rest_param ||
+               method.kw_rest_param ||
+               !(method.optional_kw_params || []).empty? ||
+               req_kw != sig.required_kw_names ||
+               method.block_param
+              raise Cpp::EmissionError, "natural-arity shape mismatch for #{cpp_name}: def doesn't fit #{sig}"
             end
+
+            pos_decls = required.each_with_index.map { |_, i| "BasicObject* _arg#{i}" }
+            kw_decls = sig.required_kw_names.map { |kn| "BasicObject* _kw_#{kn}" }
+            param_decls = pos_decls + kw_decls
+            captured = method.body ? collect_method_captured(method) : Set.new
+            body_buf = emit.cpp.with_captured_locals(captured) do
+            emit.capture do
+              locals = Set.new
+              required.each_with_index do |p, i|
+                emit.line decl_local_line(emit, p, "_arg#{i}")
+                locals << p.to_s
+              end
+              sig.required_kw_names.each do |kn|
+                emit.line decl_local_line(emit, kn, "_kw_#{kn}")
+                locals << kn.to_s
+              end
+              # Eligibility disqualifies methods that use yield /
+              # block_given? in their body, so `_block` is never
+              # referenced — don't emit it. Universal-sig emits
+              # `Proc* _block = static_cast<Proc*>(block);` to support
+              # those constructs; natural-arity doesn't need to.
+              seen_writes = collect_local_writes(method.body)
+              ((method.locals || []) + seen_writes.to_a).uniq.each do |loc|
+                s = loc.to_s
+                next if s.empty? || locals.include?(s)
+                emit.line decl_local_line(emit, s, "nil_instance()")
+                locals << s
+              end
+              emit.line "std::uint64_t __frame_id__ = next_frame_id();"
+              emit.line "try {"
+              emit.indented do
+                ExprEmitter.write_body(emit, method.body, locals: locals, last_is_return: true) if method.body
+                emit.line "return nil_instance();"
+              end
+              emit.line "} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }"
+            end
+            end
+            emit.line "virtual BasicObject* #{cpp_name}(#{param_decls.join(', ')}) {"
+            emit.indented { body_buf.each_line { |l| emit.line l.chomp } }
+            emit.line "}"
+          end
+
+          # Defaults beachhead: emit one inline entry point per servable
+          # arity. Each fills its remaining defaults in declaration
+          # order (later defaults can reference earlier params via
+          # decl_local_line) before running the shared body. Method
+          # body emission is the same as natural-arity; only the
+          # default-fill prefix differs across entries.
+          def self.write_multi_arity_method(emit, _name, method, cpp_name, family)
+            required = method.required_params || []
+            optional = method.optional_params || []
+            arity_req = required.length
+            arity_max = arity_req + optional.length
+            captured = method.body ? collect_method_captured(method) : Set.new
+            family.arities.to_a.sort.each do |k|
+              params = (0...k).map { |i| "BasicObject* _arg#{i}" }.join(', ')
+              if k < arity_req || k > arity_max
+                # Cross-class wrong-args stub — this method's def doesn't
+                # serve arity k, but another defining class does. Raise
+                # ArgumentError so a call at arity k on this class's
+                # instance gets the right error, not method_missing.
+                check_call = arity_req == arity_max ?
+                  "check_arity_fixed(#{k}, #{arity_req});" :
+                  "check_arity_range(#{k}, #{arity_req}, #{arity_max});"
+                emit.line "virtual BasicObject* #{cpp_name}(#{params}) {"
+                emit.indented do
+                  emit.line check_call
+                  emit.line "return nil_instance();"
+                end
+                emit.line "}"
+                next
+              end
+              bound_opt = k - arity_req
+              body_buf = emit.cpp.with_captured_locals(captured) do
+                emit.capture do
+                  locals = Set.new
+                  required.each_with_index do |p, i|
+                    emit.line decl_local_line(emit, p, "_arg#{i}")
+                    locals << p.to_s
+                  end
+                  optional.first(bound_opt).each_with_index do |(p, _), j|
+                    idx = arity_req + j
+                    emit.line decl_local_line(emit, p, "_arg#{idx}")
+                    locals << p.to_s
+                  end
+                  optional.drop(bound_opt).each do |(p, default_node)|
+                    default_str = default_node ? emit.cpp.from_expr(default_node, locals) : "nil_instance()"
+                    emit.line decl_local_line(emit, p, default_str)
+                    locals << p.to_s
+                  end
+                  seen_writes = collect_local_writes(method.body)
+                  ((method.locals || []) + seen_writes.to_a).uniq.each do |loc|
+                    s = loc.to_s
+                    next if s.empty? || locals.include?(s)
+                    emit.line decl_local_line(emit, s, "nil_instance()")
+                    locals << s
+                  end
+                  emit.line "std::uint64_t __frame_id__ = next_frame_id();"
+                  emit.line "try {"
+                  emit.indented do
+                    ExprEmitter.write_body(emit, method.body, locals: locals, last_is_return: true) if method.body
+                    emit.line "return nil_instance();"
+                  end
+                  emit.line "} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }"
+                end
+              end
+              emit.line "virtual BasicObject* #{cpp_name}(#{params}) {"
+              emit.indented { body_buf.each_line { |l| emit.line l.chomp } }
+              emit.line "}"
+            end
+          end
+
+          # Kw-bearing top-level method emission. Slot signature: required
+          # pos → opt pos (UNSET-able) → kws alphabetical. Body declares
+          # locals from slot params, default-filling UNSET-marked slots
+          # in source order so later defaults can read earlier params.
+          def self.write_kw_unset_method(emit, _name, method, cpp_name, sig)
+            required = method.required_params || []
+            optional = method.optional_params || []
+            opt_kw_pairs = method.optional_kw_params || []
+            opt_kw_defaults = opt_kw_pairs.to_h { |p, default| [p.to_sym, default] }
+            if !(method.post_params || []).empty? || method.rest_param || method.kw_rest_param || method.block_param
+              raise Cpp::EmissionError, "kw-unset requires pure positional+kw def"
+            end
+            if required.length != sig.arity_req || optional.length != sig.opt
+              raise Cpp::EmissionError, "kw-unset shape mismatch for #{cpp_name}"
+            end
+            captured = method.body ? collect_method_captured(method) : Set.new
+            body_buf = emit.cpp.with_captured_locals(captured) do
+              emit.capture do
+                locals = Set.new
+                required.each_with_index do |p, i|
+                  emit.line decl_local_line(emit, p, "_arg#{i}")
+                  locals << p.to_s
+                end
+                optional.each_with_index do |(p, default_node), i|
+                  slot = "_arg#{sig.arity_req + i}"
+                  default_str = default_node ? emit.cpp.from_expr(default_node, locals) : "nil_instance()"
+                  emit.line decl_local_line(emit, p, "(#{slot} == unset_instance()) ? (#{default_str}) : #{slot}")
+                  locals << p.to_s
+                end
+                sig.all_kw_names.each do |kn|
+                  if sig.kw_required?(kn)
+                    emit.line decl_local_line(emit, kn, "_kw_#{kn}")
+                  else
+                    default_node = opt_kw_defaults[kn]
+                    default_str = default_node ? emit.cpp.from_expr(default_node, locals) : "nil_instance()"
+                    emit.line decl_local_line(emit, kn, "(_kw_#{kn} == unset_instance()) ? (#{default_str}) : _kw_#{kn}")
+                  end
+                  locals << kn.to_s
+                end
+                seen_writes = collect_local_writes(method.body)
+                ((method.locals || []) + seen_writes.to_a).uniq.each do |loc|
+                  s = loc.to_s
+                  next if s.empty? || locals.include?(s)
+                  emit.line decl_local_line(emit, s, "nil_instance()")
+                  locals << s
+                end
+                emit.line "std::uint64_t __frame_id__ = next_frame_id();"
+                emit.line "try {"
+                emit.indented do
+                  ExprEmitter.write_body(emit, method.body, locals: locals, last_is_return: true) if method.body
+                  emit.line "return nil_instance();"
+                end
+                emit.line "} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }"
+              end
+            end
+            pos_params = (0...sig.arity_req).map { |i| "BasicObject* _arg#{i}" } +
+                         (0...sig.opt).map { |i| "BasicObject* _arg#{sig.arity_req + i}" }
+            kw_params = sig.all_kw_names.map { |kn| "BasicObject* _kw_#{kn}" }
+            emit.line "virtual BasicObject* #{cpp_name}(#{(pos_params + kw_params).join(', ')}) {"
+            emit.indented { body_buf.each_line { |l| emit.line l.chomp } }
             emit.line "}"
           end
 

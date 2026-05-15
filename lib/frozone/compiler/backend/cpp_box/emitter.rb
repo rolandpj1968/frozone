@@ -18,6 +18,7 @@ require_relative 'cpp'
 require_relative 'class_emitter'
 require_relative 'method_emitter'
 require_relative 'expr_emitter'
+require_relative 'method_shape_survey'
 require_relative '../../module_flattening'
 require_relative '../../reachability'
 
@@ -26,7 +27,7 @@ module Frozone
     module Backend
       module CppBox
         class Emitter
-          attr_reader :cpp, :top_level_scope, :user_classes, :user_constants
+          attr_reader :cpp, :top_level_scope, :user_classes, :user_constants, :natural_arity_names, :multi_arity_table, :kw_unset_table
           # When true, emission errors inside method bodies re-raise
           # under FROZONE_BOX_HARD_FAIL=1 instead of graceful-skipping.
           # Toggled true while emitting user-class bodies + the
@@ -159,6 +160,28 @@ module Frozone
             @call_surface = collect_call_surface
             @const_surface = collect_dynamic_constant_surface
             print_method_def_analysis if ENV['FROZONE_BOX_ANALYSIS'] == '1'
+            @natural_arity_names = {}
+            @multi_arity_table = {}
+            @kw_unset_table = {}
+            if ENV['FROZONE_METHOD_SHAPES'] == '1' || ENV['FROZONE_NATURAL_ARGS'] == '1'
+              agg = build_method_shape_survey
+              MethodShapeSurvey.report(agg) if ENV['FROZONE_METHOD_SHAPES'] == '1'
+              if ENV['FROZONE_NATURAL_ARGS'] == '1'
+                exclude = compute_hand_coded_disqualified_names | (@internal_block_users || Set.new)
+                @natural_arity_names = MethodShapeSurvey.eligibility_table(agg, exclude: exclude)
+                @multi_arity_table = MethodShapeSurvey.multi_arity_table(agg, exclude: exclude)
+                @kw_unset_table = MethodShapeSurvey.kw_unset_table(agg, exclude: exclude)
+                override_collisions = prune_override_arity_collisions
+                multi_collisions = prune_multi_arity_override_collisions
+                kw_unset_collisions = prune_kw_unset_override_collisions
+                $stderr.puts "[box-first] natural-args: #{@natural_arity_names.size} eligible names " \
+                             "(excluded: #{compute_hand_coded_disqualified_names.size} hand-coded, " \
+                             "#{(@internal_block_users || Set.new).size} use internal yield/block_given?, " \
+                             "#{override_collisions} cpp-name arity collisions); " \
+                             "#{@multi_arity_table.size} multi-arity (defaults; -#{multi_collisions} override collisions); " \
+                             "#{@kw_unset_table.size} kw-unset (-#{kw_unset_collisions} override collisions)"
+              end
+            end
             all_classes = overlay_universe_methods(Runtime::ALL_CLASSES) + build_user_class_defs
             all_eigenclasses = all_classes.map { |k| Runtime.eigenclass_for(k) }.compact
             decorate_eigenclasses_with_const_overrides(all_classes, all_eigenclasses)
@@ -398,7 +421,7 @@ module Frozone
               # Method-level reachability — drop unused overrides.
               next if ENV['FROZONE_BOX_NO_PRUNE'] == '1' && WIDENING_BLACKLIST.include?(mname)
               next unless ENV['FROZONE_BOX_NO_PRUNE'] == '1' || @call_surface&.key?(cpp_name)
-              spec = build_override(m)
+              spec = build_override(m, storage_name: mname)
               merged[cpp_name] = spec if spec
             end
             merged
@@ -461,13 +484,19 @@ module Frozone
                 break if idx.positive? && !prev_needs_super
                 cpp_name = idx.zero? ? cpp_head : Cpp.shadowed_method_name(mname, origin)
                 next if merged.key?(cpp_name)
-                ctx = { host_name: host_name, method_name: mname, origin_index: idx, chain: entries }
+                ctx = {
+                  host_name: host_name, method_name: mname, origin_index: idx, chain: entries,
+                  method_params: ((method.required_params || []) + (method.optional_params || []).map(&:first)).map { |p| MethodEmitter.local_cpp_name(p) },
+                  # kw_params is set in from_super; here we only need
+                  # positional. Super forwarding reads kw locals from
+                  # the natural-arity sig in the survey table directly.
+                }
                 # Head override on top of hand-coded ancestor: if the
                 # user's body fails to emit (unsupported intrinsic etc.),
                 # drop the override so C++ inheritance reuses the
                 # hand-coded parent rather than abort-stubbing the slot.
                 fall_through = has_hand_coded_ancestor && idx.zero?
-                spec = build_override(method, super_ctx: ctx, fall_through_on_error: fall_through)
+                spec = build_override(method, super_ctx: ctx, fall_through_on_error: fall_through, storage_name: mname)
                 merged[cpp_name] = spec if spec
                 prev_needs_super = method_calls_super?(method)
               end
@@ -1540,7 +1569,7 @@ module Frozone
                 cpp_name = Cpp.method_name(mname)
                 next if ENV['FROZONE_BOX_NO_PRUNE'] == '1' && WIDENING_BLACKLIST.include?(mname)
                 next unless ENV['FROZONE_BOX_NO_PRUNE'] == '1' || @call_surface.key?(cpp_name)
-                spec = build_override(m)
+                spec = build_override(m, storage_name: mname)
                 h[cpp_name] = spec if spec
               },
               eigenclass_ivars: eigen_ivars,
@@ -1597,10 +1626,16 @@ module Frozone
                   next
                 end
                 cpp_name = idx.zero? ? Cpp.method_name(mname) : Cpp.shadowed_method_name(mname, origin)
-                ctx = { host_name: host_name, method_name: mname, origin_index: idx, chain: entries }
+                ctx = {
+                  host_name: host_name, method_name: mname, origin_index: idx, chain: entries,
+                  method_params: ((method.required_params || []) + (method.optional_params || []).map(&:first)).map { |p| MethodEmitter.local_cpp_name(p) },
+                  # kw_params is set in from_super; here we only need
+                  # positional. Super forwarding reads kw locals from
+                  # the natural-arity sig in the survey table directly.
+                }
                 spec =
                   begin
-                    build_override(method, super_ctx: ctx)
+                    build_override(method, super_ctx: ctx, storage_name: mname)
                   rescue Cpp::EmissionError => e
                     raise Cpp::EmissionError, "while compiling #{host_name}##{mname} (origin=#{origin}): #{e.message}"
                   end
@@ -1851,9 +1886,262 @@ module Frozone
           # field means class_emitter doesn't double-emit unpack lines.
           # EmissionError → nil so caller can drop the entry; the slot
           # falls through to BasicObject's method_missing stub at runtime.
-          def build_override(method, super_ctx: nil, fall_through_on_error: false)
+          # build_override variant for natural-arity-eligible names.
+          # Spec has natural-arity sig (one BasicObject* per required
+          # param) and a body that uses the named params directly —
+          # no array_at unpack. Wraps the body in the same try/catch
+          # ReturnException as build_override so return-from-block
+          # semantics work identically.
+          #
+          # If the def's shape doesn't fit the eligibility contract
+          # (caller-side eligibility said natural-arity but this def
+          # has opts / rest / etc.) we raise EmissionError so caller
+          # falls through to its abort-stub path, keeping the slot
+          # signature consistent with BasicObject's natural-arity
+          # default decl.
+          def build_natural_arity_override(method, sig)
+            required = method.required_params || []
+            req_kw = (method.required_kw_params || []).map(&:to_sym).sort
+            if required.length != sig.arity_req ||
+               !(method.optional_params || []).empty? ||
+               !(method.post_params || []).empty? ||
+               method.rest_param ||
+               method.kw_rest_param ||
+               !(method.optional_kw_params || []).empty? ||
+               req_kw != sig.required_kw_names ||
+               method.block_param
+              raise Cpp::EmissionError, "natural-arity shape mismatch for :#{method.name}: def doesn't fit #{sig}"
+            end
+            captured = method.body ? MethodEmitter.collect_method_captured(method) : Set.new
+            body = @cpp.with_captured_locals(captured) do
+              capture do
+                locals = Set.new
+                # Re-declare each natural-arity param as a body local
+                # via decl_local_line — heap-cell form when captured,
+                # stack local otherwise. The signature param uses an
+                # anonymous name (_arg<i> / _kw_<name>) so the local
+                # binding can shadow it with the right cpp_name +
+                # captured-aware storage class. Mirrors unpack_params'
+                # treatment for universal-sig methods.
+                required.each_with_index do |p, i|
+                  line MethodEmitter.decl_local_line(self, p, "_arg#{i}")
+                  locals << p.to_s
+                end
+                sig.required_kw_names.each do |kn|
+                  line MethodEmitter.decl_local_line(self, kn, "_kw_#{kn}")
+                  locals << kn.to_s
+                end
+                # Eligibility excludes internal-yield / block_given?
+                # so `_block` is never referenced. Don't emit it.
+                seen_writes = MethodEmitter.collect_local_writes(method.body)
+                ((method.locals || []) + seen_writes.to_a).uniq.each do |loc|
+                  s = loc.to_s
+                  next if s.empty? || locals.include?(s)
+                  line MethodEmitter.decl_local_line(self, s, "nil_instance()")
+                  locals << s
+                end
+                ExprEmitter.write_body(self, method.body, locals: locals, last_is_return: true) if method.body
+              end
+            end
+            indented_body = body.each_line.map { |l| "  #{l}" }.join
+            # spec[:params] carries only the positional slot decls;
+            # write_override_def appends `_kw_<name>` decls from the
+            # NaturalAritySig directly (so the spec stays the same
+            # shape as universal-sig specs — body's local bindings
+            # via decl_local_line handle the kw mapping).
+            {
+              params: required.each_with_index.map { |_, i| "BasicObject* _arg#{i}" },
+              body: "std::uint64_t __frame_id__ = next_frame_id();\ntry {\n#{indented_body}  return nil_instance();\n} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }\n",
+            }
+          end
+
+          # Per-arity entry points for a pure-positional def. For arities
+          # the def serves (arity_req..arity_req+opt), emit the body
+          # with appropriate default-fill prefix. For other family
+          # arities (cross-class divergence — another class defines the
+          # name at an arity this def doesn't serve), emit a wrong-args
+          # stub so call sites at those arities raise ArgumentError on
+          # an instance of this class rather than method_missing.
+          def build_multi_arity_override(method, family, storage_name: nil)
+            required = method.required_params || []
+            optional = method.optional_params || []
+            arity_req = required.length
+            arity_max = arity_req + optional.length
+            if !(method.post_params || []).empty? ||
+               method.rest_param ||
+               method.kw_rest_param ||
+               !(method.required_kw_params || []).empty? ||
+               !(method.optional_kw_params || []).empty? ||
+               method.block_param
+              raise Cpp::EmissionError, "multi-arity requires pure-positional def"
+            end
+            captured = method.body ? MethodEmitter.collect_method_captured(method) : Set.new
+            entries = family.arities.to_a.sort.map do |k|
+              if k < arity_req || k > arity_max
+                check_call = arity_req == arity_max ?
+                  "check_arity_fixed(#{k}, #{arity_req});" :
+                  "check_arity_range(#{k}, #{arity_req}, #{arity_max});"
+                next({
+                  params: (0...k).map { |i| "BasicObject* _arg#{i}" },
+                  body: "#{check_call}\nreturn nil_instance();\n",
+                })
+              end
+              bound_opt = k - arity_req
+              body = @cpp.with_captured_locals(captured) do
+                capture do
+                  locals = Set.new
+                  required.each_with_index do |p, i|
+                    line MethodEmitter.decl_local_line(self, p, "_arg#{i}")
+                    locals << p.to_s
+                  end
+                  # Caller-bound optionals
+                  optional.first(bound_opt).each_with_index do |(p, _), j|
+                    idx = arity_req + j
+                    line MethodEmitter.decl_local_line(self, p, "_arg#{idx}")
+                    locals << p.to_s
+                  end
+                  # Default-fill the rest, in declaration order — later
+                  # defaults can reference earlier ones (def m(a, b=a+1)).
+                  optional.drop(bound_opt).each do |(p, default_node)|
+                    default_str = default_node ? @cpp.from_expr(default_node, locals) : "nil_instance()"
+                    line MethodEmitter.decl_local_line(self, p, default_str)
+                    locals << p.to_s
+                  end
+                  seen_writes = MethodEmitter.collect_local_writes(method.body)
+                  ((method.locals || []) + seen_writes.to_a).uniq.each do |loc|
+                    s = loc.to_s
+                    next if s.empty? || locals.include?(s)
+                    line MethodEmitter.decl_local_line(self, s, "nil_instance()")
+                    locals << s
+                  end
+                  ExprEmitter.write_body(self, method.body, locals: locals, last_is_return: true) if method.body
+                end
+              end
+              indented = body.each_line.map { |l| "  #{l}" }.join
+              {
+                params: (0...k).map { |i| "BasicObject* _arg#{i}" },
+                body: "std::uint64_t __frame_id__ = next_frame_id();\ntry {\n#{indented}  return nil_instance();\n} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }\n",
+              }
+            end
+            spec = { multi_arity: entries }
+            # Class-specific universal-sig override: when this class's
+            # arity range is narrower than the family, the family-wide
+            # check_arity_range message ("expected 1..3") differs from
+            # MRI's class-specific ("expected 1..2"). Emit a per-class
+            # universal-sig override that re-runs the arity check with
+            # class arities before dispatching into per-arity slots.
+            class_arities = (arity_req..arity_max).to_a
+            family_arities = family.arities.to_a.sort
+            if class_arities != family_arities
+              check_call = arity_req == arity_max ?
+                "check_arity_fixed(args->data.size(), #{arity_req});" :
+                "check_arity_range(args->data.size(), #{arity_req}, #{arity_max});"
+              # Use storage_name for the dispatch — aliased methods
+              # (alias size length) reach build_multi_arity_override
+              # with method.name=:length but get emitted at the alias
+              # slot (storage_name=:size). The switch must dispatch
+              # back into the slot we're inside, not the original.
+              call_cpp_name = Cpp.method_name(storage_name || method.name)
+              switch_lines = family_arities.map do |k|
+                args_call = (0...k).map { |i| "args->data[#{i}]" }.join(', ')
+                "    case #{k}: return this->#{call_cpp_name}(#{args_call});"
+              end.join("\n")
+              spec[:universal_entry] = {
+                params: ["Array* args", "Hash* kwargs", "BasicObject* /*block*/"],
+                body: <<~CPP,
+                  if (!kwargs->data.empty()) { Array* _ext = new Array(); _ext->data = args->data; Hash* _h = new Hash(); _h->data = kwargs->data; _ext->data.push_back(static_cast<BasicObject*>(_h)); args = _ext; }
+                  #{check_call}
+                  switch (args->data.size()) {
+                  #{switch_lines}
+                      default: return nil_instance();  // unreachable: check_arity raises
+                  }
+                CPP
+              }
+            end
+            spec
+          end
+
+          # Kw-bearing override (UNSET path). Single slot signature:
+          # required pos → opt pos (UNSET-able) → kws alphabetical.
+          # Body declares locals from slot params, default-filling
+          # UNSET slots in source order so later defaults can read
+          # earlier-bound params.
+          def build_kw_unset_override(method, sig)
+            required = method.required_params || []
+            optional = method.optional_params || []
+            opt_kw_pairs = method.optional_kw_params || []
+            opt_kw_defaults = opt_kw_pairs.to_h { |p, default| [p.to_sym, default] }
+            if !(method.post_params || []).empty? || method.rest_param || method.kw_rest_param || method.block_param
+              raise Cpp::EmissionError, "kw-unset requires pure positional+kw def"
+            end
+            if required.length != sig.arity_req || optional.length != sig.opt
+              raise Cpp::EmissionError, "kw-unset shape mismatch for :#{method.name}"
+            end
+            captured = method.body ? MethodEmitter.collect_method_captured(method) : Set.new
+            body = @cpp.with_captured_locals(captured) do
+              capture do
+                locals = Set.new
+                required.each_with_index do |p, i|
+                  line MethodEmitter.decl_local_line(self, p, "_arg#{i}")
+                  locals << p.to_s
+                end
+                optional.each_with_index do |(p, default_node), i|
+                  slot = "_arg#{sig.arity_req + i}"
+                  default_str = default_node ? @cpp.from_expr(default_node, locals) : "nil_instance()"
+                  line MethodEmitter.decl_local_line(self, p, "(#{slot} == unset_instance()) ? (#{default_str}) : #{slot}")
+                  locals << p.to_s
+                end
+                sig.all_kw_names.each do |kn|
+                  if sig.kw_required?(kn)
+                    line MethodEmitter.decl_local_line(self, kn, "_kw_#{kn}")
+                  else
+                    default_node = opt_kw_defaults[kn]
+                    default_str = default_node ? @cpp.from_expr(default_node, locals) : "nil_instance()"
+                    line MethodEmitter.decl_local_line(self, kn, "(_kw_#{kn} == unset_instance()) ? (#{default_str}) : _kw_#{kn}")
+                  end
+                  locals << kn.to_s
+                end
+                seen_writes = MethodEmitter.collect_local_writes(method.body)
+                ((method.locals || []) + seen_writes.to_a).uniq.each do |loc|
+                  s = loc.to_s
+                  next if s.empty? || locals.include?(s)
+                  line MethodEmitter.decl_local_line(self, s, "nil_instance()")
+                  locals << s
+                end
+                ExprEmitter.write_body(self, method.body, locals: locals, last_is_return: true) if method.body
+              end
+            end
+            indented_body = body.each_line.map { |l| "  #{l}" }.join
+            slot_params = (0...sig.arity_req).map { |i| "BasicObject* _arg#{i}" } +
+                          (0...sig.opt).map { |i| "BasicObject* _arg#{sig.arity_req + i}" } +
+                          sig.all_kw_names.map { |kn| "BasicObject* _kw_#{kn}" }
+            {
+              params: slot_params,
+              body: "std::uint64_t __frame_id__ = next_frame_id();\ntry {\n#{indented_body}  return nil_instance();\n} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }\n",
+              kw_unset: true,
+            }
+          end
+
+          def build_override(method, super_ctx: nil, fall_through_on_error: false, storage_name: nil)
             with_method_scope(method) do
               with_super_context(super_ctx) do
+                # Eligibility for natural-arity is per-SLOT (the
+                # storage Ruby name under which the slot lives on
+                # the class), not per-method.name. An aliased method
+                # (e.g. `alias modulo %`) is one Vm::Method under
+                # multiple storage names — method.name is the
+                # original (`:%`) while the slot we're emitting may
+                # be `:modulo`. Different storage names can have
+                # different eligibility decisions (e.g. one of them
+                # has a block-bearing caller, disqualifying that
+                # name only). Look up under the storage name.
+                lookup_name = storage_name || method.name
+                sig = @natural_arity_names && @natural_arity_names[lookup_name]
+                return build_natural_arity_override(method, sig) if sig
+                family = @multi_arity_table && @multi_arity_table[lookup_name]
+                return build_multi_arity_override(method, family, storage_name: lookup_name) if family
+                kw_sig = @kw_unset_table && @kw_unset_table[lookup_name]
+                return build_kw_unset_override(method, kw_sig) if kw_sig
                 # Pre-walk for captured locals (inner-block-referenced
                 # locals get heap-cell storage; see CppBox::Cpp.captured_locals).
                 # Includes block-locals hoisted by collect_local_writes
@@ -1908,9 +2196,26 @@ module Frozone
             loc = method&.source_location || "(unknown)"
             mname = method.respond_to?(:name) ? method.name : "?"
             msg = "[frozone-box-first] unimplemented method :#{mname} (def @ #{loc}): #{e.message}"
+            # If the slot is natural-arity-eligible, the abort-stub
+            # signature must match the natural-arity decl emitted by
+            # write_override_decl — otherwise decl/def disagree and
+            # the link step fails. Use the storage name for the
+            # eligibility lookup (same as the eligibility check at
+            # build_override entry).
+            lookup_name = storage_name || (method.respond_to?(:name) ? method.name : nil)
+            sig = lookup_name && @natural_arity_names && @natural_arity_names[lookup_name]
+            family = lookup_name && @multi_arity_table && @multi_arity_table[lookup_name]
+            abort_body = %|std::fprintf(stderr, "%s\\n", #{@cpp.cpp_string_literal(msg)});\nstd::abort();\n|
+            if family
+              entries = family.arities.to_a.sort.map do |k|
+                { params: (0...k).map { |i| "BasicObject* _arg#{i}" }, body: abort_body }
+              end
+              return { multi_arity: entries }
+            end
+            params = sig ? (0...sig.arity_req).map { |i| "BasicObject* _arg#{i}" } : []
             {
-              params: [],
-              body: %|std::fprintf(stderr, "%s\\n", #{@cpp.cpp_string_literal(msg)});\nstd::abort();\n|,
+              params: params,
+              body: abort_body,
             }
           end
 
@@ -1953,6 +2258,272 @@ module Frozone
           # name. Single-def names are candidates for direct dispatch
           # (no virtual table slot needed); multi-def names need
           # genuine virtual dispatch. Run with FROZONE_BOX_ANALYSIS=1.
+          # Disqualify names whose runtime/universe.rb definition is
+          # a raw C++ declaration listed in hand_coded_method_names —
+          # m_send, m_method_missing, mm_kind_of_q etc. Those bodies
+          # live as full `BasicObject* X(Array*, Hash*, BasicObject*)`
+          # methods, so natural-arity emission on the same slot would
+          # mismatch decl vs def.
+          #
+          # Note: `overrides` is intentionally NOT disqualified. Override
+          # specs are shaped `params: ["BasicObject* x", ...]` with a
+          # body that uses the named params directly; write_override_def
+          # routes them through the natural-arity path when eligibility
+          # says so, so they coexist cleanly. This covers arithmetic
+          # ops (op_plus, op_minus, op_lt, …) and most Integer / Float /
+          # String operator overrides.
+          # The cpp_name → Ruby_name mapping is many-to-one for
+          # operators: `:**` and `:pow` both map to `op_pow`,
+          # `:<<` and (occasionally) other names to `op_lshift`, etc.
+          # When `Math.pow(x, y)` (arity 2) collides with `Integer#**`
+          # (arity 1) on the same `op_pow` slot, the override specs
+          # carry different param counts even though the survey only
+          # knows one arity for the Ruby name. Emitting natural-arity
+          # would produce a decl that disagrees with one of the
+          # override bodies. Prune those names from @natural_arity_names
+          # by walking overrides and looking for arity disagreements.
+          # Returns the count pruned (for the activation summary).
+          def prune_override_arity_collisions
+            pruned = 0
+            @natural_arity_names.delete_if do |ruby_name, sig|
+              cpp = Cpp.method_name(ruby_name)
+              n = sig.arity_req
+              # Module/Class singletons (Math.pow, Math.hypot, …) live
+              # in `eigenclass_overrides` on the RubyClass itself, not
+              # via a separate eigenclass object. Check both maps.
+              collide = Runtime::ALL_CLASSES.any? do |k|
+                instance = (k.overrides || {})[cpp]
+                singleton = (k.respond_to?(:eigenclass_overrides) ? k.eigenclass_overrides : nil) || {}
+                singleton_spec = singleton[cpp]
+                (instance && (instance[:params] || []).length != n) ||
+                  (singleton_spec && (singleton_spec[:params] || []).length != n)
+              end
+              pruned += 1 if collide
+              collide
+            end
+            pruned
+          end
+
+          # Drop multi-arity names where any class has a hand-coded
+          # method or overlay override at the cpp slot. A hand-coded
+          # body has a single fixed signature that can't simultaneously
+          # cover every per-arity overload in the family — the
+          # cross-class wrong-args stub work needed to fill the gaps is
+          # post-beachhead. Conservative prune today; relax once full
+          # per-arity emission lands.
+          # Drop a multi-arity name only when the override's signature
+          # can't be fitted into the per-arity slot family. Hand-coded
+          # inline methods (in `hand_coded_method_names`) live as
+          # universal-sig bodies in BasicObject's struct and can't be
+          # reshaped — always drop. Spec-based overrides whose
+          # params.length matches one of the family arities CAN be
+          # emitted as the per-arity slot for that arity, with wrong-
+          # args stubs at the other arities (write_override_def
+          # handles this when spec is single-form on a multi-arity name).
+          # Spec is a per-arity-wrappable body iff its body doesn't
+          # reference the universal-sig `args` / `kwargs` / `block`
+          # parameters directly. Some hand-coded specs have params=[]
+          # but use `args->data` in the body (e.g. Random#rand) — those
+          # are universal-sig in disguise and can't be re-emitted at a
+          # per-arity slot signature.
+          def spec_body_universal_sig_in_disguise?(spec)
+            body = spec[:body].to_s
+            body =~ /\bargs\b/ || body =~ /\bkwargs\b/ || body =~ /\bblock\b/
+          end
+
+          def prune_multi_arity_override_collisions
+            pruned = 0
+            debug = ENV['FROZONE_NATURAL_ARGS_DEBUG'] == 'prune'
+            @multi_arity_table.delete_if do |ruby_name, family|
+              cpp = Cpp.method_name(ruby_name)
+              incompatible_class = nil
+              incompatible_kind = nil
+              Runtime::ALL_CLASSES.each do |k|
+                if (k.hand_coded_method_names || []).include?(cpp)
+                  incompatible_class = k.name
+                  incompatible_kind = "hand_coded_inline"
+                  break
+                end
+                override = (k.overrides || {})[cpp]
+                singleton = (k.respond_to?(:eigenclass_overrides) ? k.eigenclass_overrides : nil) || {}
+                sing = singleton[cpp]
+                if override
+                  if !family.arities.include?((override[:params] || []).length)
+                    incompatible_class = k.name
+                    incompatible_kind = "override(params=#{(override[:params] || []).length})"
+                    break
+                  end
+                  if spec_body_universal_sig_in_disguise?(override)
+                    incompatible_class = k.name
+                    incompatible_kind = "override(body uses args/kwargs/block)"
+                    break
+                  end
+                end
+                if sing
+                  if !family.arities.include?((sing[:params] || []).length)
+                    incompatible_class = k.name
+                    incompatible_kind = "singleton(params=#{(sing[:params] || []).length})"
+                    break
+                  end
+                  if spec_body_universal_sig_in_disguise?(sing)
+                    incompatible_class = k.name
+                    incompatible_kind = "singleton(body uses args/kwargs/block)"
+                    break
+                  end
+                end
+              end
+              if incompatible_class
+                $stderr.puts "[multi-arity-prune] :#{ruby_name} arities=#{family.arities.to_a.sort} dropped by #{incompatible_class} (#{incompatible_kind})" if debug
+                pruned += 1
+                true
+              else
+                false
+              end
+            end
+            pruned
+          end
+
+          # Same conservative prune as multi-arity: drop kw_unset names
+          # where any class has a hand-coded or overlay override at the
+          # cpp slot. The kw_unset slot signature has a fixed param
+          # count that wouldn't match a hand-coded body, and per-class
+          # overlap with hand-coded paths is too risky for a first pass.
+          # kw_unset has a single fixed slot signature (total_slots
+          # params). Override is wrappable iff its params.length equals
+          # total_slots — then it IS the slot body.
+          def prune_kw_unset_override_collisions
+            pruned = 0
+            debug = ENV['FROZONE_NATURAL_ARGS_DEBUG'] == 'prune'
+            @kw_unset_table.delete_if do |ruby_name, sig|
+              cpp = Cpp.method_name(ruby_name)
+              incompatible_class = nil
+              incompatible_kind = nil
+              Runtime::ALL_CLASSES.each do |k|
+                if (k.hand_coded_method_names || []).include?(cpp)
+                  incompatible_class = k.name
+                  incompatible_kind = "hand_coded_inline"
+                  break
+                end
+                override = (k.overrides || {})[cpp]
+                singleton = (k.respond_to?(:eigenclass_overrides) ? k.eigenclass_overrides : nil) || {}
+                sing = singleton[cpp]
+                if override && (override[:params] || []).length != sig.total_slots
+                  incompatible_class = k.name
+                  incompatible_kind = "override(params=#{(override[:params] || []).length})"
+                  break
+                end
+                if sing && (sing[:params] || []).length != sig.total_slots
+                  incompatible_class = k.name
+                  incompatible_kind = "singleton(params=#{(sing[:params] || []).length})"
+                  break
+                end
+              end
+              if incompatible_class
+                $stderr.puts "[kw-unset-prune] :#{ruby_name} slots=#{sig.total_slots} dropped by #{incompatible_class} (#{incompatible_kind})" if debug
+                pruned += 1
+                true
+              else
+                false
+              end
+            end
+            pruned
+          end
+
+          def compute_hand_coded_disqualified_names
+            Set.new.tap do |set|
+              Runtime::ALL_CLASSES.each do |k|
+                (k.hand_coded_method_names || []).each do |cpp|
+                  next if cpp.start_with?("c_", "sm_")
+                  set << cpp_name_to_ruby(cpp).to_sym
+                end
+              end
+            end
+          end
+
+          # Walks the post-pruning surface: every reachable method def
+          # (filtered by @call_surface) and every reachable Ast::MethodCall
+          # inside those bodies (plus the top-level execute block).
+          # Returns a populated MethodShapeSurvey::Aggregate. Activated by
+          # FROZONE_METHOD_SHAPES=1 (print report) or FROZONE_NATURAL_ARGS=1
+          # (consume eligibility for codegen). See method_shape_survey.rb.
+          # Names whose body contains an internal block-flow construct
+          # (yield or block_given?) in at least one of their reachable
+          # defs, without declaring a &blk param. Such methods rely on
+          # the implicit caller block: natural-arity codegen has
+          # nowhere to receive a block, so emitting them as natural-
+          # arity would either silently drop the block or NPE on the
+          # yield path. Disqualified from eligibility regardless of
+          # def-shape. Populated during build_method_shape_survey.
+          attr_reader :internal_block_users
+
+          def build_method_shape_survey
+            agg = MethodShapeSurvey::Aggregate.new
+            @internal_block_users = Set.new
+
+            visit_methods_on = lambda do |cls, &block|
+              next unless cls.is_a?(Vm::ModuleObject)
+              (cls.methods_table || {}).each { |n, m| block.call(n, m) if m.is_a?(Vm::Method) }
+              if (eig = (cls.eigenclass rescue nil))
+                (eig.methods_table || {}).each { |n, m| block.call(n, m) if m.is_a?(Vm::Method) }
+              end
+            end
+
+            each_reachable_def = lambda do |&block|
+              @user_classes.each_value { |cls| visit_methods_on.call(cls, &block) }
+              top = @top_level_scope.constants_table || {}
+              Runtime::ALL_CLASSES.each { |uk| visit_methods_on.call(top[uk.name.to_sym], &block) }
+              user_methods.each { |n, m| block.call(n, m) if m.is_a?(Vm::Method) }
+            end
+
+            # Record def shape under the STORAGE Ruby name (the
+            # table key on the class), NOT method.name. Aliases
+            # share a Vm::Method body: `alias + chain` registers the
+            # same chain method under both `:chain` (its method.name)
+            # and `:+`. The C++ VT slot for `:+` on Enumerable has to
+            # have a signature that matches chain's shape (variadic),
+            # so chain's shape MUST count toward `:+`'s eligibility —
+            # otherwise we'd later try to emit Enumerable::op_plus
+            # with natural-arity and abort-stub it on the mismatch,
+            # silently breaking `enum + other`.
+            #
+            # Trade-off: a single aliased name with a non-simple
+            # shape disqualifies the original name from eligibility
+            # (Enumerable's chain-as-+ keeps `:+` from being eligible
+            # even though Integer/Float/Array/String all have simple
+            # `def +(other)`). Closed-world alias collapsing
+            # (project_alias_collapsing.md) is the principled fix —
+            # rewrite call sites of aliased names to the canonical,
+            # drop the redundant VT slot.
+            each_reachable_def.call do |name, method|
+              next unless @call_surface.key?(Cpp.method_name(name))
+              agg.record_def(name, MethodShapeSurvey::DefShape.for_method(method))
+            end
+
+            walk_calls = lambda do |node, enclosing_name|
+              return unless node.is_a?(Ast::Node)
+              return if node.is_a?(Ast::MethodDef)
+              if node.is_a?(Ast::MethodCall)
+                agg.record_call(node.name, MethodShapeSurvey::CallShape.for_call(node))
+                # block_given? in a body == implicit reliance on caller
+                # block. Same blocker as yield for natural-arity emission.
+                @internal_block_users << enclosing_name if enclosing_name && node.name == :block_given?
+              elsif node.is_a?(Ast::Yield)
+                # Body yields to the caller-supplied block. Cannot
+                # natural-arity emit (no block slot).
+                @internal_block_users << enclosing_name if enclosing_name
+              end
+              node.children.each { |c| walk_calls.call(c, enclosing_name) }
+            end
+
+            walk_calls.call(@execute_block, nil) if @execute_block
+            each_reachable_def.call do |name, method|
+              next unless @call_surface.key?(Cpp.method_name(name))
+              method_walkable_roots(method).each { |r| walk_calls.call(r, name) }
+            end
+
+            agg
+          end
+
           def print_method_def_analysis
             defs_by_name = Hash.new { |h, k| h[k] = [] }
             user_classes_with_universe = Runtime::ALL_CLASSES.map(&:name) + @user_classes.keys.map(&:to_s)

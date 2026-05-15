@@ -196,18 +196,29 @@ module Frozone
               # BasicObject (else this fails to compile, which is the
               # right outcome — pruner gap, not a runtime issue).
               if block_node.value_node.is_a?(Ast::SymbolLiteral)
-                sym = block_node.value_node.value
+                sym = block_node.value_node.value.to_sym
                 m = Cpp.method_name(sym)
                 body = +""
                 body << "if (__blkargs__->data.empty()) { "
                 body << "std::fprintf(stderr, \"[box-first] &:#{sym} Proc invoked with no args\\n\"); "
                 body << "std::abort(); } "
                 body << "BasicObject* __recv__ = __blkargs__->data[0]; "
-                body << "Array* __rest__ = &EMPTY_ARGS; "
-                body << "if (__blkargs__->data.size() > 1) { __rest__ = new Array(); "
-                body << "for (std::size_t _i = 1; _i < __blkargs__->data.size(); ++_i) "
-                body << "__rest__->data.push_back(__blkargs__->data[_i]); } "
-                body << "return __recv__->#{m}(__rest__);"
+                # If `sym` is a natural-arity-eligible name, the
+                # universal Array path doesn't exist on that slot —
+                # unpack positional args inline from __blkargs__.
+                sig = emit&.natural_arity_names&.dig(sym)
+                if sig
+                  args_csv = (0...sig.arity_req).map { |i|
+                    "(__blkargs__->data.size() > #{i + 1} ? __blkargs__->data[#{i + 1}] : nil_instance())"
+                  }.join(', ')
+                  body << "return __recv__->#{m}(#{args_csv});"
+                else
+                  body << "Array* __rest__ = &EMPTY_ARGS; "
+                  body << "if (__blkargs__->data.size() > 1) { __rest__ = new Array(); "
+                  body << "for (std::size_t _i = 1; _i < __blkargs__->data.size(); ++_i) "
+                  body << "__rest__->data.push_back(__blkargs__->data[_i]); } "
+                  body << "return __recv__->#{m}(__rest__);"
+                end
                 return "(new Proc([](Array* __blkargs__) -> BasicObject* { #{body} }))"
               end
               return "static_cast<Proc*>(#{from_expr(block_node.value_node, locals)})"

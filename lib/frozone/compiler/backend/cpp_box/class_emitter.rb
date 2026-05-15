@@ -42,6 +42,22 @@ module Frozone
             # no user code calls log2) have no parent stub and must drop
             # `override`.
             @call_surface_set = call_surface.keys.to_set
+            # Natural-arity eligibility — populated when
+            # FROZONE_NATURAL_ARGS=1; empty Hash otherwise so all
+            # ineligible-path branches (universal-sig emission) stay
+            # unchanged. Hash[Symbol, Int] of ruby_name → arity_req.
+            @natural_arity_names = (emit.respond_to?(:natural_arity_names) ? emit.natural_arity_names : nil) || {}
+            # Multi-arity defaults beachhead: names with one def shape
+            # and optional positionals. Expand into per-arity overloads
+            # (same C++ name, different param counts — C++ overload
+            # resolution disambiguates). Universal slot drops; send /
+            # mm_dispatch routes via the switch trampoline.
+            @multi_arity_table = (emit.respond_to?(:multi_arity_table) ? emit.multi_arity_table : nil) || {}
+            # Kw-bearing (UNSET) path: names whose def has at least one
+            # kw param. Single slot signature: required pos → opt pos
+            # (UNSET-able) → kws alphabetical (required slots required,
+            # optional UNSET-able). Default-fill happens in callee body.
+            @kw_unset_table = (emit.respond_to?(:kw_unset_table) ? emit.kw_unset_table : nil) || {}
             # Constant surface — names referenced via dynamic-receiver
             # paths (`self.class::X`). Each gets a `c_X` virtual on
             # BasicObject + overrides on every eigenclass that has X.
@@ -181,6 +197,8 @@ module Frozone
                 end
               end
               write_method_vt(emit, method_ids)
+              write_natural_arity_default_bodies(emit, call_surface, classes.find { |k| k.name == "BasicObject" })
+              write_trampoline_defs(emit, method_ids)
               write_send_body(emit, method_ids)
               write_is_a_lut(emit, class_ids, is_a_lut)
               write_method_missing_default(emit)
@@ -360,6 +378,30 @@ module Frozone
             s
           end
 
+          # Chain shadow slot `sm_<ruby_name>__from_<Origin>` (or its
+          # op-name encoding) shares the head's ruby name for purposes
+          # of natural-arity sig lookup — `super` from a natural-arity
+          # head body calls the shadow slot with positional args, so
+          # the shadow must use the same signature.
+          def self.cpp_name_head_ruby(cpp)
+            s = cpp.to_s
+            return cpp_name_to_ruby(cpp) unless s.start_with?('sm_')
+            # Strip "sm_" prefix and "__from_<Origin>" suffix.
+            inner = s[3..]
+            head = inner.split('__from_').first
+            # Reverse op-name encoding for the head body.
+            inv = Cpp::OP_NAMES.invert
+            return inv["m_#{head}"].to_s if inv.key?("m_#{head}")
+            if head.start_with?('mm_')
+              body = head[3..]
+              return "#{body[0..-3]}?" if body.end_with?('_q')
+              return "#{body[0..-6]}!" if body.end_with?('_bang')
+              return "#{body[0..-4]}=" if body.end_with?('_eq')
+              return body
+            end
+            head
+          end
+
           # Member-function-pointer table indexed by method_id. Each
           # entry points at the BasicObject:: declaration of the
           # method; calling through it does virtual dispatch on `this`,
@@ -367,16 +409,192 @@ module Frozone
           def self.write_method_vt(emit, method_ids)
             emit.line "// Member-function-pointer vtable indexed by method_id."
             emit.line "// `(this->*METHOD_VT[id])(args, kw, blk)` does virtual dispatch."
+            emit.line "// For natural-arity and multi-arity names, the universal-sig"
+            emit.line "// slot on BasicObject is the trampoline that switches into the"
+            emit.line "// per-arity overload."
             emit.line "using __MethodFn__ = BasicObject* (BasicObject::*)(Array*, Hash*, BasicObject*);"
             emit.line "static const __MethodFn__ METHOD_VT[] = {"
             emit.indented do
               method_ids.each do |cpp, id|
                 ruby = cpp_name_to_ruby(cpp)
-                emit.line "&BasicObject::#{cpp},  // id #{id}: #{ruby}"
+                # Cast disambiguates the universal-sig overload when
+                # natural-arity / multi-arity names have multiple
+                # overloads on BasicObject sharing the same cpp name.
+                emit.line "static_cast<__MethodFn__>(&BasicObject::#{cpp}),  // id #{id}: #{ruby}"
               end
             end
             emit.line "};"
             emit.line "static constexpr int METHOD_VT_SIZE = #{method_ids.size};"
+            emit.blank
+          end
+
+          # Out-of-line bodies for BasicObject's natural-arity defaults.
+          # The struct only declares — the body needs `new Array()`
+          # which can't be inline while Array is still forward-
+          # declared (Array inherits from BasicObject so its struct
+          # comes after). Emit here, after class struct definitions
+          # are complete and Array is fully visible. The fallthrough
+          # path packs the named params back into an Array and
+          # delegates to mm_dispatch — only exercised when no
+          # subclass overrides the slot.
+          def self.write_natural_arity_default_bodies(emit, call_surface, basic_object_klass)
+            return if @natural_arity_names.empty? && @multi_arity_table.empty? && @kw_unset_table.empty?
+            # Same skip set as write_universal_surface — names where
+            # BasicObject already has a concrete out-of-line definition
+            # (hand-coded or overlay override) would collide at link
+            # time if we also emit a default body here.
+            skip = (Runtime::BASIC_OBJECT.hand_coded_method_names || []).to_set
+            (basic_object_klass&.overrides || {}).each_key { |cpp| skip << cpp }
+            call_surface.each do |cpp_name, ruby_name|
+              next if skip.include?(cpp_name)
+              ruby_lit = ruby_name.gsub('\\', '\\\\\\\\').gsub('"', '\\"')
+              if (sig = @natural_arity_names[ruby_name.to_sym])
+                n = sig.arity_req
+                pos_params = (0...n).map { |i| "BasicObject* a#{i}" }
+                kw_params = sig.required_kw_names.map { |kn| "BasicObject* k_#{kn}" }
+                params = (pos_params + kw_params).join(', ')
+                pack = (0...n).map { |i| "_args->data.push_back(a#{i});" }.join(' ')
+                # Pack kw params back into a Hash for mm_dispatch — the
+                # fallthrough path doesn't know the natural-arity shape.
+                if sig.required_kw_names.empty?
+                  emit.line "BasicObject* BasicObject::#{cpp_name}(#{params}) { Array* _args = new Array(); #{pack} return mm_dispatch(this, _args, &EMPTY_KWARGS, nil_instance(), \"#{ruby_lit}\"); }"
+                else
+                  kw_pack = sig.required_kw_names.map { |kn| %|_kw->data[intern("#{kn}")] = k_#{kn};| }.join(' ')
+                  emit.line "BasicObject* BasicObject::#{cpp_name}(#{params}) { Array* _args = new Array(); #{pack} Hash* _kw = new Hash(); #{kw_pack} return mm_dispatch(this, _args, _kw, nil_instance(), \"#{ruby_lit}\"); }"
+                end
+              elsif (family = @multi_arity_table[ruby_name.to_sym])
+                family.arities.to_a.sort.each do |k|
+                  params = (0...k).map { |i| "BasicObject* a#{i}" }.join(', ')
+                  pack = (0...k).map { |i| "_args->data.push_back(a#{i});" }.join(' ')
+                  emit.line "BasicObject* BasicObject::#{cpp_name}(#{params}) { Array* _args = new Array(); #{pack} return mm_dispatch(this, _args, &EMPTY_KWARGS, nil_instance(), \"#{ruby_lit}\"); }"
+                end
+              elsif (kw_sig = @kw_unset_table[ruby_name.to_sym])
+                n_pos = kw_sig.arity_req + kw_sig.opt
+                pos_params = (0...n_pos).map { |i| "BasicObject* a#{i}" }
+                kw_params = kw_sig.all_kw_names.map { |kn| "BasicObject* k_#{kn}" }
+                params = (pos_params + kw_params).join(', ')
+                pack = (0...n_pos).map { |i| "_args->data.push_back(a#{i});" }.join(' ')
+                kw_pack = kw_sig.all_kw_names.map { |kn| %|if (k_#{kn} != unset_instance()) _kw->data[intern("#{kn}")] = k_#{kn};| }.join(' ')
+                emit.line "BasicObject* BasicObject::#{cpp_name}(#{params}) { Array* _args = new Array(); #{pack} Hash* _kw = new Hash(); #{kw_pack} return mm_dispatch(this, _args, _kw, nil_instance(), \"#{ruby_lit}\"); }"
+              end
+            end
+            emit.blank
+          end
+
+          # Emit one free-function trampoline per natural-arity-eligible
+          # name. Each trampoline takes the universal-shape args
+          # (Array, Hash, Block) — so send / mm_dispatch can call it
+          # uniformly — and forwards to recv->m_<name>(a0, a1, ...) on
+          # the natural-arity virtual slot. Validates arity, raises on
+          # unexpected kwargs (eligible methods have no kw params).
+          # Block is silently ignored per the v1 contract: eligibility
+          # disqualifies block-bearing callers; sending with a block to
+          # an eligible name reaches here, but the natural-arity body
+          # never sees it (yield in body would LocalJumpError).
+          # Universal-sig slot bodies for natural-arity and multi-arity
+          # names. Each is the per-name trampoline — universal-sig
+          # callers (send / mm_dispatch / splat call sites) land here
+          # and the body routes into the right per-arity overload.
+          # METHOD_VT[id] now points at this universal slot (no parallel
+          # TRAMPOLINE_VT). Body is out-of-line because it accesses
+          # Array's `data` field which isn't complete inside BasicObject.
+          def self.write_trampoline_defs(emit, method_ids)
+            return if @natural_arity_names.empty? && @multi_arity_table.empty? && @kw_unset_table.empty?
+            method_ids.each_key do |cpp_name|
+              ruby = cpp_name_to_ruby(cpp_name)
+              sig = @natural_arity_names[ruby.to_sym]
+              family = @multi_arity_table[ruby.to_sym]
+              kw_sig = @kw_unset_table[ruby.to_sym]
+              next unless sig || family || kw_sig
+              if kw_sig
+                min_arity = kw_sig.arity_req
+                max_arity = kw_sig.arity_req + kw_sig.opt
+                check_call = min_arity == max_arity ?
+                  "check_arity_fixed(args->data.size(), #{min_arity});" :
+                  "check_arity_range(args->data.size(), #{min_arity}, #{max_arity});"
+                emit.line "BasicObject* BasicObject::#{cpp_name}(Array* args, Hash* kwargs, BasicObject* /*block*/) {"
+                emit.indented do
+                  emit.line check_call
+                  # Extract kw values — required must be present, optional defaults to UNSET.
+                  kw_sig.all_kw_names.each do |kn|
+                    key_lit = kn.to_s.gsub('\\', '\\\\\\\\').gsub('"', '\\"')
+                    emit.line %|auto _it_#{kn} = kwargs->data.find(intern("#{key_lit}"));|
+                    if kw_sig.kw_required?(kn)
+                      emit.line %|if (_it_#{kn} == kwargs->data.end()) raise_missing_kw("#{key_lit}");|
+                      emit.line "BasicObject* _kv_#{kn} = _it_#{kn}->second;"
+                    else
+                      emit.line "BasicObject* _kv_#{kn} = (_it_#{kn} == kwargs->data.end()) ? unset_instance() : _it_#{kn}->second;"
+                    end
+                  end
+                  # Unknown-kw check: every key in kwargs must be in
+                  # the expected set (required ∪ optional).
+                  expected_set = kw_sig.all_kw_names.map { |kn| %|intern("#{kn.to_s.gsub('\\', '\\\\\\\\').gsub('"', '\\"')}")| }.join(', ')
+                  if expected_set.empty?
+                    emit.line %|if (!kwargs->data.empty()) raise_unknown_kw(static_cast<Symbol*>(kwargs->data.begin()->first)->name_);|
+                  else
+                    emit.line %|for (auto& _kv : kwargs->data) { Symbol* _k = static_cast<Symbol*>(_kv.first); bool _ok = false; for (auto _e : {#{expected_set}}) { if (_k == _e) { _ok = true; break; } } if (!_ok) raise_unknown_kw(_k->name_); }|
+                  end
+                  # Positional slot values: required pos from args, optional pos from args or UNSET.
+                  pos_slot_vals = (0...kw_sig.arity_req).map { |i| "args->data[#{i}]" }
+                  opt_slot_vals = (0...kw_sig.opt).map do |i|
+                    idx = kw_sig.arity_req + i
+                    "((std::size_t)args->data.size() > #{idx}) ? args->data[#{idx}] : unset_instance()"
+                  end
+                  kw_slot_vals = kw_sig.all_kw_names.map { |kn| "_kv_#{kn}" }
+                  all_vals = (pos_slot_vals + opt_slot_vals + kw_slot_vals).join(', ')
+                  emit.line "return this->#{cpp_name}(#{all_vals});"
+                end
+                emit.line "}"
+                next
+              end
+              if family
+                arities = family.arities.to_a.sort
+                min_arity = arities.first
+                max_arity = arities.last
+                emit.line "BasicObject* BasicObject::#{cpp_name}(Array* args, Hash* kwargs, BasicObject* /*block*/) {"
+                emit.indented do
+                  emit.line "if (!kwargs->data.empty()) { Array* _ext = new Array(); _ext->data = args->data; Hash* _h = new Hash(); _h->data = kwargs->data; _ext->data.push_back(static_cast<BasicObject*>(_h)); args = _ext; }"
+                  emit.line "check_arity_range(args->data.size(), #{min_arity}, #{max_arity});"
+                  emit.line "switch (args->data.size()) {"
+                  emit.indented do
+                    arities.each do |k|
+                      args_call = (0...k).map { |i| "args->data[#{i}]" }.join(', ')
+                      emit.line "case #{k}: return this->#{cpp_name}(#{args_call});"
+                    end
+                    emit.line "default: return nil_instance();  // unreachable: check_arity_range raises"
+                  end
+                  emit.line "}"
+                end
+                emit.line "}"
+                next
+              end
+              n = sig.arity_req
+              emit.line "BasicObject* BasicObject::#{cpp_name}(Array* args, Hash* kwargs, BasicObject* /*block*/) {"
+              emit.indented do
+                if sig.required_kw_names.empty?
+                  emit.line "if (!kwargs->data.empty()) { Array* _ext = new Array(); _ext->data = args->data; Hash* _h = new Hash(); _h->data = kwargs->data; _ext->data.push_back(static_cast<BasicObject*>(_h)); args = _ext; }"
+                  emit.line "check_arity_fixed(args->data.size(), #{n});"
+                  args_call = (0...n).map { |i| "args->data[#{i}]" }.join(', ')
+                  emit.line "return this->#{cpp_name}(#{args_call});"
+                else
+                  emit.line "check_arity_fixed(args->data.size(), #{n});"
+                  sig.required_kw_names.each do |kn|
+                    key_lit = kn.to_s.gsub('\\', '\\\\\\\\').gsub('"', '\\"')
+                    emit.line %|auto _it_#{kn} = kwargs->data.find(intern("#{key_lit}"));|
+                    emit.line %|if (_it_#{kn} == kwargs->data.end()) raise_missing_kw("#{key_lit}");|
+                  end
+                  # Unknown-kw check: every key in kwargs must be a
+                  # required kw for this name. Any extra raises
+                  # ArgumentError matching MRI semantics.
+                  expected_set = sig.required_kw_names.map { |kn| %|intern("#{kn.to_s.gsub('\\', '\\\\\\\\').gsub('"', '\\"')}")| }.join(', ')
+                  emit.line %|for (auto& _kv : kwargs->data) { Symbol* _k = static_cast<Symbol*>(_kv.first); bool _ok = false; for (auto _e : {#{expected_set}}) { if (_k == _e) { _ok = true; break; } } if (!_ok) raise_unknown_kw(_k->name_); }|
+                  pos_args = (0...n).map { |i| "args->data[#{i}]" }
+                  kw_args = sig.required_kw_names.map { |kn| "_it_#{kn}->second" }
+                  emit.line "return this->#{cpp_name}(#{(pos_args + kw_args).join(', ')});"
+                end
+              end
+              emit.line "}"
+            end
             emit.blank
           end
 
@@ -666,7 +884,7 @@ module Frozone
               if klass.name == "BasicObject"
                 write_universal_surface(emit, call_surface, klass)
               end
-              klass.overrides&.each { |name, _| write_override_decl(emit, name, klass) }
+              klass.overrides&.each { |name, spec| write_override_decl(emit, name, klass, spec) }
             end
             emit.line "};"
             emit.blank
@@ -701,7 +919,36 @@ module Frozone
             call_surface.each do |cpp_name, ruby_name|
               next if skip.include?(cpp_name)
               ruby_lit = ruby_name.gsub('\\', '\\\\\\\\').gsub('"', '\\"')
-              emit.line %(virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) { return mm_dispatch(this, args, kwargs, block, "#{ruby_lit}"); })
+              if (sig = @natural_arity_names[ruby_name.to_sym])
+                # Natural-arity: per-arity slot decl + universal-sig
+                # slot decl (its body is the trampoline that switches
+                # universal-sig callers into the natural-arity slot).
+                # Universal slot drops its default-arg values to avoid
+                # overload-resolution ambiguity with the 0-arg per-arity
+                # slot — callers always pass explicit args/kwargs/block.
+                pos_params = (0...sig.arity_req).map { |i| "BasicObject* a#{i}" }
+                kw_params = sig.required_kw_names.map { |kn| "BasicObject* k_#{kn}" }
+                params = (pos_params + kw_params).join(', ')
+                emit.line %(virtual BasicObject* #{cpp_name}(#{params});)
+                emit.line %(virtual BasicObject* #{cpp_name}(Array* args, Hash* kwargs, BasicObject* block);)
+              elsif (family = @multi_arity_table[ruby_name.to_sym])
+                family.arities.to_a.sort.each do |k|
+                  params = (0...k).map { |i| "BasicObject* a#{i}" }.join(', ')
+                  emit.line %(virtual BasicObject* #{cpp_name}(#{params});)
+                end
+                emit.line %(virtual BasicObject* #{cpp_name}(Array* args, Hash* kwargs, BasicObject* block);)
+              elsif (kw_sig = @kw_unset_table[ruby_name.to_sym])
+                # Kw-bearing: single slot signature with required pos →
+                # opt pos (UNSET-able) → kws alphabetical. Universal-sig
+                # slot decl carries the per-name trampoline body.
+                pos_params = (0...kw_sig.total_slots - kw_sig.all_kw_names.length).map { |i| "BasicObject* a#{i}" }
+                kw_params = kw_sig.all_kw_names.map { |kn| "BasicObject* k_#{kn}" }
+                params = (pos_params + kw_params).join(', ')
+                emit.line %(virtual BasicObject* #{cpp_name}(#{params});)
+                emit.line %(virtual BasicObject* #{cpp_name}(Array* args, Hash* kwargs, BasicObject* block);)
+              else
+                emit.line %(virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) { return mm_dispatch(this, args, kwargs, block, "#{ruby_lit}"); })
+              end
             end
             # Constant-lookup surface — c_X() per dynamic-receiver
             # constant name. Default on BasicObject: TypeError (matches
@@ -743,6 +990,10 @@ module Frozone
                 # Unknown id → m_method_missing path (mm_dispatch builds the
                 # symbol-prepended args array and virtual-dispatches).
                 emit.line "if (_id < 0 || _id >= METHOD_VT_SIZE) return mm_dispatch(this, _rest, kwargs, block, _name->name_);"
+                # Single dispatch through METHOD_VT. For natural-arity
+                # and multi-arity names, the universal-sig slot's body
+                # is the trampoline that switches into the per-arity
+                # overload — no parallel table needed.
                 emit.line "return (this->*METHOD_VT[_id])(_rest, kwargs, block);"
               end
               emit.line "}"
@@ -884,7 +1135,7 @@ module Frozone
           # itself has no parent, and methods unique to a runtime
           # eigenclass (e.g. Math.log2 when no user code calls log2) lack
           # a parent stub so can't carry `override` either.
-          def self.write_override_decl(emit, name, klass)
+          def self.write_override_decl(emit, name, klass, spec = nil)
             if name.start_with?("c_")
               # Constant-lookup slot — empty arg list. `override` only
               # if the slot exists on BasicObject (i.e. is in the
@@ -894,7 +1145,48 @@ module Frozone
               return
             end
             override_kw = (klass.name == "BasicObject" || !@call_surface_set&.include?(name)) ? "" : " override"
-            emit.line "virtual BasicObject* #{name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance())#{override_kw};"
+            ruby_name = cpp_name_head_ruby(name).to_sym
+            # `using` un-hides BasicObject's universal-sig overload so
+            # `this->m_foo(args, kwargs, block)` calls inside the class
+            # body still resolve. Only emit for slots that actually
+            # exist on BasicObject (the head slot, not sm_X__from_Y
+            # chain shadows which live only on the defining class).
+            emit_using = !name.start_with?("sm_") && klass.name != "BasicObject"
+            if (sig = @natural_arity_names[ruby_name])
+              emit.line "using BasicObject::#{name};" if emit_using
+              pos_params = (0...sig.arity_req).map { |i| "BasicObject* a#{i}" }
+              kw_params = sig.required_kw_names.map { |kn| "BasicObject* k_#{kn}" }
+              emit.line "virtual BasicObject* #{name}(#{(pos_params + kw_params).join(', ')})#{override_kw};"
+              if klass.name == "BasicObject"
+                emit.line "virtual BasicObject* #{name}(Array* args, Hash* kwargs, BasicObject* block);"
+              end
+            elsif (family = @multi_arity_table[ruby_name])
+              emit.line "using BasicObject::#{name};" if emit_using
+              family.arities.to_a.sort.each do |k|
+                params = (0...k).map { |i| "BasicObject* a#{i}" }.join(', ')
+                emit.line "virtual BasicObject* #{name}(#{params})#{override_kw};"
+              end
+              # Per-class universal-sig override (class-specific arity
+              # range) when spec carries a universal_entry, or always
+              # on BasicObject (the family-wide trampoline body).
+              # Chain shadow slots (sm_X__from_Y) skip the override —
+              # they're called from super and have no parent slot.
+              if klass.name == "BasicObject" || (spec && spec[:universal_entry] && !name.start_with?("sm_"))
+                ovk = klass.name == "BasicObject" ? "" : " override"
+                emit.line "virtual BasicObject* #{name}(Array* args, Hash* kwargs, BasicObject* block)#{ovk};"
+              end
+            elsif (kw_sig = @kw_unset_table[ruby_name])
+              emit.line "using BasicObject::#{name};" if emit_using
+              n_pos = kw_sig.arity_req + kw_sig.opt
+              pos_params = (0...n_pos).map { |i| "BasicObject* a#{i}" }
+              kw_params = kw_sig.all_kw_names.map { |kn| "BasicObject* k_#{kn}" }
+              emit.line "virtual BasicObject* #{name}(#{(pos_params + kw_params).join(', ')})#{override_kw};"
+              if klass.name == "BasicObject"
+                emit.line "virtual BasicObject* #{name}(Array* args, Hash* kwargs, BasicObject* block);"
+              end
+            else
+              emit.line "virtual BasicObject* #{name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance())#{override_kw};"
+            end
           end
 
           # Out-of-line override definition. spec[:params] is a list of
@@ -912,6 +1204,120 @@ module Frozone
               # reference.
               emit.line "BasicObject* #{class_name}::#{name}() {"
               emit.indented do
+                spec[:body].each_line { |l| emit.line l.chomp }
+              end
+              emit.line "}"
+              emit.blank
+              return
+            end
+            # Hand-coded / overlay override on a multi-arity name —
+            # spec is single-form (params + body). Wrap as the per-arity
+            # slot at params.length (the "real" body), and emit wrong-
+            # args stubs at the other family arities so out-of-arity
+            # calls raise ArgumentError instead of falling to
+            # method_missing.
+            ruby_name_head = cpp_name_head_ruby(name).to_sym
+            if (family = @multi_arity_table[ruby_name_head]) && spec[:multi_arity].nil? && spec[:kw_unset].nil?
+              spec_param_decls = spec[:params] || []
+              spec_arity = spec_param_decls.length
+              spec_param_names = spec_param_decls.map { |decl| decl.split(/\s+/).last.delete_prefix('*') }
+              family.arities.to_a.sort.each do |k|
+                params = (0...k).map { |i| "BasicObject* _arg#{i}" }.join(', ')
+                if k == spec_arity
+                  emit.line "BasicObject* #{class_name}::#{name}(#{params}) {"
+                  emit.indented do
+                    spec_param_names.each_with_index do |pname, i|
+                      emit.line "BasicObject* #{pname} = _arg#{i};"
+                    end
+                    spec[:body].each_line { |l| emit.line l.chomp }
+                  end
+                  emit.line "}"
+                else
+                  emit.line "BasicObject* #{class_name}::#{name}(#{params}) {"
+                  emit.indented do
+                    emit.line "check_arity_fixed(#{k}, #{spec_arity});"
+                    emit.line "return nil_instance();"
+                  end
+                  emit.line "}"
+                end
+                emit.blank
+              end
+              return
+            end
+            # Multi-arity beachhead: spec carries N (params, body) pairs,
+            # one per servable arity. Emit one out-of-line definition per
+            # entry — they all share the cpp_name and dispatch by overload
+            # resolution at call sites.
+            if (entries = spec[:multi_arity])
+              entries.each do |entry|
+                params = entry[:params] || []
+                emit.line "BasicObject* #{class_name}::#{name}(#{params.join(', ')}) {"
+                emit.indented do
+                  entry[:body].each_line { |l| emit.line l.chomp }
+                end
+                emit.line "}"
+                emit.blank
+              end
+              # Per-class universal-sig override (class-specific arity
+              # error). Emitted when this class's arity range is
+              # narrower than the family's — body re-runs the check
+              # with class arities so the error message matches MRI.
+              # Skip for chain shadows (sm_X__from_Y) — they don't
+              # exist on a parent class to override.
+              if (univ = spec[:universal_entry]) && !name.start_with?("sm_")
+                params = univ[:params] || []
+                emit.line "BasicObject* #{class_name}::#{name}(#{params.join(', ')}) {"
+                emit.indented { univ[:body].each_line { |l| emit.line l.chomp } }
+                emit.line "}"
+                emit.blank
+              end
+              return
+            end
+            # Kw-unset out-of-line def — spec[:params] already lists the
+            # full slot signature (required pos → opt pos → all kws);
+            # body is the default-fill prologue + method body.
+            if spec[:kw_unset]
+              params = spec[:params] || []
+              emit.line "BasicObject* #{class_name}::#{name}(#{params.join(', ')}) {"
+              emit.indented { spec[:body].each_line { |l| emit.line l.chomp } }
+              emit.line "}"
+              emit.blank
+              return
+            end
+            if (sig = @natural_arity_names[cpp_name_head_ruby(name).to_sym])
+              # Natural-arity override out-of-line def. The spec's
+              # params list names the BODY-visible locals; for
+              # positional-only natural-arity (no kw), this is the
+              # full signature. For kw-bearing natural-arity, the
+              # spec body uses the kw names directly — we append
+              # `_kw_<name>` slots after the positional ones and
+              # treat the spec as if it had already declared them.
+              spec_param_names = (spec[:params] || []).map { |decl| decl.split(/\s+/).last.delete_prefix('*') }
+              if spec_param_names.length != sig.arity_req
+                # Spec doesn't match natural-arity contract — fall back
+                # to universal sig so the def stays consistent with
+                # something. Shouldn't happen if eligibility is sound.
+                emit.line "BasicObject* #{class_name}::#{name}(Array* args, Hash* kwargs, BasicObject* block) {"
+                emit.indented do
+                  (spec[:params] || []).each_with_index do |param_decl, i|
+                    param_name = param_decl.split(/\s+/).last.delete_prefix('*')
+                    emit.line "BasicObject* #{param_name} = array_at(args, #{i});"
+                  end
+                  spec[:body].each_line { |l| emit.line l.chomp }
+                end
+                emit.line "}"
+                emit.blank
+                return
+              end
+              pos_params = spec_param_names.map { |n| "BasicObject* #{n}" }
+              kw_params = sig.required_kw_names.map { |kn| "BasicObject* _kw_#{kn}" }
+              emit.line "BasicObject* #{class_name}::#{name}(#{(pos_params + kw_params).join(', ')}) {"
+              emit.indented do
+                # If the spec body references kw param names directly,
+                # bind each to its `_kw_<name>` incoming slot.
+                sig.required_kw_names.each do |kn|
+                  emit.line "BasicObject* #{kn} = _kw_#{kn};"
+                end
                 spec[:body].each_line { |l| emit.line l.chomp }
               end
               emit.line "}"

@@ -195,4 +195,56 @@ RSpec.describe 'box-first end-to-end' do
       '13',
     ])
   end
+
+  it 'lowers required-kw methods to natural-arity positional dispatch' do
+    expect(run_box_first('kw_test').strip.split("\n")).to eq(%w[50 307 307 411 411 411])
+  end
+
+  it 'dispatches kw-bearing methods via UNSET sentinel slot' do
+    expect(run_box_first('kw_unset_test').strip.split("\n")).to eq([
+      '15', '109',
+      '10', '6',
+      '103', '106', '53', '56',
+      '1060', '1080', '1139',
+      '25', '27', '12', '12',
+      '35', '37',                              # splat
+      '19',                                    # kw_splat
+      '1123', '1193', '1528', '1598',          # multi opt kws
+      '[hi-alice!]', '[hi-alice?]',            # super
+      '15',                                    # recursive
+      '342', '399',                            # default-via-method
+      'missing keyword: :must',                # direct missing required kw
+      'missing keyword: :must',                # via send
+      'unknown keyword: :bogus',               # direct unknown kw
+      'unknown keyword: :bogus',               # via send
+      '[:Z, :X, :Y]',                          # kw value eval — source order
+    ])
+  end
+
+  it 'dispatches per-arity overloads for methods with optional positionals' do
+    expect(run_box_first('multi_arity_test').strip.split("\n")).to eq([
+      '111', '103', '6',
+      '1024', '1060', '1059',
+      '111', '103', '6',
+      '117', '115', '24',
+      '500', '11',
+      'wrong number of arguments (given 2, expected 1)',
+      'wrong number of arguments (given 1, expected 2)',
+      '111', '103', '6',                              # splat
+      '[hi-alice!]', '[hi-alice?]',                   # super with multi-arity
+      '15', '12',                                     # Hop arities 1, 2
+      'wrong number of arguments (given 3, expected 1..2)',
+      '6',                                            # Hap arity 3
+      'wrong number of arguments (given 1, expected 3)',
+      'wrong number of arguments (given 2, expected 3)',
+      '8', '7',                                       # Stepper arities 1, 2
+      'wrong number of arguments (given 3, expected 1..2)',
+      '347', '345',                                   # FastStepper arities 2, 3
+      'wrong number of arguments (given 1, expected 2..3)',
+      'wrong number of arguments (given 0, expected 1..2)',  # class-specific (out-of-class)
+      'wrong number of arguments (given 3, expected 1..2)',  # class-specific (in family)
+      '15',                                           # Walker.walk(5)
+      '311', '322',                                   # default-via-method
+    ])
+  end
 end

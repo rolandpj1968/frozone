@@ -314,6 +314,30 @@ module Frozone
             },
           )
 
+          # Internal sentinel for "this optional positional / kw arg
+          # wasn't supplied by the caller". Distinct address from
+          # nil_instance() so codegen can tell "explicit nil" apart
+          # from "absent". Never escapes to user-visible Ruby — any
+          # dispatch on it indicates a codegen bug. m_method_missing
+          # aborts loudly so the bug surfaces at the call site.
+          UNSET_SENTINEL_CLASS = RubyClass.new(
+            name: "UnsetSentinel",
+            parent: "Object",
+            members: [%(const char* ruby_class_name() const override { return "UnsetSentinel"; })],
+            singleton: "UNSET_INSTANCE",
+            overrides: {
+              "m_method_missing" => {
+                params: [],
+                body: <<~CPP.chomp,
+                  const char* meth = !args->data.empty() ? static_cast<Symbol*>(args->data[0])->name_ : "?";
+                  std::fprintf(stderr, "[BUG] dispatch on UNSET sentinel — codegen missed an UNSET check before calling :%s\\n", meth);
+                  std::abort();
+                  return nil_instance();
+                CPP
+              },
+            },
+          )
+
           INTEGER = RubyClass.new(
             name: "Integer",
             parent: "Object",
@@ -1275,7 +1299,7 @@ module Frozone
           # the parent's vtable layout).
           ALL_CLASSES = [
             BASIC_OBJECT, OBJECT, MODULE, CLASS_TYPE,
-            NIL_CLASS, TRUE_CLASS, FALSE_CLASS,
+            NIL_CLASS, TRUE_CLASS, FALSE_CLASS, UNSET_SENTINEL_CLASS,
             INTEGER, FLOAT, ARRAY, SYMBOL, STRING, HASH, RANGE, PROC,
             REGEXP, MATCH_DATA, MATH, RANDOM, THROWN_TAG
           ].freeze
@@ -1369,6 +1393,16 @@ module Frozone
             name: "boxed_bool",
             signature: "BasicObject* boxed_bool(bool b)",
             body: "return b ? true_instance() : false_instance();",
+          )
+
+          # Sentinel value for "this optional arg wasn't supplied" —
+          # codegen for kw-bearing methods passes this for any absent
+          # optional positional or kw. Distinct address from
+          # nil_instance() so explicit nil is distinguishable.
+          UNSET_INSTANCE_FN = KernelFn.new(
+            name: "unset_instance",
+            signature: "BasicObject* unset_instance()",
+            body: "return static_cast<BasicObject*>(&UNSET_INSTANCE);",
           )
 
           TRUTHY = KernelFn.new(
@@ -1468,6 +1502,34 @@ module Frozone
               char buf[96];
               int n = std::snprintf(buf, sizeof(buf),
                 "wrong number of arguments (given %zu, expected %zu+)", given, lo);
+              if (n < 0) n = 0;
+              if (n >= (int)sizeof(buf)) n = (int)sizeof(buf) - 1;
+              throw static_cast<Exception*>(
+                (&ArgumentError_CLASS)->m_new(new Array({static_cast<BasicObject*>(new String(buf, n))}))
+              );
+            CPP
+          )
+
+          RAISE_MISSING_KW_FN = KernelFn.new(
+            name: "raise_missing_kw",
+            signature: "[[noreturn]] void raise_missing_kw(const char* name)",
+            body: <<~CPP.chomp,
+              char buf[128];
+              int n = std::snprintf(buf, sizeof(buf), "missing keyword: :%s", name);
+              if (n < 0) n = 0;
+              if (n >= (int)sizeof(buf)) n = (int)sizeof(buf) - 1;
+              throw static_cast<Exception*>(
+                (&ArgumentError_CLASS)->m_new(new Array({static_cast<BasicObject*>(new String(buf, n))}))
+              );
+            CPP
+          )
+
+          RAISE_UNKNOWN_KW_FN = KernelFn.new(
+            name: "raise_unknown_kw",
+            signature: "[[noreturn]] void raise_unknown_kw(const char* name)",
+            body: <<~CPP.chomp,
+              char buf[128];
+              int n = std::snprintf(buf, sizeof(buf), "unknown keyword: :%s", name);
               if (n < 0) n = 0;
               if (n >= (int)sizeof(buf)) n = (int)sizeof(buf) - 1;
               throw static_cast<Exception*>(
@@ -2034,12 +2096,13 @@ module Frozone
           )
 
           ALL_KERNEL_FNS = [
-            NIL_INSTANCE_FN, TRUE_INSTANCE_FN, FALSE_INSTANCE_FN,
+            NIL_INSTANCE_FN, TRUE_INSTANCE_FN, FALSE_INSTANCE_FN, UNSET_INSTANCE_FN,
             BOXED_BOOL, TRUTHY, RUBY_PUTS, INTERN_FN, ARRAY_AT_FN,
             SPLAT_TO_ARRAY_FN,
             BUILD_INT_ARRAY_FN, INT_BOX_FN,
             COERCE_TO_INT_FN, RAISE_ARITY_FN,
             RAISE_ARITY_FIXED_FN, RAISE_ARITY_RANGE_FN, RAISE_ARITY_MIN_FN,
+            RAISE_MISSING_KW_FN, RAISE_UNKNOWN_KW_FN,
             MM_DISPATCH_FN, CM_DISPATCH_FN,
             INIT_ONIGMO_FN, MATCH_DATA_GLOBAL, REGEXP_MATCH_FN, MATCH_DATA_CAP_FN,
             STRING_GSUB_FN, STRING_SCAN_FN, STRING_UNPACK_FN,
