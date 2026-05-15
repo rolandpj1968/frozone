@@ -209,11 +209,13 @@ module Frozone
             end
 
             def record_def(name, shape)  = @defs[name][shape] += 1
+            def record_def_class(name, klass) = (@defining_classes ||= Hash.new { |h, k| h[k] = Set.new })[name] << klass
             def record_call(name, shape) = @calls[name][shape] += 1
             def def_total(name)          = @defs[name].each_value.sum
             def call_total(name)         = @calls[name].each_value.sum
             def eligible?(name)          = !eligible_def_shape(name).nil?
             def all_names                = (@defs.keys | @calls.keys).sort
+            def defining_classes(name)   = (@defining_classes ||= {})[name] || Set.new
 
             # Returns the DefShape for an eligible name, else nil.
             # Eligible iff the def-histogram has exactly one bin AND
