@@ -333,6 +333,22 @@ module Frozone
             end
           end
 
+          # What-if (item 6): names that WOULD become kw_unset-eligible
+          # if we relaxed to multi-shape (any kw-unset-eligible shapes,
+          # possibly with different kw sets). Used by the report to
+          # size the opportunity before committing to the codegen
+          # extension.
+          def kw_unset_cross_class_candidates(agg, exclude: Set.new)
+            agg.all_names.each_with_object({}) do |name, h|
+              next if exclude.include?(name)
+              shapes = agg.defs[name]
+              next if shapes.size < 2
+              next unless shapes.keys.all?(&:kw_unset_eligible?)
+              next if agg.calls[name].any? { |c, _| c.blk_pass || c.do_block }
+              h[name] = shapes.keys
+            end
+          end
+
           # Mutually exclusive with `eligibility_table` (v1 single-arity
           # pure-positional). Single-shape with opt > 0 (defaults
           # beachhead) and multi-shape cross-class both flow through
@@ -392,6 +408,9 @@ module Frozone
             io.puts "  per-arity (v2):      #{per_arity_names.size} names, #{per_arity_slot_pairs} (name, arity) slots, #{per_arity_calls} compatible calls"
             io.puts "  defaults beachhead:  #{defaults_only.size} names, #{defaults_only_calls} compatible calls"
             io.puts "  kw-unset eligible:   #{kw_unset.size} names, #{kw_unset_calls} call sites"
+            kw_xclass = kw_unset_cross_class_candidates(agg)
+            kw_xclass_calls = kw_xclass.keys.sum { |n| agg.call_total(n) }
+            io.puts "  kw-unset xclass cand: #{kw_xclass.size} names, #{kw_xclass_calls} call sites (item 6 unlock)"
             if defaults_only.any?
               top_defaults = defaults_only.sort_by { |n, _| -agg.per_arity_compatible_calls(n) }.first(10)
               top_defaults.each do |n, f|
