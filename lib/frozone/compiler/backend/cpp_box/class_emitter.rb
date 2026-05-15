@@ -1169,7 +1169,9 @@ module Frozone
               # Per-class universal-sig override (class-specific arity
               # range) when spec carries a universal_entry, or always
               # on BasicObject (the family-wide trampoline body).
-              if klass.name == "BasicObject" || (spec && spec[:universal_entry])
+              # Chain shadow slots (sm_X__from_Y) skip the override —
+              # they're called from super and have no parent slot.
+              if klass.name == "BasicObject" || (spec && spec[:universal_entry] && !name.start_with?("sm_"))
                 ovk = klass.name == "BasicObject" ? "" : " override"
                 emit.line "virtual BasicObject* #{name}(Array* args, Hash* kwargs, BasicObject* block)#{ovk};"
               end
@@ -1208,6 +1210,40 @@ module Frozone
               emit.blank
               return
             end
+            # Hand-coded / overlay override on a multi-arity name —
+            # spec is single-form (params + body). Wrap as the per-arity
+            # slot at params.length (the "real" body), and emit wrong-
+            # args stubs at the other family arities so out-of-arity
+            # calls raise ArgumentError instead of falling to
+            # method_missing.
+            ruby_name_head = cpp_name_head_ruby(name).to_sym
+            if (family = @multi_arity_table[ruby_name_head]) && spec[:multi_arity].nil? && spec[:kw_unset].nil?
+              spec_param_decls = spec[:params] || []
+              spec_arity = spec_param_decls.length
+              spec_param_names = spec_param_decls.map { |decl| decl.split(/\s+/).last.delete_prefix('*') }
+              family.arities.to_a.sort.each do |k|
+                params = (0...k).map { |i| "BasicObject* _arg#{i}" }.join(', ')
+                if k == spec_arity
+                  emit.line "BasicObject* #{class_name}::#{name}(#{params}) {"
+                  emit.indented do
+                    spec_param_names.each_with_index do |pname, i|
+                      emit.line "BasicObject* #{pname} = _arg#{i};"
+                    end
+                    spec[:body].each_line { |l| emit.line l.chomp }
+                  end
+                  emit.line "}"
+                else
+                  emit.line "BasicObject* #{class_name}::#{name}(#{params}) {"
+                  emit.indented do
+                    emit.line "check_arity_fixed(#{k}, #{spec_arity});"
+                    emit.line "return nil_instance();"
+                  end
+                  emit.line "}"
+                end
+                emit.blank
+              end
+              return
+            end
             # Multi-arity beachhead: spec carries N (params, body) pairs,
             # one per servable arity. Emit one out-of-line definition per
             # entry — they all share the cpp_name and dispatch by overload
@@ -1226,7 +1262,9 @@ module Frozone
               # error). Emitted when this class's arity range is
               # narrower than the family's — body re-runs the check
               # with class arities so the error message matches MRI.
-              if (univ = spec[:universal_entry])
+              # Skip for chain shadows (sm_X__from_Y) — they don't
+              # exist on a parent class to override.
+              if (univ = spec[:universal_entry]) && !name.start_with?("sm_")
                 params = univ[:params] || []
                 emit.line "BasicObject* #{class_name}::#{name}(#{params.join(', ')}) {"
                 emit.indented { univ[:body].each_line { |l| emit.line l.chomp } }

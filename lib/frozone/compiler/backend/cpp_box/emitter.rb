@@ -1962,7 +1962,7 @@ module Frozone
           # name at an arity this def doesn't serve), emit a wrong-args
           # stub so call sites at those arities raise ArgumentError on
           # an instance of this class rather than method_missing.
-          def build_multi_arity_override(method, family)
+          def build_multi_arity_override(method, family, storage_name: nil)
             required = method.required_params || []
             optional = method.optional_params || []
             arity_req = required.length
@@ -2036,9 +2036,15 @@ module Frozone
               check_call = arity_req == arity_max ?
                 "check_arity_fixed(args->data.size(), #{arity_req});" :
                 "check_arity_range(args->data.size(), #{arity_req}, #{arity_max});"
+              # Use storage_name for the dispatch — aliased methods
+              # (alias size length) reach build_multi_arity_override
+              # with method.name=:length but get emitted at the alias
+              # slot (storage_name=:size). The switch must dispatch
+              # back into the slot we're inside, not the original.
+              call_cpp_name = Cpp.method_name(storage_name || method.name)
               switch_lines = family_arities.map do |k|
                 args_call = (0...k).map { |i| "args->data[#{i}]" }.join(', ')
-                "    case #{k}: return this->#{Cpp.method_name(method.name)}(#{args_call});"
+                "    case #{k}: return this->#{call_cpp_name}(#{args_call});"
               end.join("\n")
               spec[:universal_entry] = {
                 params: ["Array* args", "Hash* kwargs", "BasicObject* /*block*/"],
@@ -2133,7 +2139,7 @@ module Frozone
                 sig = @natural_arity_names && @natural_arity_names[lookup_name]
                 return build_natural_arity_override(method, sig) if sig
                 family = @multi_arity_table && @multi_arity_table[lookup_name]
-                return build_multi_arity_override(method, family) if family
+                return build_multi_arity_override(method, family, storage_name: lookup_name) if family
                 kw_sig = @kw_unset_table && @kw_unset_table[lookup_name]
                 return build_kw_unset_override(method, kw_sig) if kw_sig
                 # Pre-walk for captured locals (inner-block-referenced
@@ -2305,18 +2311,74 @@ module Frozone
           # cross-class wrong-args stub work needed to fill the gaps is
           # post-beachhead. Conservative prune today; relax once full
           # per-arity emission lands.
+          # Drop a multi-arity name only when the override's signature
+          # can't be fitted into the per-arity slot family. Hand-coded
+          # inline methods (in `hand_coded_method_names`) live as
+          # universal-sig bodies in BasicObject's struct and can't be
+          # reshaped — always drop. Spec-based overrides whose
+          # params.length matches one of the family arities CAN be
+          # emitted as the per-arity slot for that arity, with wrong-
+          # args stubs at the other arities (write_override_def
+          # handles this when spec is single-form on a multi-arity name).
+          # Spec is a per-arity-wrappable body iff its body doesn't
+          # reference the universal-sig `args` / `kwargs` / `block`
+          # parameters directly. Some hand-coded specs have params=[]
+          # but use `args->data` in the body (e.g. Random#rand) — those
+          # are universal-sig in disguise and can't be re-emitted at a
+          # per-arity slot signature.
+          def spec_body_universal_sig_in_disguise?(spec)
+            body = spec[:body].to_s
+            body =~ /\bargs\b/ || body =~ /\bkwargs\b/ || body =~ /\bblock\b/
+          end
+
           def prune_multi_arity_override_collisions
             pruned = 0
-            @multi_arity_table.delete_if do |ruby_name, _family|
+            debug = ENV['FROZONE_NATURAL_ARGS_DEBUG'] == 'prune'
+            @multi_arity_table.delete_if do |ruby_name, family|
               cpp = Cpp.method_name(ruby_name)
-              collide = Runtime::ALL_CLASSES.any? do |k|
-                hc = (k.hand_coded_method_names || []).include?(cpp)
+              incompatible_class = nil
+              incompatible_kind = nil
+              Runtime::ALL_CLASSES.each do |k|
+                if (k.hand_coded_method_names || []).include?(cpp)
+                  incompatible_class = k.name
+                  incompatible_kind = "hand_coded_inline"
+                  break
+                end
                 override = (k.overrides || {})[cpp]
                 singleton = (k.respond_to?(:eigenclass_overrides) ? k.eigenclass_overrides : nil) || {}
-                hc || override || singleton[cpp]
+                sing = singleton[cpp]
+                if override
+                  if !family.arities.include?((override[:params] || []).length)
+                    incompatible_class = k.name
+                    incompatible_kind = "override(params=#{(override[:params] || []).length})"
+                    break
+                  end
+                  if spec_body_universal_sig_in_disguise?(override)
+                    incompatible_class = k.name
+                    incompatible_kind = "override(body uses args/kwargs/block)"
+                    break
+                  end
+                end
+                if sing
+                  if !family.arities.include?((sing[:params] || []).length)
+                    incompatible_class = k.name
+                    incompatible_kind = "singleton(params=#{(sing[:params] || []).length})"
+                    break
+                  end
+                  if spec_body_universal_sig_in_disguise?(sing)
+                    incompatible_class = k.name
+                    incompatible_kind = "singleton(body uses args/kwargs/block)"
+                    break
+                  end
+                end
               end
-              pruned += 1 if collide
-              collide
+              if incompatible_class
+                $stderr.puts "[multi-arity-prune] :#{ruby_name} arities=#{family.arities.to_a.sort} dropped by #{incompatible_class} (#{incompatible_kind})" if debug
+                pruned += 1
+                true
+              else
+                false
+              end
             end
             pruned
           end
@@ -2326,18 +2388,43 @@ module Frozone
           # cpp slot. The kw_unset slot signature has a fixed param
           # count that wouldn't match a hand-coded body, and per-class
           # overlap with hand-coded paths is too risky for a first pass.
+          # kw_unset has a single fixed slot signature (total_slots
+          # params). Override is wrappable iff its params.length equals
+          # total_slots — then it IS the slot body.
           def prune_kw_unset_override_collisions
             pruned = 0
-            @kw_unset_table.delete_if do |ruby_name, _sig|
+            debug = ENV['FROZONE_NATURAL_ARGS_DEBUG'] == 'prune'
+            @kw_unset_table.delete_if do |ruby_name, sig|
               cpp = Cpp.method_name(ruby_name)
-              collide = Runtime::ALL_CLASSES.any? do |k|
-                hc = (k.hand_coded_method_names || []).include?(cpp)
+              incompatible_class = nil
+              incompatible_kind = nil
+              Runtime::ALL_CLASSES.each do |k|
+                if (k.hand_coded_method_names || []).include?(cpp)
+                  incompatible_class = k.name
+                  incompatible_kind = "hand_coded_inline"
+                  break
+                end
                 override = (k.overrides || {})[cpp]
                 singleton = (k.respond_to?(:eigenclass_overrides) ? k.eigenclass_overrides : nil) || {}
-                hc || override || singleton[cpp]
+                sing = singleton[cpp]
+                if override && (override[:params] || []).length != sig.total_slots
+                  incompatible_class = k.name
+                  incompatible_kind = "override(params=#{(override[:params] || []).length})"
+                  break
+                end
+                if sing && (sing[:params] || []).length != sig.total_slots
+                  incompatible_class = k.name
+                  incompatible_kind = "singleton(params=#{(sing[:params] || []).length})"
+                  break
+                end
               end
-              pruned += 1 if collide
-              collide
+              if incompatible_class
+                $stderr.puts "[kw-unset-prune] :#{ruby_name} slots=#{sig.total_slots} dropped by #{incompatible_class} (#{incompatible_kind})" if debug
+                pruned += 1
+                true
+              else
+                false
+              end
             end
             pruned
           end
