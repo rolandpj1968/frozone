@@ -27,7 +27,7 @@ module Frozone
     module Backend
       module CppBox
         class Emitter
-          attr_reader :cpp, :top_level_scope, :user_classes, :user_constants, :natural_arity_names, :multi_arity_table, :kw_unset_table
+          attr_reader :cpp, :top_level_scope, :user_classes, :user_constants, :natural_arity_names, :multi_arity_table, :kw_unset_table, :leaf_dispatch_table
           # When true, emission errors inside method bodies re-raise
           # under FROZONE_BOX_HARD_FAIL=1 instead of graceful-skipping.
           # Toggled true while emitting user-class bodies + the
@@ -163,7 +163,8 @@ module Frozone
             @natural_arity_names = {}
             @multi_arity_table = {}
             @kw_unset_table = {}
-            if ENV['FROZONE_METHOD_SHAPES'] == '1' || ENV['FROZONE_NATURAL_ARGS'] == '1'
+            @leaf_dispatch_table = {}
+            if ENV['FROZONE_METHOD_SHAPES'] == '1' || ENV['FROZONE_NATURAL_ARGS'] == '1' || ENV['FROZONE_LEAF_DISPATCH'] == '1'
               agg = build_method_shape_survey
               MethodShapeSurvey.report(agg) if ENV['FROZONE_METHOD_SHAPES'] == '1'
               if ENV['FROZONE_NATURAL_ARGS'] == '1'
@@ -182,12 +183,20 @@ module Frozone
                              "#{@kw_unset_table.size} kw-unset (-#{kw_unset_collisions} override collisions)"
               end
               # Leaf-dispatch eligibility (independent of natural-args).
-              # Activated by FROZONE_LEAF_DISPATCH=1 — survey-only at
-              # this point; codegen wiring follows.
+              # Activated by FROZONE_LEAF_DISPATCH=1 — populates the
+              # table; codegen consumes it via emit.leaf_dispatch_table.
               if ENV['FROZONE_LEAF_DISPATCH'] == '1'
-                leaf_excl = compute_hand_coded_disqualified_names | (@internal_block_users || Set.new)
-                lt = compute_leaf_dispatch_table(agg, exclude: leaf_excl)
-                $stderr.puts "[box-first] leaf-dispatch: #{lt.size} single-def leaf names (#{compute_leaf_classes.size} leaf classes total)"
+                # Phase A: exclude names that already get natural-args
+                # dispatch — their trampoline already provides similar
+                # benefits. Pure universal-sig single-def-leaf names
+                # are the main Phase A target (the rest joins later).
+                leaf_excl = compute_hand_coded_disqualified_names |
+                            (@internal_block_users || Set.new) |
+                            @natural_arity_names.keys.to_set |
+                            @multi_arity_table.keys.to_set |
+                            @kw_unset_table.keys.to_set
+                @leaf_dispatch_table = compute_leaf_dispatch_table(agg, exclude: leaf_excl)
+                $stderr.puts "[box-first] leaf-dispatch: #{@leaf_dispatch_table.size} single-def leaf names (#{compute_leaf_classes.size} leaf classes total)"
               end
             end
             all_classes = overlay_universe_methods(Runtime::ALL_CLASSES) + build_user_class_defs
@@ -1903,9 +1912,8 @@ module Frozone
           # sig bodies live in the struct, can't be moved). Names with
           # non-leaf defining classes are Phase C (deferred).
           def compute_leaf_dispatch_table(agg, exclude: Set.new)
-            return @leaf_dispatch_table if defined?(@leaf_dispatch_table)
             leaves = compute_leaf_classes
-            @leaf_dispatch_table = agg.all_names.each_with_object({}) do |name, h|
+            agg.all_names.each_with_object({}) do |name, h|
               next if exclude.include?(name)
               defining = agg.defining_classes(name)
               next unless defining.size == 1
