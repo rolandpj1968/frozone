@@ -88,6 +88,14 @@ module Frozone
             responder_sets = compute_responder_sets(classes)
             classes = classes.map { |k| with_auto_overrides(k, responder_sets[k.name] || [], method_ids, class_ids[k.name]) }
             @class_ids = class_ids  # for write_class to access
+            # Set of cpp class names that are LEAVES in the emitted
+            # C++ hierarchy (no other class names them as parent).
+            # write_class emits these as `final` — C++ devirtualises
+            # typed-receiver virtual calls without LTO, orthogonal to
+            # the leaf-dispatch typeid gateway (which targets
+            # untyped-receiver BasicObject* call sites).
+            parent_set = classes.map(&:parent).compact.to_set
+            @cpp_leaf_set = classes.map(&:name).reject { |n| parent_set.include?(n) }.to_set
 
             # Two-pass: pre-render method bodies + send + kernel into a
             # buffer to populate emit.cpp.int_literals (Integer literal
@@ -917,7 +925,10 @@ module Frozone
 
           def self.write_class(emit, klass, call_surface)
             inherits = klass.parent ? " : #{klass.parent}" : ""
-            emit.line "struct #{klass.name}#{inherits} {"
+            # `final` keyword goes BEFORE the base-class colon in C++:
+            #   struct Foo final : Parent { ... };
+            final = (@cpp_leaf_set && @cpp_leaf_set.include?(klass.name) && klass.name != "BasicObject") ? " final" : ""
+            emit.line "struct #{klass.name}#{final}#{inherits} {"
             emit.indented do
               klass.members&.each { |m| emit.line m }
               klass.ivars&.each { |iv| emit.line iv }
