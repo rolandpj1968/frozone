@@ -441,8 +441,19 @@ module Frozone
             end
             (method.required_kw_params || []).each do |p|
               key_lit = emit.cpp.cpp_string_literal(p.to_s)
-              emit.line decl_local_line(emit, p, %|(kwargs->data.find(intern(#{key_lit})) != kwargs->data.end()) ? kwargs->data[intern(#{key_lit})] : ([&]() -> BasicObject* { std::fprintf(stderr, "[box-first] missing required kw arg :#{p}\\n"); std::abort(); }())|)
+              emit.line decl_local_line(emit, p, %|[&]() -> BasicObject* { auto _it = kwargs->data.find(intern(#{key_lit})); if (_it == kwargs->data.end()) raise_missing_kw(#{key_lit}); return _it->second; }()|)
               locals << p.to_s
+            end
+            # Unknown-kw check: when the method declares named kws but
+            # no `**rest` to absorb extras, an unexpected kw must raise
+            # ArgumentError (MRI parity). With kw_rest the extras land
+            # in the rest hash so no check is needed.
+            if !method.kw_rest_param &&
+               (!(method.optional_kw_params || []).empty? || !(method.required_kw_params || []).empty?)
+              expected_keys = ((method.optional_kw_params || []).map { |p, _| p.to_s } +
+                               (method.required_kw_params || []).map(&:to_s)).uniq
+              expected_set = expected_keys.map { |k| "intern(#{emit.cpp.cpp_string_literal(k)})" }.join(', ')
+              emit.line %|for (auto& _kv : kwargs->data) { Symbol* _k = static_cast<Symbol*>(_kv.first); bool _ok = false; for (auto _e : {#{expected_set}}) { if (_k == _e) { _ok = true; break; } } if (!_ok) raise_unknown_kw(_k->name_); }|
             end
             if method.kw_rest_param
               # `**rest` — bind a Hash of all kwargs not consumed by
