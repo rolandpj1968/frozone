@@ -7,11 +7,11 @@ def run_benchmark(*, &); end
 # typeid gateway or the universal VT slot.
 
 # Positive: `double` is single-def on a leaf class (LeafCalc) →
-# eligible for leaf-dispatch.
-# Negative-by-accident: `label` is single-def here, but `Thread#label`
-# exists in core/4.0/thread.rb — so it's multi-def across the full
-# closed world, and leaf detection rightly excludes it. Useful as a
-# real-world third negative beyond the two we set up explicitly.
+# Phase A eligible (K=1).
+# Phase B positive (cross-stub): `label` is multi-def — it also exists
+# on Thread::Backtrace::Location in core/4.0/thread.rb, which is itself
+# a leaf. Under Phase A this was a negative; under Phase B with K≥2
+# it's admitted as a K-way OR-chain.
 class LeafCalc
   def double(x) = x + x
   def label = "leaf"
@@ -26,9 +26,10 @@ class Child < Parent
   def kind = "C"
 end
 
-# Negative: same method name on two unrelated leaf classes →
-# multi-def. Phase A excludes these (Phase B will handle as K-way
-# typeid OR-chain).
+# Phase B positive: same method name on two unrelated leaf classes →
+# multi-def-all-leaf. Phase B handles via K-way typeid OR-chain
+# (K=2 here). Phase A excludes these — Phase B admits them. Behavior
+# is identical in both phases; only codegen differs.
 class Animal
   def speak = "animal-noise"
 end

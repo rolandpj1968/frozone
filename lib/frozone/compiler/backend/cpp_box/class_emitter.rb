@@ -65,8 +65,8 @@ module Frozone
             # is also non-virtual (name hiding gives free direct
             # dispatch from typed callers). Hash[ruby_name → cpp_leaf_name].
             raw_leaf = (emit.respond_to?(:leaf_dispatch_table) ? emit.leaf_dispatch_table : nil) || {}
-            @leaf_dispatch_table = raw_leaf.each_with_object({}) do |(name, cls), h|
-              h[name] = cls.full_name.to_s.gsub("::", "_")
+            @leaf_dispatch_table = raw_leaf.each_with_object({}) do |(name, classes), h|
+              h[name] = classes.map { |c| c.full_name.to_s.gsub("::", "_") }
             end
             # Constant surface — names referenced via dynamic-receiver
             # paths (`self.class::X`). Each gets a `c_X` virtual on
@@ -495,28 +495,31 @@ module Frozone
           # Out-of-line gateway body for each leaf-dispatch-eligible name.
           # Replaces the universal-sig virtual slot on BasicObject with a
           # non-virtual body that:
-          #   - Compares typeid(*this) against the leaf class's typeid.
-          #   - On match, downcasts and calls the leaf's universal-sig
+          #   - Compares typeid(*this) against each defining leaf class's
+          #     typeid (K-way OR-chain for K defining leaves).
+          #   - On match, downcasts and calls that leaf's universal-sig
           #     method directly (non-virtual, since both are non-virtual
           #     and same C++ name — name lookup at LeafClass scope picks
           #     the leaf's body).
-          #   - On miss, falls through to mm_dispatch.
-          # Out-of-line because typeid + downcast both need the leaf
+          #   - On all-miss, falls through to mm_dispatch.
+          # Out-of-line because typeid + downcast both need every leaf
           # class's struct to be complete.
           def self.write_leaf_dispatch_gateway_bodies(emit)
             return if @leaf_dispatch_table.empty?
             emit.line "// Leaf-dispatch gateways — non-virtual BO::m_X bodies that"
-            emit.line "// typeid-check and downcast to the single defining leaf class."
-            @leaf_dispatch_table.each do |ruby_name, leaf_cpp|
+            emit.line "// typeid-check (K-way) and downcast to a defining leaf class."
+            @leaf_dispatch_table.each do |ruby_name, leaf_cpps|
               cpp_name = Cpp.method_name(ruby_name)
               ruby_lit = ruby_name.to_s.gsub('\\', '\\\\\\\\').gsub('"', '\\"')
               emit.line "BasicObject* BasicObject::#{cpp_name}(Array* args, Hash* kwargs, BasicObject* block) {"
               emit.indented do
-                emit.line "if (typeid(*this) == typeid(#{leaf_cpp})) {"
-                emit.indented do
-                  emit.line "return static_cast<#{leaf_cpp}*>(this)->#{cpp_name}(args, kwargs, block);"
+                leaf_cpps.each do |leaf_cpp|
+                  emit.line "if (typeid(*this) == typeid(#{leaf_cpp})) {"
+                  emit.indented do
+                    emit.line "return static_cast<#{leaf_cpp}*>(this)->#{cpp_name}(args, kwargs, block);"
+                  end
+                  emit.line "}"
                 end
-                emit.line "}"
                 emit.line "return mm_dispatch(this, args, kwargs, block, \"#{ruby_lit}\");"
               end
               emit.line "}"

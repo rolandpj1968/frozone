@@ -196,7 +196,9 @@ module Frozone
                             @multi_arity_table.keys.to_set |
                             @kw_unset_table.keys.to_set
                 @leaf_dispatch_table = compute_leaf_dispatch_table(agg, exclude: leaf_excl)
-                $stderr.puts "[box-first] leaf-dispatch: #{@leaf_dispatch_table.size} single-def leaf names (#{compute_leaf_classes.size} leaf classes total)"
+                by_k = @leaf_dispatch_table.values.group_by(&:size).transform_values(&:size).sort.to_h
+                $stderr.puts "[box-first] leaf-dispatch: #{@leaf_dispatch_table.size} leaf names " \
+                             "(#{compute_leaf_classes.size} leaf classes total; by K: #{by_k.inspect})"
               end
             end
             all_classes = overlay_universe_methods(Runtime::ALL_CLASSES) + build_user_class_defs
@@ -1898,10 +1900,10 @@ module Frozone
             @leaf_classes = classes.reject { |c| parent_set.include?(c) }.to_set
           end
 
-          # Phase A leaf-dispatch eligibility: ruby_name → Vm::ClassObject
-          # for names where the def lives in exactly one defining class
-          # AND that class is a leaf. Used by class_emitter to swap the
-          # universal-sig slot for a typeid gateway.
+          # Leaf-dispatch eligibility: ruby_name → Array<Vm::ClassObject>
+          # for names whose defining classes are ALL leaves AND total
+          # ≤ max_k. Used by class_emitter to swap the universal-sig
+          # slot for a K-way typeid gateway (Phase A: K=1, Phase B: K≤4).
           #
           # Composes additively with natural-args (per-arity / multi-arity
           # / kw_unset overloads on the leaf are untouched — gateway only
@@ -1909,16 +1911,17 @@ module Frozone
           # bypass the gateway via direct overload resolution).
           #
           # Excluded: hand-coded inline methods on BasicObject (universal-
-          # sig bodies live in the struct, can't be moved). Names with
-          # non-leaf defining classes are Phase C (deferred).
-          def compute_leaf_dispatch_table(agg, exclude: Set.new)
+          # sig bodies live in the struct, can't be moved). Names whose
+          # defining set includes a non-leaf class (modules included,
+          # base classes) are Phase C (deferred).
+          def compute_leaf_dispatch_table(agg, exclude: Set.new, max_k: 4)
             leaves = compute_leaf_classes
             agg.all_names.each_with_object({}) do |name, h|
               next if exclude.include?(name)
               defining = agg.defining_classes(name)
-              next unless defining.size == 1
-              cls = defining.first
-              h[name] = cls if leaves.include?(cls)
+              next if defining.empty? || defining.size > max_k
+              next unless defining.all? { |c| leaves.include?(c) }
+              h[name] = defining.to_a
             end
           end
 

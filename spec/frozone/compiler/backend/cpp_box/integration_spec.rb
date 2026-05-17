@@ -268,11 +268,11 @@ RSpec.describe 'box-first end-to-end' do
     # Behavior is identical in all 4 modes — the gateway and the
     # universal VT slot produce the same observable result.
     expect(run_box_first('leaf_dispatch_test', env_extras: env_extras).strip.split("\n")).to eq([
-      '42',           # LeafCalc#double — single-def leaf (positive)
-      'leaf',         # LeafCalc#label — multi-def vs Thread#label in core (negative)
+      '42',           # LeafCalc#double — single-def leaf (Phase A positive)
+      'leaf',         # LeafCalc#label — K=2 with Thread::Backtrace::Location (Phase B positive)
       'P',            # Parent#kind — Parent not a leaf (Child overrides) (negative)
       'C',            # Child#kind — multi-def with Parent
-      'animal-noise', # Animal#speak — multi-leaf with Robot (negative)
+      'animal-noise', # Animal#speak — multi-leaf with Robot (Phase B positive)
       'beep',         # Robot#speak — multi-leaf with Animal
       'Hi, alice',    # Greeter#greet — natural-args optional positional
       'Yo, bob',      # Greeter#greet — natural-args explicit prefix
@@ -307,36 +307,54 @@ RSpec.describe 'box-first leaf-dispatch codegen' do
   end
 
   def gateway_target(gen_cpp, cpp_name)
-    # Returns the C++ class name from the typeid() comparison after a
-    # `BasicObject* BasicObject::<cpp_name>(...) {` line, or nil if
-    # the cpp_name has no out-of-line gateway body.
-    return nil unless gen_cpp =~ /^BasicObject\* BasicObject::#{Regexp.escape(cpp_name)}\(Array\*[^\n]*\n\s*if \(typeid\(\*this\) == typeid\(([A-Za-z0-9_]+)\)\)/m
-    Regexp.last_match(1)
+    targets = gateway_targets(gen_cpp, cpp_name)
+    targets&.first
+  end
+
+  def gateway_targets(gen_cpp, cpp_name)
+    # Returns the array of C++ class names from the K-way typeid OR-chain
+    # in the gateway body for `cpp_name`, or nil if no gateway body
+    # exists. Body shape:
+    #   BasicObject* BasicObject::<cpp_name>(Array*, Hash*, BasicObject*) {
+    #     if (typeid(*this) == typeid(X)) { ... }
+    #     if (typeid(*this) == typeid(Y)) { ... }
+    #     return mm_dispatch(...);
+    #   }
+    # The closing `}` for the function is at column 0; nested if-block
+    # closes are indented — anchor on `^\}` to bound the body precisely.
+    # Ruby /m = dotall (. matches \n); we want the OPPOSITE — line-by-line
+    # lazy expansion — so omit /m. ^ and $ are line-anchored by default.
+    return nil unless gen_cpp =~ /^BasicObject\* BasicObject::#{Regexp.escape(cpp_name)}\(Array\*[^\n]*\{\n((?:.*\n)*?)^\}/
+    body = Regexp.last_match(1)
+    body.scan(/typeid\(\*this\) == typeid\(([A-Za-z0-9_]+)\)/).flatten
   end
 
   context 'with LEAF=1 only (natural-args off)' do
-    it 'emits typeid gateways for single-def-leaf names and skips non-leaf / multi-def' do
+    it 'emits single-def and K-way leaf gateways; skips non-leaf' do
       cpp = gen_leaf_test('FROZONE_LEAF_DISPATCH' => '1')
       expect(gateway_target(cpp, 'm_double')).to eq('LeafCalc')      # single-def leaf — positive
       expect(gateway_target(cpp, 'm_greet')).to eq('Greeter')        # single-def leaf — positive (NA off)
-      expect(gateway_target(cpp, 'm_label')).to be_nil               # multi-def vs Thread#label
+      # Phase B: multi-def-all-leaf → K-way OR-chain. Order is
+      # iteration-dependent (set/hash) so use match_array.
+      expect(gateway_targets(cpp, 'm_speak')).to match_array(%w[Animal Robot])
+      # `label` is also defined on Thread::Backtrace::Location (core) —
+      # itself a leaf, so K=2 admissible under Phase B.
+      expect(gateway_targets(cpp, 'm_label')).to match_array(%w[LeafCalc Thread_Backtrace_Location])
       expect(gateway_target(cpp, 'm_kind')).to be_nil                # parent not a leaf
-      expect(gateway_target(cpp, 'm_speak')).to be_nil               # multi-leaf
     end
   end
 
   context 'with LEAF=1 + NA=1' do
     it 'cedes natural-args-eligible names to NA, leaving the leaf table for the residue' do
       cpp = gen_leaf_test('FROZONE_LEAF_DISPATCH' => '1', 'FROZONE_NATURAL_ARGS' => '1')
-      # In our stub, every user method that would have been leaf-eligible
-      # is also natural-args eligible (pure positional / optional positional),
-      # so the leaf table for THIS stub is empty under NA=1 — NA wins.
-      # That's the Phase A composition rule.
-      expect(gateway_target(cpp, 'm_double')).to be_nil  # natural-args claims it (pure positional)
-      expect(gateway_target(cpp, 'm_greet')).to be_nil   # natural-args claims it (optional positional)
+      # Under NA=1, pure-positional / optional-positional names are
+      # claimed by natural-args first; leaf-dispatch covers what's left.
+      # `m_speak` (no args) is pure-positional → NA claims it.
+      expect(gateway_target(cpp, 'm_double')).to be_nil
+      expect(gateway_target(cpp, 'm_greet')).to be_nil
+      expect(gateway_target(cpp, 'm_speak')).to be_nil
       expect(gateway_target(cpp, 'm_label')).to be_nil
       expect(gateway_target(cpp, 'm_kind')).to be_nil
-      expect(gateway_target(cpp, 'm_speak')).to be_nil
     end
   end
 
