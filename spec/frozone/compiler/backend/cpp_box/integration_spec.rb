@@ -264,6 +264,23 @@ RSpec.describe 'box-first end-to-end' do
     ])
   end
 
+  it 'seeds Random correctly and reproduces MT19937 sequence' do
+    # Bug history: intrinsic_random_new allocated `new Random()` directly
+    # without invoking m_initialize, so universe.rb's MT19937 class state
+    # (seed_, mt_[]) stayed zero — every `Random.new(seed).rand` returned
+    # 0.0 forever. Splay benchmark hung (insert_new_node's collision-
+    # avoidance loop spun on every find matching the root 0.0).
+    expect(run_box_first('random_test', env_extras: env_extras).strip.split("\n")).to eq([
+      '0.3745401188473625',
+      '0.9507143064099162',
+      '0.7319939418114051',
+      '0.5986584841970366',
+      '0.15601864044243652',
+      '123', '0',
+      'ok-distinct', 'ok-bounded',
+    ])
+  end
+
   it 'lowers attribute-write (obj.attr = val) correctly under NA + baseline' do
     # Sister of the IOW bug: from_attribute_write Array-wraps the
     # setter arg unconditionally. attr_accessor / single-arg `name=`
