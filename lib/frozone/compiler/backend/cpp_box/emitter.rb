@@ -27,7 +27,7 @@ module Frozone
     module Backend
       module CppBox
         class Emitter
-          attr_reader :cpp, :top_level_scope, :user_classes, :user_constants, :natural_arity_names, :multi_arity_table, :kw_unset_table
+          attr_reader :cpp, :top_level_scope, :user_classes, :user_constants, :natural_arity_names, :multi_arity_table, :kw_unset_table, :leaf_dispatch_table
           # When true, emission errors inside method bodies re-raise
           # under FROZONE_BOX_HARD_FAIL=1 instead of graceful-skipping.
           # Toggled true while emitting user-class bodies + the
@@ -163,7 +163,8 @@ module Frozone
             @natural_arity_names = {}
             @multi_arity_table = {}
             @kw_unset_table = {}
-            if ENV['FROZONE_METHOD_SHAPES'] == '1' || ENV['FROZONE_NATURAL_ARGS'] == '1'
+            @leaf_dispatch_table = {}
+            if ENV['FROZONE_METHOD_SHAPES'] == '1' || ENV['FROZONE_NATURAL_ARGS'] == '1' || ENV['FROZONE_LEAF_DISPATCH'] == '1'
               agg = build_method_shape_survey
               MethodShapeSurvey.report(agg) if ENV['FROZONE_METHOD_SHAPES'] == '1'
               if ENV['FROZONE_NATURAL_ARGS'] == '1'
@@ -180,6 +181,24 @@ module Frozone
                              "#{override_collisions} cpp-name arity collisions); " \
                              "#{@multi_arity_table.size} multi-arity (defaults; -#{multi_collisions} override collisions); " \
                              "#{@kw_unset_table.size} kw-unset (-#{kw_unset_collisions} override collisions)"
+              end
+              # Leaf-dispatch eligibility (independent of natural-args).
+              # Activated by FROZONE_LEAF_DISPATCH=1 — populates the
+              # table; codegen consumes it via emit.leaf_dispatch_table.
+              if ENV['FROZONE_LEAF_DISPATCH'] == '1'
+                # Phase A: exclude names that already get natural-args
+                # dispatch — their trampoline already provides similar
+                # benefits. Pure universal-sig single-def-leaf names
+                # are the main Phase A target (the rest joins later).
+                leaf_excl = compute_hand_coded_disqualified_names |
+                            (@internal_block_users || Set.new) |
+                            @natural_arity_names.keys.to_set |
+                            @multi_arity_table.keys.to_set |
+                            @kw_unset_table.keys.to_set
+                @leaf_dispatch_table = compute_leaf_dispatch_table(agg, exclude: leaf_excl)
+                by_k = @leaf_dispatch_table.values.group_by(&:size).transform_values(&:size).sort.to_h
+                $stderr.puts "[box-first] leaf-dispatch: #{@leaf_dispatch_table.size} leaf names " \
+                             "(#{compute_leaf_classes.size} leaf classes total; by K: #{by_k.inspect})"
               end
             end
             all_classes = overlay_universe_methods(Runtime::ALL_CLASSES) + build_user_class_defs
@@ -1860,6 +1879,52 @@ module Frozone
             ivars
           end
 
+          # Set of Vm class objects that are LEAVES in the closed-world
+          # class hierarchy (no other class names them as direct
+          # superclass). Modules (Vm::ModuleObject without ClassObject)
+          # are excluded — they have no instances, so typeid checks
+          # against them would never match anything `*this` could be.
+          def compute_leaf_classes
+            return @leaf_classes if defined?(@leaf_classes)
+            top = @top_level_scope.constants_table || {}
+            classes = []
+            Runtime::ALL_CLASSES.each do |uk|
+              c = top[uk.name.to_sym]
+              classes << c if c.is_a?(Vm::ClassObject)
+            end
+            @user_classes.each_value do |c|
+              classes << c if c.is_a?(Vm::ClassObject)
+            end
+            parent_set = Set.new
+            classes.each { |c| parent_set << c.superclass if c.superclass.is_a?(Vm::ClassObject) }
+            @leaf_classes = classes.reject { |c| parent_set.include?(c) }.to_set
+          end
+
+          # Leaf-dispatch eligibility: ruby_name → Array<Vm::ClassObject>
+          # for names whose defining classes are ALL leaves AND total
+          # ≤ max_k. Used by class_emitter to swap the universal-sig
+          # slot for a K-way typeid gateway (Phase A: K=1, Phase B: K≤4).
+          #
+          # Composes additively with natural-args (per-arity / multi-arity
+          # / kw_unset overloads on the leaf are untouched — gateway only
+          # replaces BasicObject's universal-sig slot; static-arity calls
+          # bypass the gateway via direct overload resolution).
+          #
+          # Excluded: hand-coded inline methods on BasicObject (universal-
+          # sig bodies live in the struct, can't be moved). Names whose
+          # defining set includes a non-leaf class (modules included,
+          # base classes) are Phase C (deferred).
+          def compute_leaf_dispatch_table(agg, exclude: Set.new, max_k: 4)
+            leaves = compute_leaf_classes
+            agg.all_names.each_with_object({}) do |name, h|
+              next if exclude.include?(name)
+              defining = agg.defining_classes(name)
+              next if defining.empty? || defining.size > max_k
+              next unless defining.all? { |c| leaves.include?(c) }
+              h[name] = defining.to_a
+            end
+          end
+
           def parent_name_for(cls)
             # Modules have no superclass — emit them as Object subclasses.
             # Their struct is a marker (no instances ever allocated); the
@@ -2462,9 +2527,9 @@ module Frozone
 
             visit_methods_on = lambda do |cls, &block|
               next unless cls.is_a?(Vm::ModuleObject)
-              (cls.methods_table || {}).each { |n, m| block.call(n, m) if m.is_a?(Vm::Method) }
+              (cls.methods_table || {}).each { |n, m| block.call(n, m, cls) if m.is_a?(Vm::Method) }
               if (eig = (cls.eigenclass rescue nil))
-                (eig.methods_table || {}).each { |n, m| block.call(n, m) if m.is_a?(Vm::Method) }
+                (eig.methods_table || {}).each { |n, m| block.call(n, m, eig) if m.is_a?(Vm::Method) }
               end
             end
 
@@ -2472,7 +2537,9 @@ module Frozone
               @user_classes.each_value { |cls| visit_methods_on.call(cls, &block) }
               top = @top_level_scope.constants_table || {}
               Runtime::ALL_CLASSES.each { |uk| visit_methods_on.call(top[uk.name.to_sym], &block) }
-              user_methods.each { |n, m| block.call(n, m) if m.is_a?(Vm::Method) }
+              # Top-level methods belong to the MainObject scope — no
+              # `cls` context. Pass nil; record_def_class skips nil.
+              user_methods.each { |n, m| block.call(n, m, nil) if m.is_a?(Vm::Method) }
             end
 
             # Record def shape under the STORAGE Ruby name (the
@@ -2494,9 +2561,10 @@ module Frozone
             # (project_alias_collapsing.md) is the principled fix —
             # rewrite call sites of aliased names to the canonical,
             # drop the redundant VT slot.
-            each_reachable_def.call do |name, method|
+            each_reachable_def.call do |name, method, cls|
               next unless @call_surface.key?(Cpp.method_name(name))
               agg.record_def(name, MethodShapeSurvey::DefShape.for_method(method))
+              agg.record_def_class(name, cls) if cls
             end
 
             walk_calls = lambda do |node, enclosing_name|
@@ -2516,7 +2584,7 @@ module Frozone
             end
 
             walk_calls.call(@execute_block, nil) if @execute_block
-            each_reachable_def.call do |name, method|
+            each_reachable_def.call do |name, method, _cls|
               next unless @call_surface.key?(Cpp.method_name(name))
               method_walkable_roots(method).each { |r| walk_calls.call(r, name) }
             end

@@ -58,6 +58,16 @@ module Frozone
             # (UNSET-able) → kws alphabetical (required slots required,
             # optional UNSET-able). Default-fill happens in callee body.
             @kw_unset_table = (emit.respond_to?(:kw_unset_table) ? emit.kw_unset_table : nil) || {}
+            # Leaf-dispatch (FROZONE_LEAF_DISPATCH=1): names where the
+            # def lives in exactly one defining class AND that class is
+            # a leaf. BasicObject's universal-sig slot becomes a non-
+            # virtual typeid gateway; the leaf's universal-sig override
+            # is also non-virtual (name hiding gives free direct
+            # dispatch from typed callers). Hash[ruby_name → cpp_leaf_name].
+            raw_leaf = (emit.respond_to?(:leaf_dispatch_table) ? emit.leaf_dispatch_table : nil) || {}
+            @leaf_dispatch_table = raw_leaf.each_with_object({}) do |(name, classes), h|
+              h[name] = classes.map { |c| c.full_name.to_s.gsub("::", "_") }
+            end
             # Constant surface — names referenced via dynamic-receiver
             # paths (`self.class::X`). Each gets a `c_X` virtual on
             # BasicObject + overrides on every eigenclass that has X.
@@ -78,6 +88,14 @@ module Frozone
             responder_sets = compute_responder_sets(classes)
             classes = classes.map { |k| with_auto_overrides(k, responder_sets[k.name] || [], method_ids, class_ids[k.name]) }
             @class_ids = class_ids  # for write_class to access
+            # Set of cpp class names that are LEAVES in the emitted
+            # C++ hierarchy (no other class names them as parent).
+            # write_class emits these as `final` — C++ devirtualises
+            # typed-receiver virtual calls without LTO, orthogonal to
+            # the leaf-dispatch typeid gateway (which targets
+            # untyped-receiver BasicObject* call sites).
+            parent_set = classes.map(&:parent).compact.to_set
+            @cpp_leaf_set = classes.map(&:name).reject { |n| parent_set.include?(n) }.to_set
 
             # Two-pass: pre-render method bodies + send + kernel into a
             # buffer to populate emit.cpp.int_literals (Integer literal
@@ -438,7 +456,7 @@ module Frozone
           # delegates to mm_dispatch — only exercised when no
           # subclass overrides the slot.
           def self.write_natural_arity_default_bodies(emit, call_surface, basic_object_klass)
-            return if @natural_arity_names.empty? && @multi_arity_table.empty? && @kw_unset_table.empty?
+            return if @natural_arity_names.empty? && @multi_arity_table.empty? && @kw_unset_table.empty? && @leaf_dispatch_table.empty?
             # Same skip set as write_universal_surface — names where
             # BasicObject already has a concrete out-of-line definition
             # (hand-coded or overlay override) would collide at link
@@ -477,6 +495,42 @@ module Frozone
                 kw_pack = kw_sig.all_kw_names.map { |kn| %|if (k_#{kn} != unset_instance()) _kw->data[intern("#{kn}")] = k_#{kn};| }.join(' ')
                 emit.line "BasicObject* BasicObject::#{cpp_name}(#{params}) { Array* _args = new Array(); #{pack} Hash* _kw = new Hash(); #{kw_pack} return mm_dispatch(this, _args, _kw, nil_instance(), \"#{ruby_lit}\"); }"
               end
+            end
+            emit.blank
+            write_leaf_dispatch_gateway_bodies(emit)
+          end
+
+          # Out-of-line gateway body for each leaf-dispatch-eligible name.
+          # Replaces the universal-sig virtual slot on BasicObject with a
+          # non-virtual body that:
+          #   - Compares typeid(*this) against each defining leaf class's
+          #     typeid (K-way OR-chain for K defining leaves).
+          #   - On match, downcasts and calls that leaf's universal-sig
+          #     method directly (non-virtual, since both are non-virtual
+          #     and same C++ name — name lookup at LeafClass scope picks
+          #     the leaf's body).
+          #   - On all-miss, falls through to mm_dispatch.
+          # Out-of-line because typeid + downcast both need every leaf
+          # class's struct to be complete.
+          def self.write_leaf_dispatch_gateway_bodies(emit)
+            return if @leaf_dispatch_table.empty?
+            emit.line "// Leaf-dispatch gateways — non-virtual BO::m_X bodies that"
+            emit.line "// typeid-check (K-way) and downcast to a defining leaf class."
+            @leaf_dispatch_table.each do |ruby_name, leaf_cpps|
+              cpp_name = Cpp.method_name(ruby_name)
+              ruby_lit = ruby_name.to_s.gsub('\\', '\\\\\\\\').gsub('"', '\\"')
+              emit.line "BasicObject* BasicObject::#{cpp_name}(Array* args, Hash* kwargs, BasicObject* block) {"
+              emit.indented do
+                leaf_cpps.each do |leaf_cpp|
+                  emit.line "if (typeid(*this) == typeid(#{leaf_cpp})) {"
+                  emit.indented do
+                    emit.line "return static_cast<#{leaf_cpp}*>(this)->#{cpp_name}(args, kwargs, block);"
+                  end
+                  emit.line "}"
+                end
+                emit.line "return mm_dispatch(this, args, kwargs, block, \"#{ruby_lit}\");"
+              end
+              emit.line "}"
             end
             emit.blank
           end
@@ -871,7 +925,10 @@ module Frozone
 
           def self.write_class(emit, klass, call_surface)
             inherits = klass.parent ? " : #{klass.parent}" : ""
-            emit.line "struct #{klass.name}#{inherits} {"
+            # `final` keyword goes BEFORE the base-class colon in C++:
+            #   struct Foo final : Parent { ... };
+            final = (@cpp_leaf_set && @cpp_leaf_set.include?(klass.name) && klass.name != "BasicObject") ? " final" : ""
+            emit.line "struct #{klass.name}#{final}#{inherits} {"
             emit.indented do
               klass.members&.each { |m| emit.line m }
               klass.ivars&.each { |iv| emit.line iv }
@@ -946,6 +1003,12 @@ module Frozone
                 params = (pos_params + kw_params).join(', ')
                 emit.line %(virtual BasicObject* #{cpp_name}(#{params});)
                 emit.line %(virtual BasicObject* #{cpp_name}(Array* args, Hash* kwargs, BasicObject* block);)
+              elsif @leaf_dispatch_table[ruby_name.to_sym]
+                # Leaf-dispatch: non-virtual gateway. Decl-only here;
+                # body emits out-of-line via
+                # write_leaf_dispatch_gateway_bodies after all leaf
+                # class structs are complete.
+                emit.line %(BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance());)
               else
                 emit.line %(virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) { return mm_dispatch(this, args, kwargs, block, "#{ruby_lit}"); })
               end
@@ -1184,6 +1247,12 @@ module Frozone
               if klass.name == "BasicObject"
                 emit.line "virtual BasicObject* #{name}(Array* args, Hash* kwargs, BasicObject* block);"
               end
+            elsif @leaf_dispatch_table[ruby_name] && klass.name != "BasicObject"
+              # Leaf-dispatched name: BO's slot is a non-virtual gateway
+              # (typeid-check + downcast); leaf body must be non-virtual
+              # too, with the same C++ name. Name hiding gives free direct
+              # dispatch from typed callers (no `using` needed).
+              emit.line "BasicObject* #{name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance());"
             else
               emit.line "virtual BasicObject* #{name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance())#{override_kw};"
             end

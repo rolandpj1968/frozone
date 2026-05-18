@@ -81,30 +81,34 @@ module Frozone
           # return-from-block semantics.
           def self.write_universal_method(emit, _name, method, cpp_name)
             captured = method.body ? collect_method_captured(method) : Set.new
+            needs_frame = body_needs_frame?(method.body)
             body_buf = emit.cpp.with_captured_locals(captured) do
             emit.capture do
               locals = unpack_params(emit, method)
-              # Wrap in try/catch ReturnException so `return v` inside a
-              # block (which throws rather than C++-returns) lands here
-              # and yields the method's return value. Zero overhead on
-              # the success path; the throw cost (~microseconds) is
-              # only paid when a block actually return-from-method's,
-              # which is rare. Conditional-wrap (only when the body
-              # contains a block whose body contains return) is a
-              # follow-up optimisation.
-              # Frame-targeted: __frame_id__ is unique per invocation;
-              # mismatched throws re-raise so they propagate to the
-              # method that owns the block (Ruby's return-from-block
-              # semantics). See ReturnException doc in box_first.hpp.
-              emit.line "std::uint64_t __frame_id__ = next_frame_id();"
-              emit.line "try {"
-              emit.indented do
+              # Wrap in try/catch ReturnException when the body contains
+              # any block/lambda — `return v` inside throws with the
+              # method's frame_id and lands here. Frame-targeted:
+              # __frame_id__ is unique per invocation; mismatched throws
+              # re-raise so they propagate to the method that owns the
+              # block (Ruby's return-from-block semantics).
+              # Elided when the body has no inner blocks/lambdas — no
+              # throw site can target this frame, so no setup needed.
+              if needs_frame
+                emit.line "std::uint64_t __frame_id__ = next_frame_id();"
+                emit.line "try {"
+                emit.indented do
+                  if method.body
+                    ExprEmitter.write_body(emit, method.body, locals: locals, last_is_return: true)
+                  end
+                  emit.line "return nil_instance();"
+                end
+                emit.line "} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }"
+              else
                 if method.body
                   ExprEmitter.write_body(emit, method.body, locals: locals, last_is_return: true)
                 end
                 emit.line "return nil_instance();"
               end
-              emit.line "} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }"
             end
             end
             emit.line "virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) {"
@@ -174,13 +178,18 @@ module Frozone
                 emit.line decl_local_line(emit, s, "nil_instance()")
                 locals << s
               end
-              emit.line "std::uint64_t __frame_id__ = next_frame_id();"
-              emit.line "try {"
-              emit.indented do
+              if body_needs_frame?(method.body)
+                emit.line "std::uint64_t __frame_id__ = next_frame_id();"
+                emit.line "try {"
+                emit.indented do
+                  ExprEmitter.write_body(emit, method.body, locals: locals, last_is_return: true) if method.body
+                  emit.line "return nil_instance();"
+                end
+                emit.line "} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }"
+              else
                 ExprEmitter.write_body(emit, method.body, locals: locals, last_is_return: true) if method.body
                 emit.line "return nil_instance();"
               end
-              emit.line "} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }"
             end
             end
             emit.line "virtual BasicObject* #{cpp_name}(#{param_decls.join(', ')}) {"
@@ -243,13 +252,18 @@ module Frozone
                     emit.line decl_local_line(emit, s, "nil_instance()")
                     locals << s
                   end
-                  emit.line "std::uint64_t __frame_id__ = next_frame_id();"
-                  emit.line "try {"
-                  emit.indented do
+                  if body_needs_frame?(method.body)
+                    emit.line "std::uint64_t __frame_id__ = next_frame_id();"
+                    emit.line "try {"
+                    emit.indented do
+                      ExprEmitter.write_body(emit, method.body, locals: locals, last_is_return: true) if method.body
+                      emit.line "return nil_instance();"
+                    end
+                    emit.line "} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }"
+                  else
                     ExprEmitter.write_body(emit, method.body, locals: locals, last_is_return: true) if method.body
                     emit.line "return nil_instance();"
                   end
-                  emit.line "} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }"
                 end
               end
               emit.line "virtual BasicObject* #{cpp_name}(#{params}) {"
@@ -304,13 +318,18 @@ module Frozone
                   emit.line decl_local_line(emit, s, "nil_instance()")
                   locals << s
                 end
-                emit.line "std::uint64_t __frame_id__ = next_frame_id();"
-                emit.line "try {"
-                emit.indented do
+                if body_needs_frame?(method.body)
+                  emit.line "std::uint64_t __frame_id__ = next_frame_id();"
+                  emit.line "try {"
+                  emit.indented do
+                    ExprEmitter.write_body(emit, method.body, locals: locals, last_is_return: true) if method.body
+                    emit.line "return nil_instance();"
+                  end
+                  emit.line "} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }"
+                else
                   ExprEmitter.write_body(emit, method.body, locals: locals, last_is_return: true) if method.body
                   emit.line "return nil_instance();"
                 end
-                emit.line "} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }"
               end
             end
             pos_params = (0...sig.arity_req).map { |i| "BasicObject* _arg#{i}" } +
@@ -441,8 +460,19 @@ module Frozone
             end
             (method.required_kw_params || []).each do |p|
               key_lit = emit.cpp.cpp_string_literal(p.to_s)
-              emit.line decl_local_line(emit, p, %|(kwargs->data.find(intern(#{key_lit})) != kwargs->data.end()) ? kwargs->data[intern(#{key_lit})] : ([&]() -> BasicObject* { std::fprintf(stderr, "[box-first] missing required kw arg :#{p}\\n"); std::abort(); }())|)
+              emit.line decl_local_line(emit, p, %|[&]() -> BasicObject* { auto _it = kwargs->data.find(intern(#{key_lit})); if (_it == kwargs->data.end()) raise_missing_kw(#{key_lit}); return _it->second; }()|)
               locals << p.to_s
+            end
+            # Unknown-kw check: when the method declares named kws but
+            # no `**rest` to absorb extras, an unexpected kw must raise
+            # ArgumentError (MRI parity). With kw_rest the extras land
+            # in the rest hash so no check is needed.
+            if !method.kw_rest_param &&
+               (!(method.optional_kw_params || []).empty? || !(method.required_kw_params || []).empty?)
+              expected_keys = ((method.optional_kw_params || []).map { |p, _| p.to_s } +
+                               (method.required_kw_params || []).map(&:to_s)).uniq
+              expected_set = expected_keys.map { |k| "intern(#{emit.cpp.cpp_string_literal(k)})" }.join(', ')
+              emit.line %|for (auto& _kv : kwargs->data) { Symbol* _k = static_cast<Symbol*>(_kv.first); bool _ok = false; for (auto _e : {#{expected_set}}) { if (_k == _e) { _ok = true; break; } } if (!_ok) raise_unknown_kw(_k->name_); }|
             end
             if method.kw_rest_param
               # `**rest` — bind a Hash of all kwargs not consumed by
@@ -542,6 +572,32 @@ module Frozone
                   Set.new((method.locals || []).map(&:to_s)) |
                   collect_local_writes(method.body)
             LambdaEmitter.collect_captured_locals(method.body, own)
+          end
+
+          # Item 9 — body-walk elision. Returns true if the method body
+          # contains anything that could throw ReturnException at the
+          # method's frame (i.e. needs the __frame_id__ + try/catch wrap):
+          # any Ast::Block (proc-block — `return v` inside throws with
+          # the enclosing method's frame_id) or Ast::Lambda (technically
+          # has its own frame_id, but conservative v1 treats them as
+          # frame-requiring too — refinement can elide lambda-only cases).
+          # Nested method defs have their own frame, so recursion stops
+          # at MethodDef boundaries.
+          def self.body_needs_frame?(body)
+            return false unless body
+            found = false
+            walk = ->(node) {
+              return if found
+              return unless node.is_a?(Ast::Node)
+              return if node.is_a?(Ast::MethodDef)
+              if node.is_a?(Ast::Block) || node.is_a?(Ast::Lambda)
+                found = true
+                return
+              end
+              node.children.each { |c| walk.call(c) } if node.respond_to?(:children)
+            }
+            walk.call(body)
+            found
           end
 
           def self.collect_local_writes(body)

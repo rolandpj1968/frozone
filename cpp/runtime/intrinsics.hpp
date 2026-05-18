@@ -1358,6 +1358,19 @@ inline BasicObject* intrinsic_random_new(BasicObject* /*receiver*/, BasicObject*
   // because Random.new is itself defined as Intrinsics.random_new
   // in lib/core/4.0/random.rb. The struct has no required init.
   Random* obj = new Random();
+  // Seed via m_initialize so universe.rb's MT19937 class state (seed_,
+  // mt_[]) is initialised — the user-visible Random#seed / Random#rand
+  // dispatch to universe.rb's m_seed / m_rand which read those members.
+  // Going through Random_CLASS->m_new would loop (Random.new is itself
+  // this intrinsic), so call m_initialize directly on the fresh obj.
+  Array* init_args = new Array();
+  init_args->data.push_back(seed == nil_instance()
+                              ? static_cast<BasicObject*>(new Integer(static_cast<int64_t>(s)))
+                              : seed);
+  obj->m_initialize(init_args, &EMPTY_KWARGS, nil_instance());
+  // Also keep per_obj populated so intrinsic_random_rand (the path
+  // used by `Random.rand` class method and any code that calls the
+  // intrinsic directly) keeps working too.
   random_detail::per_obj().emplace(obj, random_detail::Slot{std::mt19937_64{s}, s});
   return obj;
 }

@@ -98,76 +98,121 @@ of that. Two asymmetries:
 The right model is per-call-site target precision. Single-def is a
 useful AOT-only first cut.
 
-### Hierarchy-rooted VT (compounding win)
+### Design — typeid gateway, no `class_id` field
 
-For a multi-def method whose definers form an **independent
-sub-hierarchy** — say `Parser::Lexer` and `Parser::LexerStrings`, no
-overriders elsewhere — the slot doesn't need to live on `BasicObject`.
-It can root at the lowest common ancestor of the definers. Subclasses
-outside the sub-hierarchy don't carry the slot at all.
+The cheap-and-narrow approach: keep BasicObject as the dispatch entry
+(no TI required), but for **eligible names**, replace the virtual
+universal-sig slot with a **non-virtual gateway** that uses C++ typeid
+to identify the receiver class, downcasts, and dispatches via a
+non-virtual call to the leaf class's body.
 
-Combined with single-def removal, this further trims `BasicObject`'s
-universal surface.
+Eligibility (Phase A):
 
-### Proposed data structure
+- All defining classes for the name are **leaves** (no descendants in
+  the closed world).
+- `is_a?` and `is exactly` coincide for a leaf — single typeid compare
+  per defining class.
+- Number of defining classes ≤ K (start K = 1 for single-def; widen to
+  the K-way OR-chain in Phase B).
 
-Per `Symbol`, a `MethodInfo`:
+#### Gateway shape
 
-```cpp
-struct MethodInfo {
-  enum Kind { NONE, SINGLE_DEF, MULTI_DEF } kind;
-  int class_id;          // SINGLE_DEF: defining class id
-  MethodFn fn;           // SINGLE_DEF: direct dispatch target
-  const bool* responds;  // MULTI_DEF: per-class bit array (sized to
-                         //            multi-def-count, not full surface)
-};
-```
-
-`Symbol::method_info_` populated by `intern()` against a compile-time
-table.
-
-#### `respond_to?` becomes 3 cases
+For a single-def leaf method on `LeafClass`:
 
 ```cpp
-BasicObject* respond_to_q(Symbol* name) {
-  MethodInfo* mi = name->method_info_;
-  if (!mi)                       return false_instance();
-  if (mi->kind == SINGLE_DEF)    return boxed_bool(this->__class_id__() == mi->class_id);
-  return boxed_bool(mi->responds[this->__class_id__()]);
-}
-```
-
-#### `send` becomes 2 cases
-
-```cpp
-BasicObject* send(Array* args, ...) {
-  Symbol* name = static_cast<Symbol*>(args->data[0]);
-  MethodInfo* mi = name->method_info_;
-  Array* rest = strip_first(args);
-  if (!mi)                                   return method_missing(name->name_);
-  if (mi->kind == SINGLE_DEF) {
-    if (this->__class_id__() != mi->class_id) return method_missing(name->name_);
-    return mi->fn(this, rest, kw, blk);
+// In BasicObject — non-virtual. Same name as the leaf's method.
+inline BasicObject* BasicObject::m_X(Array* args, Hash* kwargs, BasicObject* block) {
+  if (typeid(*this) == typeid(LeafClass)) {
+    return static_cast<LeafClass*>(this)->m_X(args, kwargs, block);
   }
-  return (this->*MULTI_VT[mi->multi_id])(rest, kw, blk);  // smaller VT
+  return mm_dispatch(this, args, kwargs, block, "X");
+}
+
+// In LeafClass — non-virtual override (just hides BO's same-name
+// method via name lookup, no virtual override relationship).
+BasicObject* LeafClass::m_X(Array* args, Hash* kwargs, BasicObject* block) {
+  // body
 }
 ```
 
-#### Direct call sites
+Why no `_impl` suffix: same C++ name on both classes. Inside the leaf
+class, `this->m_X(...)` (where `this` is `LeafClass*`) resolves to
+`LeafClass::m_X` directly via name hiding — no gateway, no typeid
+check, no virtual dispatch. The optimal "leaf calling itself" path is
+free.
 
-`recv.foo(args)` where `:foo` is single-def: emit class-id check +
-direct call. With TI proving the type, drop the check too.
+For multi-def leaf (Phase B), K-way typeid OR-chain:
+
+```cpp
+inline BasicObject* BasicObject::m_X(Array* args, Hash* kwargs, BasicObject* block) {
+  auto& t = typeid(*this);
+  if (t == typeid(LeafA)) return static_cast<LeafA*>(this)->m_X(args, kwargs, block);
+  if (t == typeid(LeafB)) return static_cast<LeafB*>(this)->m_X(args, kwargs, block);
+  if (t == typeid(LeafC)) return static_cast<LeafC*>(this)->m_X(args, kwargs, block);
+  return mm_dispatch(...);
+}
+```
+
+LCA is irrelevant here — no need for `is_a?` semantics when every
+defining class is a leaf.
+
+#### Why typeid (not `__class_id__()` virtual, not `dynamic_cast`)
+
+- `__class_id__()` is a virtual call (vtable load + indirect call +
+  return + compare). Defeats the purpose of a fast gateway.
+- `dynamic_cast` walks the RTTI inheritance graph at runtime via
+  `__dynamic_cast()` — slower than typeid.
+- `typeid(*this)` is a vtable header load (offset -1 in Itanium ABI)
+  + pointer compare. Fastest, no memory cost on the object.
+- A `class_id_` member field on every `BasicObject` would be the
+  fastest of all (one direct load) but adds 4–8 bytes per object —
+  rejected because boxed Integer / String etc. instances are
+  size-sensitive.
+
+#### Wide-LCA case (Phase C, deferred)
+
+Names where definers include a non-leaf, OR where `K` exceeds the
+typeid-OR threshold, stay on the current `METHOD_VT` virtual dispatch.
+The VT entry could still be lowered from BO down to the LCA (trimming
+the slot from BO's vtable proper), but the dispatch shape doesn't
+change. Pursue when the codegen / compile-time wins from VT trimming
+become measurable on real workloads.
+
+#### Compatibility with natural-args
+
+Per-arity / multi-arity / kw_unset overloads on the leaf class are
+**unaffected**. They live as separate C++ overloads under the same
+`m_X` name on the leaf, with their own non-virtual signatures (e.g.
+`m_X(BO* a, BO* b)`). The gateway only replaces the universal-sig
+slot (Array*, Hash*, Block*).
+
+When the leaf's universal-sig override is the natural-args trampoline
+(switching args/kwargs into per-arity overloads), the gateway routes
+through it as today — typeid + downcast + non-virtual call to the
+trampoline. From there, trampoline switches into per-arity. Two extra
+instructions versus the natural-args path; nothing else changes.
+
+For typed callers with the right C++ static type — e.g. inside a
+`LeafClass` method calling `self.foo()` — the gateway is bypassed
+entirely by C++ name lookup. Free direct dispatch, no TI required.
+
+#### Phased rollout
+
+- **Phase A**: single-def leaf names only. Survey identifies them;
+  codegen emits gateway + non-virtual leaf body. Smallest delta;
+  validates the gateway shape against natural-args ON / OFF.
+- **Phase B**: multi-def leaf-only names with `defining_class_count
+  <= K`. Codegen extends the gateway to a K-way typeid OR-chain. K
+  tuned by measurement (probably 3–5).
+- **Phase C** (deferred): wide-LCA / multi-leaf-with-internal-defs.
+  Lower the VT entry from BO to the LCA; gateway uses IS_A LUT for
+  is_a? semantic. May or may not pay off depending on workload.
 
 ### When to do this
 
-Tackle alongside TI integration. The data structure (MethodInfo per
-symbol) and the AOT analysis (single-def detection, sub-hierarchy
-identification) come first. TI integration adds per-call-site
-narrowing on top.
-
-The current 27s/1.4GB compile for full WQ parser stub is acceptable.
-This is a meaningful optional optimization; defer until self-compile
-runs end-to-end and TI work begins.
+Phase A + B don't depend on TI and give measurable VT-shrink + direct-
+dispatch wins independently. Phase C and TI-narrowing per call site
+compose on top.
 
 ### Tooling
 
