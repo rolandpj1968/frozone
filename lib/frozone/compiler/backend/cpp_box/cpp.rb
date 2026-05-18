@@ -727,9 +727,16 @@ module Frozone
             recv_t = "__iow_recv_#{tag}__"
             idx_array = "(new Array({#{idx_strs.join(", ")}}))"
             cpp_op = Cpp.method_name(op)
-            # `recv->aref(idx) op val` → `recv->aset(idx, that)`. Using a
-            # comma operator to bind recv once, then form the aset call.
-            "([&]() -> BasicObject* { auto* #{recv_t} = #{recv_str}; auto* _idx = #{idx_array}; return #{recv_t}->op_aset(new Array({#{idx_strs.join(", ")}, #{recv_t}->op_aref(_idx)->#{cpp_op}(new Array({#{val_str}}))})); }())"
+            # `recv->aref(idx) op val` → `recv->aset(idx, that)`. The
+            # op call's arg shape mirrors from_method_call: direct
+            # arg when `op` has an NA slot (NA call convention),
+            # Array-wrapped otherwise (universal-sig). Wrong shape
+            # under NA reinterprets the Array as the operand
+            # (Integer's NA slot static_cast<Integer*>'s its arg).
+            op_na_sig = emit&.natural_arity_names&.dig(op)
+            op_arg = (op_na_sig && op_na_sig.arity_req == 1 && op_na_sig.required_kw_names.empty?) ?
+                       val_str : "new Array({#{val_str}})"
+            "([&]() -> BasicObject* { auto* #{recv_t} = #{recv_str}; auto* _idx = #{idx_array}; return #{recv_t}->op_aset(new Array({#{idx_strs.join(", ")}, #{recv_t}->op_aref(_idx)->#{cpp_op}(#{op_arg})})); }())"
           end
 
           # `recv[idx] ||= val` — read once, return if truthy, else

@@ -264,6 +264,23 @@ RSpec.describe 'box-first end-to-end' do
     ])
   end
 
+  it 'lowers IndexOperatorWrite (s[i] -= 1) correctly under NA + baseline' do
+    # Bug history: under FROZONE_NATURAL_ARGS=1, the IOW lowering
+    # Array-wrapped the operator arg (`op_minus(new Array({1}))`) but
+    # Integer's only op_minus slot was the NA-sig one which did
+    # static_cast<Integer*>(arg)->raw_ — reading garbage from the
+    # Array's memory. Surfaced as silently-wrong fannkuchredux output.
+    expect(run_box_first('iow_test', env_extras: env_extras).strip.split("\n")).to eq([
+      '[0, 1, 1, 2]',
+      '[15, 17, 60, 10, 1]',
+      '[15, 511, 170, 1020, 31]',
+      '["hello world"]',
+      '[11, 22, 33]',
+      '[7, 40]',
+      '[[1, 12], [2, 4]]',
+    ])
+  end
+
   it 'leaf-dispatch: positive/negative coverage + natural-args mix' do
     # Behavior is identical in all 4 modes — the gateway and the
     # universal VT slot produce the same observable result.
