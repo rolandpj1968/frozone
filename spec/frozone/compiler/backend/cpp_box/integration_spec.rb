@@ -32,6 +32,63 @@ EXEC_MODES = {
   both:     { 'FROZONE_NATURAL_ARGS' => '1', 'FROZONE_LEAF_DISPATCH' => '1' },
 }.freeze
 
+# Stubs bundled into the unified binary. Each is wrapped in
+# `module Stub_<name>` by tools/build_unified_stub.rb. The behaviour
+# `it` blocks for these stubs read their section from one binary run
+# per mode (~2 min/mode) instead of paying ~30s gen+compile per stub.
+# selfcompile_more stays standalone (heavy require chain).
+UNIFIED_STUBS = %w[
+  arity_test array_test attrw_test block_test box_test case_test
+  class_method_test fib float_test getivar hash_test iow_test
+  kw_test kw_unset_test leaf_dispatch_test multi_arity_test
+  nqueens_small random_test splat_test string_test super_test
+  ternary_test
+].freeze
+
+# Cache: env_extras (sorted-array form) → { stub_name => stdout-section }.
+# Persists across `it` blocks in one rspec process so each mode only
+# builds + runs the unified binary once.
+$UNIFIED_CACHE = {}
+
+def unified_sections(env_extras)
+  key = env_extras.sort.to_a
+  return $UNIFIED_CACHE[key] if $UNIFIED_CACHE.key?(key)
+
+  Dir.chdir(PROJECT_ROOT) do
+    out, status = Open3.capture2e('ruby', 'tools/build_unified_stub.rb', *UNIFIED_STUBS)
+    raise "build_unified_stub.rb failed:\n#{out}" unless status.success?
+    File.write('bench/stubs/_unified.rb', out)
+  end
+
+  stdout = run_box_first('_unified', env_extras: env_extras)
+
+  # Parse `=== <name> ===` ... `=== /<name> ===` boundaries.
+  sections = {}
+  cur_name = nil
+  cur_buf  = nil
+  stdout.each_line do |line|
+    if (m = line.match(/^=== ([\w-]+) ===\n?$/))
+      cur_name = m[1]
+      cur_buf  = +""
+    elsif (m = line.match(%r{^=== /([\w-]+) ===\n?$}))
+      raise "section end #{m[1]} mismatches start #{cur_name}" if m[1] != cur_name
+      sections[cur_name] = cur_buf
+      cur_name = cur_buf = nil
+    elsif cur_buf
+      cur_buf << line
+    end
+  end
+  raise "unterminated section: #{cur_name}" if cur_name
+
+  $UNIFIED_CACHE[key] = sections
+end
+
+def unified_stub_out(stub, env_extras:)
+  sec = unified_sections(env_extras)[stub]
+  raise "no section #{stub.inspect} in unified output (have: #{unified_sections(env_extras).keys})" if sec.nil?
+  sec
+end
+
 def run_box_first(stub_name, env_extras: {})
   stub_path = "bench/stubs/#{stub_name}.rb"
   cpp_path  = File.join(GEN_DIR, "#{stub_name}.cpp")
@@ -118,41 +175,41 @@ RSpec.describe 'box-first end-to-end' do
   # context shows up in the rspec failure.
   shared_examples 'box-first stubs' do
     it 'recursively computes 3 × fib(35)' do
-      expect(run_box_first('fib', env_extras: env_extras).strip).to eq('27682395')
+      expect(unified_stub_out('fib', env_extras: env_extras).strip).to eq('27682395')
     end
 
   it 'instantiates a user class and dispatches its instance methods' do
-    expect(run_box_first('box_test', env_extras: env_extras).strip).to eq("42\n84")
+    expect(unified_stub_out('box_test', env_extras: env_extras).strip).to eq("42\n84")
   end
 
   it 'reads ivars in a tight while loop via a class-instance constant' do
-    expect(run_box_first('getivar', env_extras: env_extras).strip).to eq('50000')
+    expect(unified_stub_out('getivar', env_extras: env_extras).strip).to eq('50000')
   end
 
   it 'manipulates Arrays — literals, indexing (incl negative), push, first/last' do
-    expect(run_box_first('array_test', env_extras: env_extras).strip.split("\n")).to eq(
+    expect(unified_stub_out('array_test', env_extras: env_extras).strip.split("\n")).to eq(
       %w[5 10 30 50 6 99 10 99]
     )
   end
 
   it 'solves nq_solve(8) using bitwise ops, Array.new, And, and arr[k]= writes' do
-    expect(run_box_first('nqueens_small', env_extras: env_extras).strip).to eq('92')
+    expect(unified_stub_out('nqueens_small', env_extras: env_extras).strip).to eq('92')
   end
 
   it 'dispatches Hash via Symbol AND Integer keys with mutation and has_key?' do
-    expect(run_box_first('hash_test', env_extras: env_extras).strip.split("\n")).to eq(
+    expect(unified_stub_out('hash_test', env_extras: env_extras).strip.split("\n")).to eq(
       %w[10 20 30 3 100 200 300 3 99 4 true false]
     )
   end
 
   it 'arithmetics on Float and uses Float as a hash key by value' do
-    expect(run_box_first('float_test', env_extras: env_extras).strip.split("\n")).to eq(
+    expect(unified_stub_out('float_test', env_extras: env_extras).strip.split("\n")).to eq(
       %w[4.0 3.75 1.0 1.6666666666666667 true true -1.5 half one_tenth]
     )
   end
 
   it 'concatenates Strings, indexes, hashes by content, queries empty?' do
-    expect(run_box_first('string_test', env_extras: env_extras).split("\n")).to eq([
+    expect(unified_stub_out('string_test', env_extras: env_extras).split("\n")).to eq([
       'hello world',
       'hello there',
       '3', '3',
@@ -164,31 +221,31 @@ RSpec.describe 'box-first end-to-end' do
   end
 
   it 'evaluates if-as-expression (ternary) and if-as-implicit-return' do
-    expect(run_box_first('ternary_test', env_extras: env_extras).strip.split("\n")).to eq(
+    expect(unified_stub_out('ternary_test', env_extras: env_extras).strip.split("\n")).to eq(
       %w[small small pos 105 small big huge]
     )
   end
 
   it 'dispatches case/when with subject, multi-condition, and subject-less form' do
-    expect(run_box_first('case_test', env_extras: env_extras).strip.split("\n")).to eq(
+    expect(unified_stub_out('case_test', env_extras: env_extras).strip.split("\n")).to eq(
       %w[A C F low mid high neg zero pos]
     )
   end
 
   it 'dispatches def self.X through the eigenclass, including polymorphism on a Class variable' do
-    expect(run_box_first('class_method_test', env_extras: env_extras).strip.split("\n")).to eq(
+    expect(unified_stub_out('class_method_test', env_extras: env_extras).strip.split("\n")).to eq(
       %w[42 0 99]
     )
   end
 
   it 'yields to a block and closes over enclosing locals' do
-    expect(run_box_first('block_test', env_extras: env_extras).strip.split("\n")).to eq(
+    expect(unified_stub_out('block_test', env_extras: env_extras).strip.split("\n")).to eq(
       %w[1 2 3 42 6]
     )
   end
 
   it 'passes a splat-arg through to a method with *rest param' do
-    expect(run_box_first('splat_test', env_extras: env_extras).strip.split("\n")).to eq(
+    expect(unified_stub_out('splat_test', env_extras: env_extras).strip.split("\n")).to eq(
       %w[5 10 2 99]
     )
   end
@@ -198,7 +255,7 @@ RSpec.describe 'box-first end-to-end' do
   end
 
   it 'validates positional arity at every method body entry' do
-    expect(run_box_first('arity_test', env_extras: env_extras).strip.split("\n")).to eq([
+    expect(unified_stub_out('arity_test', env_extras: env_extras).strip.split("\n")).to eq([
       'wrong number of arguments (given 0, expected 1)',
       'wrong number of arguments (given 2, expected 1)',
       '42',
@@ -213,11 +270,11 @@ RSpec.describe 'box-first end-to-end' do
   end
 
   it 'lowers required-kw methods to natural-arity positional dispatch' do
-    expect(run_box_first('kw_test', env_extras: env_extras).strip.split("\n")).to eq(%w[50 307 307 411 411 411])
+    expect(unified_stub_out('kw_test', env_extras: env_extras).strip.split("\n")).to eq(%w[50 307 307 411 411 411])
   end
 
   it 'dispatches kw-bearing methods via UNSET sentinel slot' do
-    expect(run_box_first('kw_unset_test', env_extras: env_extras).strip.split("\n")).to eq([
+    expect(unified_stub_out('kw_unset_test', env_extras: env_extras).strip.split("\n")).to eq([
       '15', '109',
       '10', '6',
       '103', '106', '53', '56',
@@ -238,7 +295,7 @@ RSpec.describe 'box-first end-to-end' do
   end
 
   it 'dispatches per-arity overloads for methods with optional positionals' do
-    expect(run_box_first('multi_arity_test', env_extras: env_extras).strip.split("\n")).to eq([
+    expect(unified_stub_out('multi_arity_test', env_extras: env_extras).strip.split("\n")).to eq([
       '111', '103', '6',
       '1024', '1060', '1059',
       '111', '103', '6',
@@ -270,7 +327,7 @@ RSpec.describe 'box-first end-to-end' do
     # (seed_, mt_[]) stayed zero — every `Random.new(seed).rand` returned
     # 0.0 forever. Splay benchmark hung (insert_new_node's collision-
     # avoidance loop spun on every find matching the root 0.0).
-    expect(run_box_first('random_test', env_extras: env_extras).strip.split("\n")).to eq([
+    expect(unified_stub_out('random_test', env_extras: env_extras).strip.split("\n")).to eq([
       '0.3745401188473625',
       '0.9507143064099162',
       '0.7319939418114051',
@@ -286,7 +343,7 @@ RSpec.describe 'box-first end-to-end' do
     # setter arg unconditionally. attr_accessor / single-arg `name=`
     # setters are NA-eligible — if the wrap mis-dispatches, the Array
     # ends up assigned as the ivar value instead of its first element.
-    expect(run_box_first('attrw_test', env_extras: env_extras).strip.split("\n")).to eq(%w[
+    expect(unified_stub_out('attrw_test', env_extras: env_extras).strip.split("\n")).to eq(%w[
       10 99 42 hello! 84 10
     ])
   end
@@ -295,7 +352,7 @@ RSpec.describe 'box-first end-to-end' do
     # Sister of the IOW bug: from_method_call's super branch Array-
     # wraps super args unconditionally — risky when the parent's
     # method has only an NA slot.
-    expect(run_box_first('super_test', env_extras: env_extras).strip.split("\n")).to eq([
+    expect(unified_stub_out('super_test', env_extras: env_extras).strip.split("\n")).to eq([
       'hi: animal (dog)',
       '33',
       'hi: animal',
@@ -310,7 +367,7 @@ RSpec.describe 'box-first end-to-end' do
     # Integer's only op_minus slot was the NA-sig one which did
     # static_cast<Integer*>(arg)->raw_ — reading garbage from the
     # Array's memory. Surfaced as silently-wrong fannkuchredux output.
-    expect(run_box_first('iow_test', env_extras: env_extras).strip.split("\n")).to eq([
+    expect(unified_stub_out('iow_test', env_extras: env_extras).strip.split("\n")).to eq([
       '[0, 1, 1, 2]',
       '[15, 17, 60, 10, 1]',
       '[15, 511, 170, 1020, 31]',
@@ -324,7 +381,7 @@ RSpec.describe 'box-first end-to-end' do
   it 'leaf-dispatch: positive/negative coverage + natural-args mix' do
     # Behavior is identical in all 4 modes — the gateway and the
     # universal VT slot produce the same observable result.
-    expect(run_box_first('leaf_dispatch_test', env_extras: env_extras).strip.split("\n")).to eq([
+    expect(unified_stub_out('leaf_dispatch_test', env_extras: env_extras).strip.split("\n")).to eq([
       '42',           # LeafCalc#double — single-def leaf (Phase A positive)
       'leaf',         # LeafCalc#label — K=2 with Thread::Backtrace::Location (Phase B positive)
       'P',            # Parent#kind — Parent not a leaf (Child overrides) (negative)
