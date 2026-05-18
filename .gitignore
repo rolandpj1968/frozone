@@ -56,3 +56,4 @@ cpp/gen/box/*
 
 # Onigmo build outputs (vendored via git submodule; built locally on demand)
 vendor/Onigmo/_install/
+bench/stubs/_unified.rb
