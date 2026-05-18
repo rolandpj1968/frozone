@@ -701,15 +701,19 @@ module Frozone
 
           # `arr[k] = v` parses as AttributeWrite(name=:[]=, receiver,
           # arg_nodes=[k, v]). Emit as a vtable call to op_aset via
-          # the universal protocol.
+          # the universal protocol. For setter form `obj.attr = v`
+          # (single-arg, NA-eligible), pass args directly under NA —
+          # same correctness reason as from_index_op_write: the NA
+          # slot static_casts its arg, reading garbage from the Array
+          # layout when Array-wrapped.
           def from_attribute_write(node, locals)
-            # Implicit-receiver AttributeWrite (`self.foo = x` lowered
-            # without an explicit self_node, or just `foo = x` when foo
-            # is detected as a writer call) → dispatch on `this`.
             recv_s = node.receiver_node ? from_expr(node.receiver_node, locals) : "this"
             args = (node.arg_nodes || []).map { |a| from_expr(a, locals) }
-            args_array = "(new Array({#{args.join(", ")}}))"
-            "#{recv_s}->#{Cpp.method_name(node.name)}(#{args_array})"
+            cpp_name = Cpp.method_name(node.name)
+            na_sig = emit&.natural_arity_names&.dig(node.name)
+            args_csv = (na_sig && na_sig.arity_req == args.length && na_sig.required_kw_names.empty?) ?
+                         args.join(", ") : "(new Array({#{args.join(", ")}}))"
+            "#{recv_s}->#{cpp_name}(#{args_csv})"
           end
 
           # `arr[i] op= val` → `arr[i] = arr[i] op val`. Receiver and

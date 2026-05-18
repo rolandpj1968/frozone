@@ -264,6 +264,29 @@ RSpec.describe 'box-first end-to-end' do
     ])
   end
 
+  it 'lowers attribute-write (obj.attr = val) correctly under NA + baseline' do
+    # Sister of the IOW bug: from_attribute_write Array-wraps the
+    # setter arg unconditionally. attr_accessor / single-arg `name=`
+    # setters are NA-eligible — if the wrap mis-dispatches, the Array
+    # ends up assigned as the ivar value instead of its first element.
+    expect(run_box_first('attrw_test', env_extras: env_extras).strip.split("\n")).to eq(%w[
+      10 99 42 hello! 84 10
+    ])
+  end
+
+  it 'lowers super(...) correctly under NA + baseline' do
+    # Sister of the IOW bug: from_method_call's super branch Array-
+    # wraps super args unconditionally — risky when the parent's
+    # method has only an NA slot.
+    expect(run_box_first('super_test', env_extras: env_extras).strip.split("\n")).to eq([
+      'hi: animal (dog)',
+      '33',
+      'hi: animal',
+      '[yo: animal]',
+      '10', '20', '30',
+    ])
+  end
+
   it 'lowers IndexOperatorWrite (s[i] -= 1) correctly under NA + baseline' do
     # Bug history: under FROZONE_NATURAL_ARGS=1, the IOW lowering
     # Array-wrapped the operator arg (`op_minus(new Array({1}))`) but
