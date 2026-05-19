@@ -70,6 +70,26 @@ module Frozone
           FNIL
         end
 
+        # Raw fwrite to stdout/stderr — bypass the IOObject dispatch
+        # chain. Box-first compiled `io_write` (in io_intrinsics.rb)
+        # routes here when receiver.native_io is nil (bootstrap state:
+        # GLOBALS["$stdout"] is set to IOObject.new(nil, ..., stream_tag:
+        # :stdout) before MRI's $stdout is reachable from the compiled
+        # binary). The matching HPP intrinsics are
+        # intrinsic_io_raw_write_stdout / _stderr in intrinsics.hpp.
+        # Returns the byte count as a Frozone Integer.
+        def io_raw_write_stdout(_receiver, s)
+          raw = fstr?(s) ? s.raw : s.to_s
+          $stdout.write(raw)
+          n2f_int(raw.bytesize)
+        end
+
+        def io_raw_write_stderr(_receiver, s)
+          raw = fstr?(s) ? s.raw : s.to_s
+          $stderr.write(raw)
+          n2f_int(raw.bytesize)
+        end
+
         def kernel_puts(context, _receiver, args)
           stdout_vm = GLOBALS[:"$stdout"]
           if frozone_stdout_replaced?(stdout_vm)

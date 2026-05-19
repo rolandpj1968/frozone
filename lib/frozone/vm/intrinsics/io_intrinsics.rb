@@ -714,6 +714,28 @@ module Frozone
 
         def io_write(context, receiver, args)
           native = native_io_for(receiver)
+          # Box-first bootstrap path: GLOBALS["$stdout"] / $stderr are
+          # created BEFORE the compiled binary can resolve MRI's actual
+          # streams, so their @native_io is nil. The IOObject's
+          # @stream_tag (:stdout/:stderr) lets us route through the raw
+          # HPP intrinsic instead of dispatching on nil.
+          if native.nil? && receiver.is_a?(IOObject)
+            # Box-first bootstrap path: byte-counting hits a Vm/runtime
+            # layer mismatch (s_obj is Vm::StringObject; bytesize lives
+            # on the runtime String). puts/p ignore the return — best
+            # effort 0. Real IO#write callers go through a real native.
+            tag = receiver.stream_tag
+            args.raw.each do |arg|
+              s_obj = arg.dispatch(context, :to_s, [], {})
+              case tag
+              when :stdout then Intrinsics.io_raw_write_stdout(self, s_obj.raw)
+              when :stderr then Intrinsics.io_raw_write_stderr(self, s_obj.raw)
+              else raise FrozoneException.make(:IOError, 'closed stream')
+              end
+            end
+            receiver.buffered_write = true
+            return n2f_int(0)
+          end
           total = 0
           args.raw.each do |arg|
             s = arg.dispatch(context, :to_s, [], {}).raw

@@ -331,9 +331,9 @@ module Frozone
         GLOBALS[:"$DEBUG"] = FalseObject::FALSE
         GLOBALS[:"$!"] = NilObject::NIL
         io_class = Core.io_class
-        GLOBALS[:"$stdout"] = IOObject.new($stdout, io_class)
-        GLOBALS[:"$stderr"] = IOObject.new($stderr, io_class)
-        GLOBALS[:"$stdin"] = IOObject.new($stdin,  io_class)
+        GLOBALS[:"$stdout"] = IOObject.new($stdout, io_class, stream_tag: :stdout)
+        GLOBALS[:"$stderr"] = IOObject.new($stderr, io_class, stream_tag: :stderr)
+        GLOBALS[:"$stdin"]  = IOObject.new($stdin,  io_class, stream_tag: :stdin)
         GLOBALS[:"$>"] = GLOBALS[:"$stdout"]
         GLOBALS[:"$<"] = GLOBALS[:"$stdin"]
         GLOBALS[:"$0"] = StringObject.new($PROGRAM_NAME.to_s)
