@@ -118,6 +118,14 @@ module Frozone
           ]).freeze
 
           TEMPLATES = {
+            # Class — raw allocator that bypasses Ruby-level overrides.
+            # `Thread.allocate` raises TypeError, so calling through
+            # m_allocate would hit that. m_raw_allocate is a non-Ruby
+            # vtable slot on Class that every eigenclass overrides with
+            # `return new HostType()`. Used by `def allocate` in class.rb
+            # and per-class wrappers (`Thread#__allocate_thread`).
+            class_allocate: ->(klass) { "static_cast<Class*>(#{klass})->m_raw_allocate()" },
+
             # Array
             array_length: ->(self_) { "(new Integer(static_cast<int64_t>(static_cast<Array*>(#{self_})->data.size())))" },
             array_at: ->(self_, i) {

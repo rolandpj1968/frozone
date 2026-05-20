@@ -272,6 +272,15 @@ module Frozone
             parent: "Module",
             members: [
               %(const char* ruby_class_name() const override { return "Class"; }),
+              # Non-Ruby vtable slot — backs Intrinsics.class_allocate.
+              # Each eigenclass overrides to `return new HostType()`,
+              # bypassing any user `def self.allocate` (e.g. Thread.allocate
+              # raises). Universal-sig matches the auto-emit form so the
+              # override resolves; args/kwargs/block ignored. Default aborts.
+              "virtual BasicObject* m_raw_allocate(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) {",
+              %(  std::fprintf(stderr, "[box-first] m_raw_allocate called on non-class %s\\n", ruby_class_name());),
+              "  std::abort();",
+              "}",
             ],
           )
 
@@ -725,6 +734,12 @@ module Frozone
               "m_allocate" => {
                 params: [],
                 body: %(std::fprintf(stderr, "[box-first] Symbol.allocate not supported — use literals\\n"); std::abort();),
+              },
+              # Symbol has no default ctor; the auto-emit `new Symbol()`
+              # wouldn't compile. Symbols are always interned literals.
+              "m_raw_allocate" => {
+                params: [],
+                body: %(std::fprintf(stderr, "[box-first] Symbol raw_allocate not supported — use literals\\n"); std::abort();),
               },
             },
           )
@@ -1335,6 +1350,18 @@ module Frozone
             # `self.class.allocate` then populate fields manually.
             # User-overridable.
             overrides["m_allocate"] ||= {
+              params: [],
+              body: "return new #{klass.name}();",
+            }
+            # Raw allocator backing Intrinsics.class_allocate. Bypasses
+            # any Ruby-level `def self.allocate` override (e.g.
+            # `Thread.allocate` raises TypeError; the internal
+            # `__allocate_thread` calls class_allocate to actually
+            # construct one). Only RubyClass entries here can shadow it
+            # (Symbol's eigenclass aborts because Symbol lacks a
+            # default ctor) — no `def self.raw_allocate` in core/4.0,
+            # so the `||=` is safe.
+            overrides["m_raw_allocate"] ||= {
               params: [],
               body: "return new #{klass.name}();",
             }
