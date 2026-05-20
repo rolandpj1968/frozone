@@ -1264,6 +1264,27 @@ module Frozone
           # semantics (skip everything between throw and the matching
           # catch). Doesn't derive from Exception — Ruby's `rescue`
           # must NOT intercept throws (MRI keeps these mechanisms
+          # Time — Unix epoch seconds + nanoseconds + UTC offset.
+          # is_utc_ true means the timezone is explicit UTC (so utc?
+          # returns true and utc_offset is 0). Localtime breakdown
+          # (year/month/day/etc.) happens on demand via localtime_r /
+          # gmtime_r inside the Time intrinsics. iv_frozone_timezone
+          # holds the Ruby-managed timezone object (`@frozone_timezone`
+          # set by core/4.0/time.rb for non-UTC, non-local zones).
+          TIME = RubyClass.new(
+            name: "Time",
+            parent: "Object",
+            members: [
+              "int64_t sec_ = 0;",
+              "int32_t nsec_ = 0;",
+              "int32_t utc_offset_ = 0;",
+              "bool is_utc_ = false;",
+              "BasicObject* iv_frozone_timezone = nil_instance();",
+              "Time() = default;",
+              %(const char* ruby_class_name() const override { return "Time"; }),
+            ],
+          )
+
           # separate). Tag comparison at catch time uses pointer
           # identity, which works because Symbols are interned.
           THROWN_TAG = RubyClass.new(
@@ -1316,7 +1337,7 @@ module Frozone
             BASIC_OBJECT, OBJECT, MODULE, CLASS_TYPE,
             NIL_CLASS, TRUE_CLASS, FALSE_CLASS, UNSET_SENTINEL_CLASS,
             INTEGER, FLOAT, ARRAY, SYMBOL, STRING, HASH, RANGE, PROC,
-            REGEXP, MATCH_DATA, MATH, RANDOM, THROWN_TAG
+            REGEXP, MATCH_DATA, MATH, RANDOM, TIME, THROWN_TAG
           ].freeze
 
           # Per-class eigenclass — generated programmatically from each

@@ -103,6 +103,16 @@ module Frozone
             dir_mkdir dir_rmdir dir_exist dir_empty
             dir_open dir_close dir_read dir_seek dir_rewind
             dir_fileno dir_for_fd dir_fchdir dir_chroot dir_mktmpdir
+            time_now
+            time_to_i time_to_f time_to_s time_inspect
+            time_sec time_min time_hour time_mday time_month time_year
+            time_wday time_yday time_usec time_nsec time_subsec
+            time_utc_q time_utc time_utc_offset time_dst_q
+            time_dup time_asctime time_strftime
+            time_plus time_minus time_round time_floor time_ceil
+            time_zone time_localtime
+            time_to_r time_at_raw time_mktime time_new
+            time_new_from_string time_dump time_load time_iso8601
             integer_bitand integer_bitor integer_bitxor
             integer__div_ integer__mod_ integer_fdiv
             integer_lshift integer_rshift integer__pow_

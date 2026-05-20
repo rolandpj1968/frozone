@@ -246,5 +246,6 @@ namespace integer_detail {
 #include "intrinsics/random_intrinsics.hpp"
 #include "intrinsics/regexp_intrinsics.hpp"
 #include "intrinsics/string_intrinsics.hpp"
+#include "intrinsics/time_intrinsics.hpp"
 
 #endif // FROZONE_INTRINSICS_HPP
