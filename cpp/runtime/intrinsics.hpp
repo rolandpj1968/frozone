@@ -59,9 +59,50 @@ namespace fs_detail {
   inline BasicObject* string_of(const std::string& s) {
     return new String(s.data(), s.size());
   }
+  // String-based lexical normalisation. Splits on '/', collapses '.'
+  // and '..' segments, rejoins. Equivalent to std::filesystem::path::
+  // lexically_normal but stays in std::string-land so libstdc++.so's
+  // internal free() never sees Boehm-allocated buffers. See the
+  // comment at box_first.hpp:64-77 for why we avoid std::filesystem
+  // here — at -O2, std::string allocations inlined into our TUs go
+  // through the Boehm operator new override, but path::operator/=
+  // (defined in libstdc++.so) frees via libc → invalid free.
+  inline std::string normalize_path(const std::string& path) {
+    std::vector<std::string> parts;
+    const bool absolute = !path.empty() && path[0] == '/';
+    std::string current;
+    auto flush = [&]() {
+      if (current.empty()) return;
+      if (current == ".") {
+        // skip
+      } else if (current == "..") {
+        if (!parts.empty() && parts.back() != "..") parts.pop_back();
+        else if (!absolute) parts.push_back("..");
+      } else {
+        parts.push_back(std::move(current));
+      }
+      current.clear();
+    };
+    for (char c : path) {
+      if (c == '/') flush();
+      else current += c;
+    }
+    flush();
+    std::string out;
+    if (absolute) out += '/';
+    for (std::size_t i = 0; i < parts.size(); i++) {
+      if (i > 0) out += '/';
+      out += parts[i];
+    }
+    if (out.empty()) out = ".";
+    return out;
+  }
+
   // Ruby File.expand_path: ~ expansion + abs join + lexical normalisation.
   // We don't go through realpath (so non-existent components are fine)
-  // and we don't follow symlinks — that's File.realpath's job.
+  // and we don't follow symlinks — that's File.realpath's job. Pure
+  // std::string ops to avoid the Boehm/libc allocator mismatch in
+  // libstdc++.so's std::filesystem::path internals.
   inline std::string expand(const std::string& path, const std::string& dir) {
     std::string p = path;
     if (!p.empty() && p[0] == '~') {
@@ -70,15 +111,20 @@ namespace fs_detail {
         if (p.size() == 1 || p[1] == '/') p = std::string(home) + p.substr(1);
       }
     }
-    std::filesystem::path fp(p);
-    if (!fp.is_absolute()) {
-      std::filesystem::path base = dir.empty() ? std::filesystem::current_path() : std::filesystem::path(dir);
-      if (!base.is_absolute()) base = std::filesystem::current_path() / base;
-      fp = base / fp;
+    if (p.empty() || p[0] != '/') {
+      std::string base;
+      if (!dir.empty()) base = dir;
+      else {
+        char cwd[4096];
+        if (::getcwd(cwd, sizeof(cwd))) base = cwd;
+      }
+      if (!base.empty() && base[0] != '/') {
+        char cwd[4096];
+        if (::getcwd(cwd, sizeof(cwd))) base = std::string(cwd) + "/" + base;
+      }
+      p = base + "/" + p;
     }
-    fp = fp.lexically_normal();
-    // lexically_normal preserves a trailing slash; Ruby strips it.
-    std::string out = fp.string();
+    std::string out = normalize_path(p);
     if (out.size() > 1 && out.back() == '/') out.pop_back();
     return out;
   }

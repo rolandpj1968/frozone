@@ -11,22 +11,29 @@ inline BasicObject* intrinsic_file_expand_path(BasicObject* path, BasicObject* d
 }
 
 // File.dirname(path, level=1) — strip `level` trailing components.
+// Pure std::string ops to avoid std::filesystem::path; see
+// intrinsics.hpp::fs_detail::expand for the Boehm/libstdc++ rationale.
 inline BasicObject* intrinsic_file_dirname(BasicObject* path, BasicObject* level) {
   int64_t lvl = 1;
   if (level && level != nil_instance()) {
     if (auto* i = dynamic_cast<Integer*>(level)) lvl = i->raw_;
   }
-  std::filesystem::path p(fs_detail::str_of(path));
-  while (lvl-- > 0 && p.has_parent_path()) p = p.parent_path();
-  auto d = p.string();
-  return fs_detail::string_of(d.empty() ? std::string(".") : d);
+  std::string s = fs_detail::str_of(path);
+  while (lvl-- > 0 && !s.empty()) {
+    auto slash = s.find_last_of('/');
+    if (slash == std::string::npos) { s = ""; break; }
+    if (slash == 0) { s = "/"; break; }
+    s = s.substr(0, slash);
+  }
+  return fs_detail::string_of(s.empty() ? std::string(".") : s);
 }
 
 // File.basename(path, suffix=nil) — strip suffix when given (".rb",
 // ".*" matches any extension).
 inline BasicObject* intrinsic_file_basename(BasicObject* path, BasicObject* suffix) {
-  std::filesystem::path p(fs_detail::str_of(path));
-  std::string base = p.filename().string();
+  std::string s = fs_detail::str_of(path);
+  auto slash = s.find_last_of('/');
+  std::string base = (slash == std::string::npos) ? s : s.substr(slash + 1);
   if (suffix && suffix != nil_instance()) {
     std::string sfx = fs_detail::str_of(suffix);
     if (sfx == ".*") {
@@ -40,52 +47,58 @@ inline BasicObject* intrinsic_file_basename(BasicObject* path, BasicObject* suff
 }
 
 inline BasicObject* intrinsic_file_split(BasicObject* path) {
-  std::filesystem::path p(fs_detail::str_of(path));
-  auto d = p.parent_path().string();
-  if (d.empty()) d = ".";
+  std::string s = fs_detail::str_of(path);
+  auto slash = s.find_last_of('/');
+  std::string d, f;
+  if (slash == std::string::npos) { d = "."; f = s; }
+  else if (slash == 0)            { d = "/"; f = s.substr(1); }
+  else                            { d = s.substr(0, slash); f = s.substr(slash + 1); }
   return new Array({static_cast<BasicObject*>(fs_detail::string_of(d)),
-                    static_cast<BasicObject*>(fs_detail::string_of(p.filename().string()))});
+                    static_cast<BasicObject*>(fs_detail::string_of(f))});
 }
 
 inline BasicObject* intrinsic_file_exist(BasicObject* path) {
-  std::error_code ec;
-  return boxed_bool(std::filesystem::exists(fs_detail::str_of(path), ec));
+  struct stat st;
+  return boxed_bool(::stat(fs_detail::str_of(path).c_str(), &st) == 0);
 }
 
 inline BasicObject* intrinsic_file_directory(BasicObject* path) {
-  std::error_code ec;
-  return boxed_bool(std::filesystem::is_directory(fs_detail::str_of(path), ec));
+  struct stat st;
+  return boxed_bool(::stat(fs_detail::str_of(path).c_str(), &st) == 0 && S_ISDIR(st.st_mode));
 }
 
 inline BasicObject* intrinsic_file_file(BasicObject* path) {
-  std::error_code ec;
-  return boxed_bool(std::filesystem::is_regular_file(fs_detail::str_of(path), ec));
+  struct stat st;
+  return boxed_bool(::stat(fs_detail::str_of(path).c_str(), &st) == 0 && S_ISREG(st.st_mode));
 }
 
 inline BasicObject* intrinsic_file_size(BasicObject* path) {
-  std::error_code ec;
-  auto sz = std::filesystem::file_size(fs_detail::str_of(path), ec);
-  return ec ? nil_instance() : static_cast<BasicObject*>(new Integer(static_cast<int64_t>(sz)));
+  struct stat st;
+  if (::stat(fs_detail::str_of(path).c_str(), &st) != 0) return nil_instance();
+  return static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_size)));
 }
 
 inline BasicObject* intrinsic_file_size_exact(BasicObject* path) {
   return intrinsic_file_size(path);
 }
 
+// realpath(3) — resolves symlinks for existing paths. If path doesn't
+// exist, falls back to our lexically-normalised expand result.
 inline BasicObject* intrinsic_file_realpath(BasicObject* path, BasicObject* dir) {
   std::string _dir = (dir && dir != nil_instance()) ? fs_detail::str_of(dir) : "";
   std::string joined = fs_detail::expand(fs_detail::str_of(path), _dir);
-  std::error_code ec;
-  auto canon = std::filesystem::canonical(joined, ec);
-  return ec ? fs_detail::string_of(joined) : fs_detail::string_of(canon.string());
+  char buf[4096];
+  char* r = ::realpath(joined.c_str(), buf);
+  return fs_detail::string_of(r ? std::string(r) : joined);
 }
 
+// MRI's weakly_canonical: canonicalise the longest existing prefix,
+// append the rest lexically. We approximate by trying realpath on
+// the full path; on failure (typically because a tail component
+// doesn't exist) we return the lexically-normalised expand result.
+// Good enough for the load-path lookups that hit this in practice.
 inline BasicObject* intrinsic_file_realdirpath(BasicObject* path, BasicObject* dir) {
-  std::string _dir = (dir && dir != nil_instance()) ? fs_detail::str_of(dir) : "";
-  std::string joined = fs_detail::expand(fs_detail::str_of(path), _dir);
-  std::error_code ec;
-  auto canon = std::filesystem::weakly_canonical(joined, ec);
-  return ec ? fs_detail::string_of(joined) : fs_detail::string_of(canon.string());
+  return intrinsic_file_realpath(path, dir);
 }
 
 inline BasicObject* intrinsic_file_read(BasicObject* path) {
