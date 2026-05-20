@@ -171,6 +171,12 @@ module Frozone
             # Range — direct field access on the C++ struct (begin_,
             # end_, exclude_end_, initialized_).
             range_allocate: ->(_klass) { "(new Range())" },
+
+            # Fiber — closed-world box-first is single-threaded, single-
+            # fiber. fiber_current returns a singleton main Fiber so
+            # Fiber[:context] storage works as a global key/value map
+            # (FIBER_STORAGE_GLOBAL backs the storage_get/set lowerings).
+            fiber_current: ->(_klass) { "([&]() -> BasicObject* { static Fiber* _main = new Fiber(); return _main; }())" },
             range_set: ->(self_, b, e, excl) {
               "([&]() -> BasicObject* { auto* _r = static_cast<Range*>(#{self_}); _r->begin_ = #{b}; _r->end_ = #{e}; _r->exclude_end_ = (#{excl} == true_instance()); _r->initialized_ = true; return nil_instance(); }())"
             },
