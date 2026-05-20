@@ -1607,6 +1607,24 @@ module Frozone
             CPP
           )
 
+          # Splat-form rescue spec: `rescue *exprs => e` evaluates exprs
+          # to an Array (or array-like) of Class objects, and matches if
+          # the in-flight exception is an instance of any of them. Used
+          # by from_rescue when a clause's exception_nodes contains an
+          # Ast::SplatArg. classes is the splat operand value (Array or
+          # coerced via splat_to_array). mm_is_a_q walks the IS_A LUT.
+          RESCUE_SPLAT_MATCHES_FN = KernelFn.new(
+            name: "rescue_splat_matches",
+            signature: "bool rescue_splat_matches(Exception* e_, BasicObject* classes)",
+            body: <<~CPP.chomp,
+              Array* arr = splat_to_array(classes);
+              for (BasicObject* cls : arr->data) {
+                if (truthy(e_->mm_is_a_q(new Array({cls})))) return true;
+              }
+              return false;
+            CPP
+          )
+
           # Symbol interning. Same name → same Symbol* (identity = equality,
           # so default op_eq_q + m_hash_value work). Intern table uses
           # GcAllocator so the symbols stay rooted under Boehm.
@@ -2098,7 +2116,7 @@ module Frozone
           ALL_KERNEL_FNS = [
             NIL_INSTANCE_FN, TRUE_INSTANCE_FN, FALSE_INSTANCE_FN, UNSET_INSTANCE_FN,
             BOXED_BOOL, TRUTHY, RUBY_PUTS, INTERN_FN, ARRAY_AT_FN,
-            SPLAT_TO_ARRAY_FN,
+            SPLAT_TO_ARRAY_FN, RESCUE_SPLAT_MATCHES_FN,
             BUILD_INT_ARRAY_FN, INT_BOX_FN,
             COERCE_TO_INT_FN, RAISE_ARITY_FN,
             RAISE_ARITY_FIXED_FN, RAISE_ARITY_RANGE_FN, RAISE_ARITY_MIN_FN,

@@ -84,7 +84,7 @@ module Frozone
             end
             buf << "} catch (Exception* e_) { "
             (node.rescue_clauses || []).each do |clause|
-              cond = rescue_clause_condition(clause)
+              cond = rescue_clause_condition(clause, locals)
               bind_locals = locals.dup
               bind_str = ""
               if clause.var_name
@@ -109,13 +109,19 @@ module Frozone
 
           # Build the dynamic_cast-based condition for one rescue clause.
           # Bare rescue (no exception_nodes) catches StandardError per
-          # Ruby semantics. Exception class names come from ConstantRead
-          # / ConstantPath; non-constant exception lists raise EmissionError.
-          def rescue_clause_condition(clause)
+          # Ruby semantics. ConstantRead/ConstantPath specs emit a
+          # dynamic_cast; Ast::SplatArg specs (`rescue *exprs => e`)
+          # defer to the rescue_splat_matches kernel helper which
+          # walks the array at runtime.
+          def rescue_clause_condition(clause, locals)
             return "dynamic_cast<StandardError*>(e_) != nullptr" if clause.exception_nodes.empty?
             clause.exception_nodes.map { |n|
-              cls = exception_class_name(n)
-              "dynamic_cast<#{cls}*>(e_) != nullptr"
+              if n.is_a?(Ast::SplatArg)
+                "rescue_splat_matches(e_, #{from_expr(n.value_node, locals)})"
+              else
+                cls = exception_class_name(n)
+                "dynamic_cast<#{cls}*>(e_) != nullptr"
+              end
             }.join(" || ")
           end
 
