@@ -7,32 +7,36 @@
 
 // ---- Dir -----------------------------------------------------------
 //
-// Most of these are <filesystem> one-liners. dir_open/read/close/seek
-// hold a per-instance DIR* — the Ruby wrapper guarantees the receiver
-// is a Dir, but we don't yet have a place to hang the DIR* off the
-// generated `Dir` struct (no @dir_handle ivar). For now those abort
-// loudly. dir_glob, dir_chdir, dir_pwd, dir_home, dir_entries,
+// POSIX opendir/readdir/stat instead of std::filesystem — the latter
+// crashes at -O2 when libstdc++.so's internal free() runs on a Boehm-
+// allocated buffer (see fs_detail::expand in intrinsics.hpp for the
+// full rationale). dir_open/read/close/seek hold a per-instance DIR*
+// off the generated `Dir` struct (no @dir_handle ivar yet) so those
+// abort loudly. dir_glob, dir_chdir, dir_pwd, dir_home, dir_entries,
 // dir_mkdir/rmdir, dir_exist/empty cover the path-based queries that
 // frozone itself uses.
 
 inline BasicObject* intrinsic_dir_pwd() {
-  return fs_detail::string_of(std::filesystem::current_path().string());
+  char cwd[4096];
+  return fs_detail::string_of(::getcwd(cwd, sizeof(cwd)) ? std::string(cwd) : std::string());
 }
 
 inline BasicObject* intrinsic_dir_chdir(BasicObject* path, BasicObject* block) {
-  std::error_code ec;
   // path == nil → Dir.chdir restores HOME; block form chdirs in,
   // yields, then restores. We only support path-only no-block here.
   if (block != nil_instance()) {
     std::fprintf(stderr, "[box-first] dir_chdir with block not yet supported\n");
     std::abort();
   }
+  std::string target;
   if (path == nil_instance()) {
     const char* h = std::getenv("HOME");
-    if (h) std::filesystem::current_path(h, ec);
+    if (!h) return new Integer(0);
+    target = h;
   } else {
-    std::filesystem::current_path(fs_detail::str_of(path), ec);
+    target = fs_detail::str_of(path);
   }
+  (void)::chdir(target.c_str());
   return new Integer(0);
 }
 
@@ -48,47 +52,70 @@ inline BasicObject* intrinsic_dir_home(BasicObject* user) {
 
 inline BasicObject* intrinsic_dir_entries(BasicObject* path) {
   Array* arr = new Array();
-  std::error_code ec;
   // "." and ".." come first to match MRI ordering.
   arr->data.push_back(fs_detail::string_of("."));
   arr->data.push_back(fs_detail::string_of(".."));
-  for (auto& e : std::filesystem::directory_iterator(fs_detail::str_of(path), ec)) {
-    arr->data.push_back(fs_detail::string_of(e.path().filename().string()));
+  DIR* d = ::opendir(fs_detail::str_of(path).c_str());
+  if (!d) return arr;
+  while (struct dirent* e = ::readdir(d)) {
+    std::string n = e->d_name;
+    if (n == "." || n == "..") continue;
+    arr->data.push_back(fs_detail::string_of(n));
   }
+  ::closedir(d);
   return arr;
 }
 
+namespace fs_detail {
+  // Recursive directory walk via opendir/readdir. Calls `visit(path, is_dir)`
+  // for every entry (skipping . and ..). is_dir uses d_type when available,
+  // falling back to stat — needed because some filesystems return DT_UNKNOWN.
+  template<typename F>
+  inline void walk_recursive(const std::string& root, F visit) {
+    DIR* d = ::opendir(root.c_str());
+    if (!d) return;
+    while (struct dirent* e = ::readdir(d)) {
+      std::string n = e->d_name;
+      if (n == "." || n == "..") continue;
+      std::string full = root + "/" + n;
+      bool is_dir;
+      if (e->d_type == DT_DIR) is_dir = true;
+      else if (e->d_type == DT_REG) is_dir = false;
+      else {
+        struct stat st;
+        is_dir = (::stat(full.c_str(), &st) == 0 && S_ISDIR(st.st_mode));
+      }
+      visit(full, is_dir);
+      if (is_dir) walk_recursive(full, visit);
+    }
+    ::closedir(d);
+  }
+}
+
 inline BasicObject* intrinsic_dir_glob(BasicObject* pattern, BasicObject* /*flags*/, BasicObject* /*base*/, BasicObject* /*sort*/) {
-  // Minimal glob — supports simple `*` and literal paths only.
-  // MRI's glob has many flags (FNM_DOTMATCH, FNM_CASEFOLD, etc.) that
-  // we ignore for now; real bash-style glob expansion is its own
-  // project. Sufficient for `Dir["*.rb"]` and `Dir["lib/**/*.rb"]`
-  // when the pattern is a single literal-or-star segment. More
-  // complex patterns abort with a flag asking the user to file an issue.
+  // Minimal glob — supports simple `*` and literal paths only. MRI's
+  // glob has many flags (FNM_DOTMATCH, FNM_CASEFOLD, etc.) that we
+  // ignore; real bash-style glob expansion is its own project.
+  // Sufficient for `Dir["*.rb"]` and `Dir["lib/**/*.rb"]` when the
+  // pattern is a single literal-or-star segment.
   std::string pat = fs_detail::str_of(pattern);
   Array* arr = new Array();
   // Catch the "**" recursive glob upfront.
   if (pat.find("**") != std::string::npos) {
-    // Split pattern at **/* into prefix + suffix-extension.
     std::size_t star = pat.find("**");
     std::string prefix = pat.substr(0, star);
     if (!prefix.empty() && prefix.back() == '/') prefix.pop_back();
     if (prefix.empty()) prefix = ".";
-    std::string suffix = pat.substr(star + 2);  // skip "**"
+    std::string suffix = pat.substr(star + 2);
     if (!suffix.empty() && suffix.front() == '/') suffix.erase(0, 1);
-    // Build an extension matcher: last dot-segment.
     std::string ext;
     if (auto dot = suffix.rfind('.'); dot != std::string::npos) ext = suffix.substr(dot);
-    std::error_code ec;
-    for (auto it = std::filesystem::recursive_directory_iterator(prefix, ec);
-         it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
-      if (ec) break;
-      if (!it->is_regular_file()) continue;
-      std::string s = it->path().string();
-      if (ext.empty() || (s.size() >= ext.size() && s.compare(s.size() - ext.size(), ext.size(), ext) == 0)) {
-        arr->data.push_back(fs_detail::string_of(s));
+    fs_detail::walk_recursive(prefix, [&](const std::string& p, bool is_dir) {
+      if (is_dir) return;
+      if (ext.empty() || (p.size() >= ext.size() && p.compare(p.size() - ext.size(), ext.size(), ext) == 0)) {
+        arr->data.push_back(fs_detail::string_of(p));
       }
-    }
+    });
     return arr;
   }
   // Single-segment * glob.
@@ -98,46 +125,54 @@ inline BasicObject* intrinsic_dir_glob(BasicObject* pattern, BasicObject* /*flag
   std::size_t star = base.find('*');
   if (star == std::string::npos) {
     // Literal — exists check.
-    if (std::filesystem::exists(pat)) arr->data.push_back(fs_detail::string_of(pat));
+    struct stat st;
+    if (::stat(pat.c_str(), &st) == 0) arr->data.push_back(fs_detail::string_of(pat));
     return arr;
   }
   std::string prefix = base.substr(0, star);
   std::string suffix = base.substr(star + 1);
-  std::error_code ec;
-  for (auto& e : std::filesystem::directory_iterator(dir, ec)) {
-    std::string n = e.path().filename().string();
+  DIR* d = ::opendir(dir.c_str());
+  if (!d) return arr;
+  while (struct dirent* e = ::readdir(d)) {
+    std::string n = e->d_name;
+    if (n == "." || n == "..") continue;
     if (n.size() < prefix.size() + suffix.size()) continue;
     if (n.compare(0, prefix.size(), prefix) != 0) continue;
     if (n.compare(n.size() - suffix.size(), suffix.size(), suffix) != 0) continue;
     arr->data.push_back(fs_detail::string_of((dir == "." ? n : dir + "/" + n)));
   }
+  ::closedir(d);
   return arr;
 }
 
 inline BasicObject* intrinsic_dir_mkdir(BasicObject* path, BasicObject* /*perm*/) {
-  std::error_code ec;
-  std::filesystem::create_directory(fs_detail::str_of(path), ec);
-  if (ec) {
-    std::fprintf(stderr, "[box-first] dir_mkdir failed: %s\n", ec.message().c_str());
+  if (::mkdir(fs_detail::str_of(path).c_str(), 0777) != 0) {
+    std::fprintf(stderr, "[box-first] dir_mkdir failed: %s\n", std::strerror(errno));
     std::abort();
   }
   return new Integer(0);
 }
 
 inline BasicObject* intrinsic_dir_rmdir(BasicObject* path) {
-  std::error_code ec;
-  std::filesystem::remove(fs_detail::str_of(path), ec);
+  ::rmdir(fs_detail::str_of(path).c_str());
   return new Integer(0);
 }
 
 inline BasicObject* intrinsic_dir_exist(BasicObject* path) {
-  std::error_code ec;
-  return boxed_bool(std::filesystem::is_directory(fs_detail::str_of(path), ec));
+  struct stat st;
+  return boxed_bool(::stat(fs_detail::str_of(path).c_str(), &st) == 0 && S_ISDIR(st.st_mode));
 }
 
 inline BasicObject* intrinsic_dir_empty(BasicObject* path) {
-  std::error_code ec;
-  return boxed_bool(std::filesystem::is_empty(fs_detail::str_of(path), ec));
+  DIR* d = ::opendir(fs_detail::str_of(path).c_str());
+  if (!d) return false_instance();
+  bool empty = true;
+  while (struct dirent* e = ::readdir(d)) {
+    std::string n = e->d_name;
+    if (n != "." && n != "..") { empty = false; break; }
+  }
+  ::closedir(d);
+  return boxed_bool(empty);
 }
 
 // Per-instance DIR* state — the generated Dir struct has no slot

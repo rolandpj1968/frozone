@@ -39,6 +39,8 @@
 #include <filesystem>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <dirent.h>
+#include <cerrno>
 #include <fstream>
 #include <sstream>
 #include <chrono>
