@@ -170,6 +170,7 @@ module Frozone
 
             # Range — direct field access on the C++ struct (begin_,
             # end_, exclude_end_, initialized_).
+            range_allocate: ->(_klass) { "(new Range())" },
             range_set: ->(self_, b, e, excl) {
               "([&]() -> BasicObject* { auto* _r = static_cast<Range*>(#{self_}); _r->begin_ = #{b}; _r->end_ = #{e}; _r->exclude_end_ = (#{excl} == true_instance()); _r->initialized_ = true; return nil_instance(); }())"
             },
