@@ -97,6 +97,29 @@ module Frozone
             parent_set = classes.map(&:parent).compact.to_set
             @cpp_leaf_set = classes.map(&:name).reject { |n| parent_set.include?(n) }.to_set
 
+            # Per-method override map → "no descendant overrides this
+            # method" → emit method-level `final`. Lets the C++ compiler
+            # devirtualise typed-receiver calls. Independent of (and
+            # additive to) class-level `final` from @cpp_leaf_set.
+            # Conservative grain: tracked by method NAME only (not per
+            # overload signature) — false negatives (some never-overridden
+            # overloads miss `final` if a sibling overload was overridden)
+            # but no false positives (an actual override is never marked
+            # final).
+            @method_defs_by_name = Hash.new { |h, k| h[k] = Set.new }
+            classes.each do |c|
+              (c.overrides || {}).each_key { |name| @method_defs_by_name[name] << c.name }
+            end
+            @descendants_map = Hash.new { |h, k| h[k] = Set.new }
+            parent_of = classes.to_h { |c| [c.name, c.parent] }
+            classes.each do |c|
+              ancestor = parent_of[c.name]
+              while ancestor
+                @descendants_map[ancestor] << c.name
+                ancestor = parent_of[ancestor]
+              end
+            end
+
             # Two-pass: pre-render method bodies + send + kernel into a
             # buffer to populate emit.cpp.int_literals (Integer literal
             # interning), then emit __INT_LIT__ in the correct position
@@ -1198,6 +1221,20 @@ module Frozone
           # itself has no parent, and methods unique to a runtime
           # eigenclass (e.g. Math.log2 when no user code calls log2) lack
           # a parent stub so can't carry `override` either.
+          # True if method `name` on `klass_name` has no descendant
+          # override anywhere in the hierarchy — eligible for
+          # method-level `final`. Skips BasicObject (its slots are the
+          # universal-surface dispatch points, override is the whole
+          # point) and leaf classes (already `struct X final`, so
+          # method-level final would be redundant).
+          def self.method_final?(klass_name, name)
+            return false if klass_name == "BasicObject"
+            return false if @cpp_leaf_set&.include?(klass_name)
+            return false unless @descendants_map && @method_defs_by_name
+            defs = @method_defs_by_name[name]
+            !@descendants_map[klass_name].any? { |d| defs.include?(d) }
+          end
+
           def self.write_override_decl(emit, name, klass, spec = nil)
             if name.start_with?("c_")
               # Constant-lookup slot — empty arg list. `override` only
@@ -1208,6 +1245,7 @@ module Frozone
               return
             end
             override_kw = (klass.name == "BasicObject" || !@call_surface_set&.include?(name)) ? "" : " override"
+            final_kw = method_final?(klass.name, name) ? " final" : ""
             ruby_name = cpp_name_head_ruby(name).to_sym
             # `using` un-hides BasicObject's universal-sig overload so
             # `this->m_foo(args, kwargs, block)` calls inside the class
@@ -1219,7 +1257,7 @@ module Frozone
               emit.line "using BasicObject::#{name};" if emit_using
               pos_params = (0...sig.arity_req).map { |i| "BasicObject* a#{i}" }
               kw_params = sig.required_kw_names.map { |kn| "BasicObject* k_#{kn}" }
-              emit.line "virtual BasicObject* #{name}(#{(pos_params + kw_params).join(', ')})#{override_kw};"
+              emit.line "virtual BasicObject* #{name}(#{(pos_params + kw_params).join(', ')})#{override_kw}#{final_kw};"
               if klass.name == "BasicObject"
                 emit.line "virtual BasicObject* #{name}(Array* args, Hash* kwargs, BasicObject* block);"
               end
@@ -1227,7 +1265,7 @@ module Frozone
               emit.line "using BasicObject::#{name};" if emit_using
               family.arities.to_a.sort.each do |k|
                 params = (0...k).map { |i| "BasicObject* a#{i}" }.join(', ')
-                emit.line "virtual BasicObject* #{name}(#{params})#{override_kw};"
+                emit.line "virtual BasicObject* #{name}(#{params})#{override_kw}#{final_kw};"
               end
               # Per-class universal-sig override (class-specific arity
               # range) when spec carries a universal_entry, or always
@@ -1236,14 +1274,14 @@ module Frozone
               # they're called from super and have no parent slot.
               if klass.name == "BasicObject" || (spec && spec[:universal_entry] && !name.start_with?("sm_"))
                 ovk = klass.name == "BasicObject" ? "" : " override"
-                emit.line "virtual BasicObject* #{name}(Array* args, Hash* kwargs, BasicObject* block)#{ovk};"
+                emit.line "virtual BasicObject* #{name}(Array* args, Hash* kwargs, BasicObject* block)#{ovk}#{final_kw};"
               end
             elsif (kw_sig = @kw_unset_table[ruby_name])
               emit.line "using BasicObject::#{name};" if emit_using
               n_pos = kw_sig.arity_req + kw_sig.opt
               pos_params = (0...n_pos).map { |i| "BasicObject* a#{i}" }
               kw_params = kw_sig.all_kw_names.map { |kn| "BasicObject* k_#{kn}" }
-              emit.line "virtual BasicObject* #{name}(#{(pos_params + kw_params).join(', ')})#{override_kw};"
+              emit.line "virtual BasicObject* #{name}(#{(pos_params + kw_params).join(', ')})#{override_kw}#{final_kw};"
               if klass.name == "BasicObject"
                 emit.line "virtual BasicObject* #{name}(Array* args, Hash* kwargs, BasicObject* block);"
               end
@@ -1254,7 +1292,7 @@ module Frozone
               # dispatch from typed callers (no `using` needed).
               emit.line "BasicObject* #{name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance());"
             else
-              emit.line "virtual BasicObject* #{name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance())#{override_kw};"
+              emit.line "virtual BasicObject* #{name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance())#{override_kw}#{final_kw};"
             end
           end
 
