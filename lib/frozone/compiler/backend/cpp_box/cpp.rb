@@ -683,8 +683,20 @@ module Frozone
           # in our model: `foo(1, *arr, 5)` would pass them as 3
           # positional args, NOT as the Ruby-semantic flattened list
           # — defer the flattening case until needed.
+          # C++ expression for one method-call argument. SplatArg in this
+          # slot is a bug — splats need flattening into the args Array at
+          # the call site (see build_args_array in from_method_call), not
+          # silent unwrapping to the underlying value (which would treat
+          # `*[1,2,3]` as `[1,2,3]` instead of three positional args).
+          # Loud EmissionError so the unhandled site gets fixed instead of
+          # silently emitting wrong code.
           def from_arg(node, locals)
-            return from_expr(node.value_node, locals) if node.is_a?(Ast::SplatArg)
+            if node.is_a?(Ast::SplatArg)
+              raise Cpp::EmissionError,
+                    "SplatArg passed through from_arg — caller needs splat-aware path " \
+                    "(method-call arg lists go via build_args_array; index/raise/IOW " \
+                    "args don't accept splats today)"
+            end
             from_expr(node, locals)
           end
 
