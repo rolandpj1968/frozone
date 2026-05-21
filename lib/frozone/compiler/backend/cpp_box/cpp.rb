@@ -383,18 +383,26 @@ module Frozone
             return "boxed_bool(_block != nil_instance())" if !recv && name == :block_given?
 
             # `binding.local_variable_get(SYM)` — Frozone-Ruby uses this
-            # to access `in:` / `class:` / other keyword-name kwargs that
-            # can't be referenced by bare identifier. Lower to a direct
-            # kwargs Hash lookup against the enclosing method's `kwargs`
-            # parameter; the Binding object never materialises so
-            # kernel_binding can stay abort-stubbed. Only the SymbolLiteral
-            # form is handled — dynamic names still hit the binding stub.
+            # to access locals whose names collide with Ruby keywords
+            # (`in:`, `class:`, etc.) — the kwarg value is unreachable
+            # by bare identifier so `binding.local_variable_get(:in)` is
+            # MRI's canonical escape hatch. Lower directly to a read of
+            # the enclosing method's C++ local, same as a LocalVariableRead
+            # would. Works uniformly for positional/kwarg/optional locals
+            # regardless of NA / kw_unset eligibility — the prologue has
+            # always materialised an `l_<name>` local by the time the body
+            # runs. The Binding object never has to exist; kernel_binding
+            # stays abort-stubbed for dynamic-name / arbitrary use.
+            # If `:name` isn't a real local in the enclosing method the
+            # emitted `l_<name>` is a C++ undefined-name error — loud at
+            # build time, which is what we want for typos.
             if name == :local_variable_get && arg_nodes.length == 1 &&
                arg_nodes[0].is_a?(Ast::SymbolLiteral) &&
                recv.is_a?(Ast::MethodCall) && recv.receiver_node.nil? &&
                recv.name == :binding && (recv.arg_nodes || []).empty?
               sym = arg_nodes[0].value
-              return %(([&]() -> BasicObject* { auto _it = kwargs->data.find(intern("#{sym}")); return _it != kwargs->data.end() ? _it->second : nil_instance(); }()))
+              cpp = MethodEmitter.local_cpp_name(sym)
+              return captured?(sym) ? "(*#{cpp})" : cpp
             end
 
             # `.new` has no special case: `Foo.new(args)` dispatches via
