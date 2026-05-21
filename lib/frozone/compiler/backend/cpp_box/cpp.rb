@@ -225,6 +225,22 @@ module Frozone
 
           def captured?(name) = @captured_locals.include?(name.to_s)
 
+          # Flat C++ names of classes with no subclasses (Vm::ClassObject
+          # leaves → "Frozone_Vm_X"-style strings). Cached. Used by the
+          # is_a?(LeafKlass) typeid optimisation in from_method_call —
+          # typeid match is sufficient for leaves since they have no
+          # descendants by definition. Lazy because emit may not have a
+          # leaf-classes computation yet at Cpp init.
+          def cpp_leaf_names
+            @cpp_leaf_names ||=
+              if emit && emit.respond_to?(:compute_leaf_classes, true)
+                # compute_leaf_classes is private on Emitter — bypass via send.
+                emit.send(:compute_leaf_classes).map { |c| c.full_name.to_s.gsub("::", "_") }.to_set
+              else
+                Set.new
+              end
+          end
+
           # Class-variable reference: `@@foo` becomes a top-level static
           # `cv_<HostFlat>__<foo>`. HostFlat is the innermost real
           # (non-eigen, non-Object) class lexically containing the
@@ -403,6 +419,26 @@ module Frozone
               sym = arg_nodes[0].value
               cpp = MethodEmitter.local_cpp_name(sym)
               return captured?(sym) ? "(*#{cpp})" : cpp
+            end
+
+            # `recv.is_a?(LeafClass)` / kind_of? / instance_of? when the
+            # literal arg resolves to a C++-leaf class — emit a typeid
+            # match instead of going through mm_is_a_q's LUT. For leaves
+            # typeid identity equals "is_a"-with-no-subclasses by
+            # definition. instance_of? is exact-class semantics — also
+            # equivalent. The typeid_eq_q<T> template member on
+            # BasicObject defers T's completeness to the call site, where
+            # the per-TU pruner has already #include'd class/T.hpp via
+            # host_class_refs (ConstantRead reference detection).
+            if recv && %i[is_a? kind_of? instance_of?].include?(name) &&
+               arg_nodes.length == 1 &&
+               (arg_nodes[0].is_a?(Ast::ConstantRead) || arg_nodes[0].is_a?(Ast::ConstantPath))
+              knode = arg_nodes[0]
+              parts = knode.is_a?(Ast::ConstantRead) ? [knode.name.to_s] : collect_path(knode)
+              flat = resolve_constant(parts)
+              if flat && cpp_leaf_names.include?(flat.to_s)
+                return "boxed_bool(#{from_expr(recv, locals)}->typeid_eq_q<#{flat}>())"
+              end
             end
 
             # `.new` has no special case: `Foo.new(args)` dispatches via

@@ -131,6 +131,17 @@ module Frozone
               "// for non-class instances (so they hit the false branch in",
               "// the IS_A LUT walker on Object). Class instances override.",
               "virtual int __class_id__() const { return -1; }",
+              "// Leaf is_a?: typeid(*this) == typeid(T). Used by",
+              "// cpp.rb when it sees `recv.is_a?(LeafClass)` — typeid",
+              "// match is sufficient for leaves (no subclasses by",
+              "// definition). Templated inline so T's full type is",
+              "// resolved at the call site's TU, where the per-TU",
+              "// pruner has already #include'd class/T.hpp via",
+              "// host_class_refs. One typeid compare vs the universal",
+              "// mm_is_a_q's IS_A LUT lookup + Array allocation.",
+              "template<typename T> bool typeid_eq_q() const {",
+              "  return typeid(*this) == typeid(T);",
+              "}",
             ],
             # Genuine BasicObject methods. Other intrinsic-style methods
             # (m_class, m_send, mm_is_a_q, etc.) live on Object and are
