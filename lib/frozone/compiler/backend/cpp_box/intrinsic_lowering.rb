@@ -388,13 +388,23 @@ module Frozone
             kernel_caller_locations: ->(_self_, _start, _length) { "(new Array())" },
             # Closed-world AOT: every BUILD_FILES file is already
             # compiled in. require / require_relative / load are no-ops
-            # at runtime — return false ("already loaded"). A program
-            # that requires something NOT in the AOT snapshot would
-            # silently get "already loaded"; that's a closed-world
-            # gap to flag with diagnostics later, not crash.
-            kernel_require:          ->(_self_, _path) { "false_instance()" },
-            kernel_require_relative: ->(_self_, _path) { "false_instance()" },
-            kernel_load:             ->(_self_, _path, _wrap) { "false_instance()" },
+            # at runtime — return false ("already loaded"). Diagnostic
+            # warning to stderr so callers know the no-op fired (vs
+            # MRI's "actually loaded" semantics) — anything reaching
+            # this path at runtime is either a code path the gen
+            # missed (BUILD_FILES wasn't computed across it) or genuine
+            # dynamic loading the closed-world AOT can't support.
+            # String-typed paths print the path; non-string gets a
+            # generic message.
+            kernel_require: ->(_self_, path) {
+              %|([&]() -> BasicObject* { auto* _s = dynamic_cast<String*>(#{path}); std::fprintf(stderr, "[box-first] kernel_require called at runtime \xe2\x80\x94 closed-world AOT can't dynamically load (%.*s)\\n", _s ? (int)_s->bytes.size() : 18, _s ? reinterpret_cast<const char*>(_s->bytes.data()) : "<non-string path>"); return false_instance(); }())|
+            },
+            kernel_require_relative: ->(_self_, path) {
+              %|([&]() -> BasicObject* { auto* _s = dynamic_cast<String*>(#{path}); std::fprintf(stderr, "[box-first] kernel_require_relative called at runtime \xe2\x80\x94 closed-world AOT can't dynamically load (%.*s)\\n", _s ? (int)_s->bytes.size() : 18, _s ? reinterpret_cast<const char*>(_s->bytes.data()) : "<non-string path>"); return false_instance(); }())|
+            },
+            kernel_load: ->(_self_, path, _wrap) {
+              %|([&]() -> BasicObject* { auto* _s = dynamic_cast<String*>(#{path}); std::fprintf(stderr, "[box-first] kernel_load called at runtime \xe2\x80\x94 closed-world AOT can't dynamically load (%.*s)\\n", _s ? (int)_s->bytes.size() : 18, _s ? reinterpret_cast<const char*>(_s->bytes.data()) : "<non-string path>"); return false_instance(); }())|
+            },
             # `Frozone::Vm::Vm#initialize(options)` — synthetic stub set
             # up by setup_frozone_land for self-hosting. In box-first AOT
             # the only thing kernel_run_vm does is print "no impl"+exit,
