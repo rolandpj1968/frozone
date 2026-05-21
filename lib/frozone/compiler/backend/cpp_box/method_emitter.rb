@@ -93,22 +93,7 @@ module Frozone
               # block (Ruby's return-from-block semantics).
               # Elided when the body has no inner blocks/lambdas — no
               # throw site can target this frame, so no setup needed.
-              if needs_frame
-                emit.line "std::uint64_t __frame_id__ = next_frame_id();"
-                emit.line "try {"
-                emit.indented do
-                  if method.body
-                    ExprEmitter.write_body(emit, method.body, locals: locals, last_is_return: true)
-                  end
-                  emit.line "return nil_instance();"
-                end
-                emit.line "} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }"
-              else
-                if method.body
-                  ExprEmitter.write_body(emit, method.body, locals: locals, last_is_return: true)
-                end
-                emit.line "return nil_instance();"
-              end
+              emit_body_with_frame(emit, method.body, locals, needs_frame: needs_frame)
             end
             end
             emit.line "virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) {"
@@ -178,18 +163,7 @@ module Frozone
                 emit.line decl_local_line(emit, s, "nil_instance()")
                 locals << s
               end
-              if body_needs_frame?(method.body)
-                emit.line "std::uint64_t __frame_id__ = next_frame_id();"
-                emit.line "try {"
-                emit.indented do
-                  ExprEmitter.write_body(emit, method.body, locals: locals, last_is_return: true) if method.body
-                  emit.line "return nil_instance();"
-                end
-                emit.line "} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }"
-              else
-                ExprEmitter.write_body(emit, method.body, locals: locals, last_is_return: true) if method.body
-                emit.line "return nil_instance();"
-              end
+              emit_body_with_frame(emit, method.body, locals)
             end
             end
             emit.line "virtual BasicObject* #{cpp_name}(#{param_decls.join(', ')}) {"
@@ -252,18 +226,7 @@ module Frozone
                     emit.line decl_local_line(emit, s, "nil_instance()")
                     locals << s
                   end
-                  if body_needs_frame?(method.body)
-                    emit.line "std::uint64_t __frame_id__ = next_frame_id();"
-                    emit.line "try {"
-                    emit.indented do
-                      ExprEmitter.write_body(emit, method.body, locals: locals, last_is_return: true) if method.body
-                      emit.line "return nil_instance();"
-                    end
-                    emit.line "} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }"
-                  else
-                    ExprEmitter.write_body(emit, method.body, locals: locals, last_is_return: true) if method.body
-                    emit.line "return nil_instance();"
-                  end
+                  emit_body_with_frame(emit, method.body, locals)
                 end
               end
               emit.line "virtual BasicObject* #{cpp_name}(#{params}) {"
@@ -318,18 +281,7 @@ module Frozone
                   emit.line decl_local_line(emit, s, "nil_instance()")
                   locals << s
                 end
-                if body_needs_frame?(method.body)
-                  emit.line "std::uint64_t __frame_id__ = next_frame_id();"
-                  emit.line "try {"
-                  emit.indented do
-                    ExprEmitter.write_body(emit, method.body, locals: locals, last_is_return: true) if method.body
-                    emit.line "return nil_instance();"
-                  end
-                  emit.line "} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }"
-                else
-                  ExprEmitter.write_body(emit, method.body, locals: locals, last_is_return: true) if method.body
-                  emit.line "return nil_instance();"
-                end
+                emit_body_with_frame(emit, method.body, locals)
               end
             end
             pos_params = (0...sig.arity_req).map { |i| "BasicObject* _arg#{i}" } +
@@ -583,6 +535,32 @@ module Frozone
           # frame-requiring too — refinement can elide lambda-only cases).
           # Nested method defs have their own frame, so recursion stops
           # at MethodDef boundaries.
+          # Emit method body with optional frame-targeted try/catch
+          # wrapper. Needed when the body contains inner blocks/lambdas —
+          # `return v` inside throws ReturnException with the method's
+          # unique frame_id; the wrapper catches and re-raises mismatches
+          # so the throw propagates to the method that owns the block
+          # (Ruby's return-from-block semantics). Elided when no inner
+          # blocks/lambdas exist — no throw site can target this frame,
+          # so no setup needed. Callers that already computed
+          # body_needs_frame? for other reasons pass it in via
+          # needs_frame:; otherwise the helper recomputes.
+          def self.emit_body_with_frame(emit, body, locals, needs_frame: nil)
+            needs_frame = body_needs_frame?(body) if needs_frame.nil?
+            if needs_frame
+              emit.line "std::uint64_t __frame_id__ = next_frame_id();"
+              emit.line "try {"
+              emit.indented do
+                ExprEmitter.write_body(emit, body, locals: locals, last_is_return: true) if body
+                emit.line "return nil_instance();"
+              end
+              emit.line "} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }"
+            else
+              ExprEmitter.write_body(emit, body, locals: locals, last_is_return: true) if body
+              emit.line "return nil_instance();"
+            end
+          end
+
           def self.body_needs_frame?(body)
             return false unless body
             found = false
