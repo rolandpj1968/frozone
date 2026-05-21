@@ -23,6 +23,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <cstdarg>
 #include <vector>
 #include <unordered_map>
 #include <string>

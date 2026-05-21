@@ -1513,77 +1513,58 @@ module Frozone
           # one of these to build the MRI-format message and throw
           # ArgumentError. Cold-path only — the check is the single
           # integer compare emitted at method-body entry.
-          RAISE_ARITY_FIXED_FN = KernelFn.new(
-            name: "raise_arity_fixed",
-            signature: "[[noreturn]] void raise_arity_fixed(std::size_t given, std::size_t expected)",
+          # Shared worker for raise_arity_* / raise_missing_kw /
+          # raise_unknown_kw / raise_arity — printf-style format into a
+          # stack buffer, then throw ArgumentError wrapping the formatted
+          # String. Was inlined in each callsite with the same six-line
+          # boilerplate; one helper now. 256-char buffer covers every
+          # current message (longest is ~80 chars). gnu::format attribute
+          # gives the compiler printf-style arg checking.
+          THROW_ARGUMENT_ERROR_FMT_FN = KernelFn.new(
+            name: "throw_argument_error_fmt",
+            signature: "[[noreturn]] [[gnu::format(printf, 1, 2)]] void throw_argument_error_fmt(const char* fmt, ...)",
             body: <<~CPP.chomp,
-              char buf[96];
-              int n = std::snprintf(buf, sizeof(buf),
-                "wrong number of arguments (given %zu, expected %zu)", given, expected);
+              char buf[256];
+              std::va_list args;
+              va_start(args, fmt);
+              int n = std::vsnprintf(buf, sizeof(buf), fmt, args);
+              va_end(args);
               if (n < 0) n = 0;
               if (n >= (int)sizeof(buf)) n = (int)sizeof(buf) - 1;
               throw static_cast<Exception*>(
                 (&ArgumentError_CLASS)->m_new(new Array({static_cast<BasicObject*>(new String(buf, n))}))
               );
             CPP
+          )
+
+          RAISE_ARITY_FIXED_FN = KernelFn.new(
+            name: "raise_arity_fixed",
+            signature: "[[noreturn]] void raise_arity_fixed(std::size_t given, std::size_t expected)",
+            body: %(throw_argument_error_fmt("wrong number of arguments (given %zu, expected %zu)", given, expected);),
           )
 
           RAISE_ARITY_RANGE_FN = KernelFn.new(
             name: "raise_arity_range",
             signature: "[[noreturn]] void raise_arity_range(std::size_t given, std::size_t lo, std::size_t hi)",
-            body: <<~CPP.chomp,
-              char buf[96];
-              int n = std::snprintf(buf, sizeof(buf),
-                "wrong number of arguments (given %zu, expected %zu..%zu)", given, lo, hi);
-              if (n < 0) n = 0;
-              if (n >= (int)sizeof(buf)) n = (int)sizeof(buf) - 1;
-              throw static_cast<Exception*>(
-                (&ArgumentError_CLASS)->m_new(new Array({static_cast<BasicObject*>(new String(buf, n))}))
-              );
-            CPP
+            body: %(throw_argument_error_fmt("wrong number of arguments (given %zu, expected %zu..%zu)", given, lo, hi);),
           )
 
           RAISE_ARITY_MIN_FN = KernelFn.new(
             name: "raise_arity_min",
             signature: "[[noreturn]] void raise_arity_min(std::size_t given, std::size_t lo)",
-            body: <<~CPP.chomp,
-              char buf[96];
-              int n = std::snprintf(buf, sizeof(buf),
-                "wrong number of arguments (given %zu, expected %zu+)", given, lo);
-              if (n < 0) n = 0;
-              if (n >= (int)sizeof(buf)) n = (int)sizeof(buf) - 1;
-              throw static_cast<Exception*>(
-                (&ArgumentError_CLASS)->m_new(new Array({static_cast<BasicObject*>(new String(buf, n))}))
-              );
-            CPP
+            body: %(throw_argument_error_fmt("wrong number of arguments (given %zu, expected %zu+)", given, lo);),
           )
 
           RAISE_MISSING_KW_FN = KernelFn.new(
             name: "raise_missing_kw",
             signature: "[[noreturn]] void raise_missing_kw(const char* name)",
-            body: <<~CPP.chomp,
-              char buf[128];
-              int n = std::snprintf(buf, sizeof(buf), "missing keyword: :%s", name);
-              if (n < 0) n = 0;
-              if (n >= (int)sizeof(buf)) n = (int)sizeof(buf) - 1;
-              throw static_cast<Exception*>(
-                (&ArgumentError_CLASS)->m_new(new Array({static_cast<BasicObject*>(new String(buf, n))}))
-              );
-            CPP
+            body: %(throw_argument_error_fmt("missing keyword: :%s", name);),
           )
 
           RAISE_UNKNOWN_KW_FN = KernelFn.new(
             name: "raise_unknown_kw",
             signature: "[[noreturn]] void raise_unknown_kw(const char* name)",
-            body: <<~CPP.chomp,
-              char buf[128];
-              int n = std::snprintf(buf, sizeof(buf), "unknown keyword: :%s", name);
-              if (n < 0) n = 0;
-              if (n >= (int)sizeof(buf)) n = (int)sizeof(buf) - 1;
-              throw static_cast<Exception*>(
-                (&ArgumentError_CLASS)->m_new(new Array({static_cast<BasicObject*>(new String(buf, n))}))
-              );
-            CPP
+            body: %(throw_argument_error_fmt("unknown keyword: :%s", name);),
           )
 
           BUILD_INT_ARRAY_FN = KernelFn.new(
@@ -1753,16 +1734,7 @@ module Frozone
           RAISE_ARITY_FN = KernelFn.new(
             name: "raise_arity",
             signature: "void raise_arity(int got, const char* expected)",
-            body: <<~CPP.chomp,
-              char buf[128];
-              std::size_t n = std::snprintf(buf, sizeof(buf),
-                "wrong number of arguments (given %d, expected %s)", got, expected);
-              if (n >= sizeof(buf)) n = sizeof(buf) - 1;
-              String* msg = new String(buf, n);
-              Array* mm_args = new Array();
-              mm_args->data.push_back(static_cast<BasicObject*>(msg));
-              throw static_cast<Exception*>((&ArgumentError_CLASS)->m_new(mm_args));
-            CPP
+            body: %(throw_argument_error_fmt("wrong number of arguments (given %d, expected %s)", got, expected);),
           )
 
           # method-missing dispatch — called by every universal-surface
@@ -2166,7 +2138,8 @@ module Frozone
             BOXED_BOOL, TRUTHY, RUBY_PUTS, INTERN_FN, ARRAY_AT_FN,
             SPLAT_TO_ARRAY_FN, RESCUE_SPLAT_MATCHES_FN,
             BUILD_INT_ARRAY_FN, INT_BOX_FN,
-            COERCE_TO_INT_FN, RAISE_ARITY_FN,
+            COERCE_TO_INT_FN,
+            THROW_ARGUMENT_ERROR_FMT_FN, RAISE_ARITY_FN,
             RAISE_ARITY_FIXED_FN, RAISE_ARITY_RANGE_FN, RAISE_ARITY_MIN_FN,
             RAISE_MISSING_KW_FN, RAISE_UNKNOWN_KW_FN,
             MM_DISPATCH_FN, CM_DISPATCH_FN,
