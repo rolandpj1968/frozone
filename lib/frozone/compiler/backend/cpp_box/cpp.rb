@@ -722,21 +722,34 @@ module Frozone
             "_block->m_call(new Array({#{args.join(", ")}}))"
           end
 
+          # C++ argument-list string for a method-call lowering. NA-direct
+          # form (positional args inline) when `name` has an NA slot whose
+          # `arity_req` matches `args.length` and no required keywords;
+          # Array-wrapped universal form otherwise. Wrong shape under NA
+          # would reinterpret the Array via static_cast on the operand
+          # type — visible UB. Used by from_attribute_write +
+          # from_index_op_write; super has fundamentally different shape
+          # (forwarding) and doesn't share this path. wrap_parens controls
+          # whether the Array-wrapped form is itself parenthesised — purely
+          # textual, preserved per call-site for byte-identical gen output.
+          def na_or_wrap_args(name, args, wrap_parens: false)
+            na_sig = emit&.natural_arity_names&.dig(name)
+            if na_sig && na_sig.arity_req == args.length && na_sig.required_kw_names.empty?
+              args.join(", ")
+            else
+              inner = "new Array({#{args.join(", ")}})"
+              wrap_parens ? "(#{inner})" : inner
+            end
+          end
+
           # `arr[k] = v` parses as AttributeWrite(name=:[]=, receiver,
           # arg_nodes=[k, v]). Emit as a vtable call to op_aset via
-          # the universal protocol. For setter form `obj.attr = v`
-          # (single-arg, NA-eligible), pass args directly under NA —
-          # same correctness reason as from_index_op_write: the NA
-          # slot static_casts its arg, reading garbage from the Array
-          # layout when Array-wrapped.
+          # the universal protocol. Arg shape via na_or_wrap_args.
           def from_attribute_write(node, locals)
             recv_s = node.receiver_node ? from_expr(node.receiver_node, locals) : "this"
             args = (node.arg_nodes || []).map { |a| from_expr(a, locals) }
             cpp_name = Cpp.method_name(node.name)
-            na_sig = emit&.natural_arity_names&.dig(node.name)
-            args_csv = (na_sig && na_sig.arity_req == args.length && na_sig.required_kw_names.empty?) ?
-                         args.join(", ") : "(new Array({#{args.join(", ")}}))"
-            "#{recv_s}->#{cpp_name}(#{args_csv})"
+            "#{recv_s}->#{cpp_name}(#{na_or_wrap_args(node.name, args, wrap_parens: true)})"
           end
 
           # `arr[i] op= val` → `arr[i] = arr[i] op val`. Receiver and
@@ -754,15 +767,9 @@ module Frozone
             recv_t = "__iow_recv_#{tag}__"
             idx_array = "(new Array({#{idx_strs.join(", ")}}))"
             cpp_op = Cpp.method_name(op)
-            # `recv->aref(idx) op val` → `recv->aset(idx, that)`. The
-            # op call's arg shape mirrors from_method_call: direct
-            # arg when `op` has an NA slot (NA call convention),
-            # Array-wrapped otherwise (universal-sig). Wrong shape
-            # under NA reinterprets the Array as the operand
-            # (Integer's NA slot static_cast<Integer*>'s its arg).
-            op_na_sig = emit&.natural_arity_names&.dig(op)
-            op_arg = (op_na_sig && op_na_sig.arity_req == 1 && op_na_sig.required_kw_names.empty?) ?
-                       val_str : "new Array({#{val_str}})"
+            # `recv->aref(idx) op val` → `recv->aset(idx, that)`. Op
+            # arg shape via na_or_wrap_args.
+            op_arg = na_or_wrap_args(op, [val_str])
             "([&]() -> BasicObject* { auto* #{recv_t} = #{recv_str}; auto* _idx = #{idx_array}; return #{recv_t}->op_aset(new Array({#{idx_strs.join(", ")}, #{recv_t}->op_aref(_idx)->#{cpp_op}(#{op_arg})})); }())"
           end
 
