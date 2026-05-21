@@ -743,3 +743,209 @@ namespace :core do
     end
   end
 end
+
+# ---- Frozone self-compile (box-first AOT of frozone.rb itself) ------
+#
+# Pipeline: gen frozone.rb through its own AOT backend → ~660 .cpp files
+# in cpp/gen/box/ → parallel compile → link → /usr/local/bin-style
+# frozone_box binary. Cold build is ~30 min at -O2 / -j8 on this host;
+# warm rebuild with ccache + mtime-stale detection is much faster.
+#
+# Tasks:
+#   rake frozone:build              incremental (smart-stale .o)
+#   rake frozone:rebuild            nuke .o + full rebuild
+#   rake frozone:gen                gen phase only (regenerate .cpp/.hpp)
+#   rake frozone:compile            compile-only (assumes gen ran)
+#   rake frozone:link               link-only (assumes .o present)
+#   rake frozone:run[script.rb]     run a script through the built binary
+#   rake frozone:clean              wipe .o + binary
+#
+# Env knobs (all optional):
+#   OPT=O0|O1|O2|O3    optimisation level (default O2)
+#   JOBS=N             parallel compile workers (default nprocessors)
+#   FROZONE_BOX_BIN    binary output path (default bin/frozone_box)
+#   CCACHE=0           disable ccache even if installed (default: auto-use)
+
+FROZONE_BOX_GEN_DIR   = File.expand_path('cpp/gen/box', __dir__)
+FROZONE_BOX_BIN       = ENV.fetch('FROZONE_BOX_BIN', File.expand_path('bin/frozone_box', __dir__))
+FROZONE_HEADER_STAMP  = File.join(FROZONE_BOX_GEN_DIR, '.headers.fingerprint')
+FROZONE_OPT_STAMP     = File.join(FROZONE_BOX_GEN_DIR, '.opt')
+
+def frozone_box_opt
+  ENV.fetch('OPT', 'O2')
+end
+
+def frozone_box_jobs
+  # Default to half the cores — g++ -O2 on these TUs peaks at 300-500MB
+  # per worker; full -j on a 12-core / 28GB box OOM-thrashes. Floor of 2.
+  default = [(Etc.nprocessors / 2), 2].max
+  ENV.fetch('JOBS', default.to_s).to_i
+end
+
+def frozone_box_cxx
+  use_ccache = ENV['CCACHE'] != '0' && system('which ccache > /dev/null 2>&1')
+  use_ccache ? 'ccache g++' : 'g++'
+end
+
+# SHA of all runtime headers — mtime-based .o staleness misses header
+# edits (intrinsics.hpp, box_first.hpp, layouts/post split, etc.). We
+# fingerprint the header tree and force a full rebuild on change.
+def frozone_box_header_fingerprint
+  require 'digest'
+  Digest::SHA1.new.tap do |h|
+    Dir['cpp/runtime/**/*.{hpp,h}'].sort.each do |f|
+      h.update(f)
+      h.update(File.read(f))
+    end
+    Dir['cpp/gen/box/frozone_*.hpp', 'cpp/gen/box/class/*.hpp'].sort.each do |f|
+      h.update(f)
+      h.update(File.read(f))
+    end
+  end.hexdigest
+end
+
+# Run the gen phase: invokes frozone-on-MRI to produce ~660 .cpp/.hpp
+# files under cpp/gen/box/ from frozone.rb itself.
+def frozone_box_gen
+  t0 = Time.now
+  ok = system({'FROZONE_CPP' => '1', 'FROZONE_BOX_FIRST' => '1'},
+              'bundle exec ruby frozone.rb --aot --hoist-class-consts frozone.rb')
+  abort '[frozone:gen] gen failed' unless ok
+  elapsed = Time.now - t0
+  count = Dir["#{FROZONE_BOX_GEN_DIR}/frozone*.cpp"].size
+  puts "[frozone:gen] #{count} .cpp in %.1fs" % elapsed
+end
+
+# Compile stale .cpps in parallel. A .cpp is stale if (a) no .o exists,
+# (b) .cpp is newer than .o, or (c) header fingerprint changed since the
+# last successful build (forces full recompile). `force: true` ignores
+# the staleness check and recompiles everything.
+def frozone_box_compile(force: false)
+  cpp_files = Dir["#{FROZONE_BOX_GEN_DIR}/frozone*.cpp"].sort
+  abort '[frozone:compile] no .cpp files — run frozone:gen first' if cpp_files.empty?
+
+  opt = frozone_box_opt
+  current_fp = frozone_box_header_fingerprint
+  last_fp = File.exist?(FROZONE_HEADER_STAMP) ? File.read(FROZONE_HEADER_STAMP) : nil
+  last_opt = File.exist?(FROZONE_OPT_STAMP) ? File.read(FROZONE_OPT_STAMP).strip : nil
+  full_rebuild = force || last_fp != current_fp || last_opt != opt
+
+  stale = if full_rebuild
+            cpp_files
+          else
+            cpp_files.select do |cpp|
+              o = "#{cpp}.o"
+              !File.exist?(o) || File.mtime(cpp) > File.mtime(o)
+            end
+          end
+
+  if stale.empty?
+    puts "[frozone:compile] up-to-date (#{cpp_files.size} TUs)"
+    return
+  end
+
+  reason = if force then 'forced'
+           elsif last_fp != current_fp then 'header change'
+           elsif last_opt != opt then "opt change (#{last_opt || 'none'} → #{opt})"
+           else "#{stale.size}/#{cpp_files.size} stale"
+           end
+  puts "[frozone:compile] compiling #{stale.size} TUs at -#{opt} (-j#{frozone_box_jobs}, #{reason})"
+
+  cxx = frozone_box_cxx
+  jobs = frozone_box_jobs
+  queue = Queue.new
+  stale.each { |f| queue << f }
+  errors = []
+  mutex = Mutex.new
+  t0 = Time.now
+
+  Array.new(jobs) do
+    Thread.new do
+      loop do
+        cpp = queue.pop(true) rescue break
+        cmd = %(#{cxx} -std=c++20 -#{opt} -c "#{cpp}" -I #{ONIGMO_INCLUDE} -o "#{cpp}.o")
+        unless system(cmd)
+          mutex.synchronize { errors << cpp }
+        end
+      end
+    end
+  end.each(&:join)
+
+  elapsed = Time.now - t0
+  if errors.empty?
+    File.write(FROZONE_HEADER_STAMP, current_fp)
+    File.write(FROZONE_OPT_STAMP, opt)
+    puts "[frozone:compile] %d TUs in %.1fs" % [stale.size, elapsed]
+  else
+    abort "[frozone:compile] #{errors.size} TUs failed: #{errors.first(3).join(', ')}#{'…' if errors.size > 3}"
+  end
+end
+
+# Link all .o files into the frozone_box binary.
+def frozone_box_link
+  o_files = Dir["#{FROZONE_BOX_GEN_DIR}/frozone*.cpp.o"].sort
+  abort '[frozone:link] no .o files — run frozone:compile first' if o_files.empty?
+  FileUtils.mkdir_p(File.dirname(FROZONE_BOX_BIN))
+  opt = frozone_box_opt
+  cxx = frozone_box_cxx
+  t0 = Time.now
+  cmd = %(#{cxx} -std=c++20 -#{opt} #{o_files.join(' ')} -I #{ONIGMO_INCLUDE} #{ONIGMO_LIB} -lgc -o #{FROZONE_BOX_BIN})
+  ok = system(cmd)
+  elapsed = Time.now - t0
+  if ok
+    size_mb = File.size(FROZONE_BOX_BIN) / (1024.0 * 1024.0)
+    puts "[frozone:link] %.0fM in %.1fs → %s" % [size_mb, elapsed, FROZONE_BOX_BIN]
+  else
+    abort '[frozone:link] link failed'
+  end
+end
+
+namespace :frozone do
+  desc 'Self-compile frozone.rb to frozone_box (gen + incremental compile + link)'
+  task :build do
+    frozone_box_gen
+    frozone_box_compile
+    frozone_box_link
+  end
+
+  desc 'Force-clean .o + full self-compile rebuild'
+  task :rebuild do
+    FileUtils.rm_f(Dir["#{FROZONE_BOX_GEN_DIR}/frozone*.cpp.o"])
+    FileUtils.rm_f(FROZONE_HEADER_STAMP)
+    FileUtils.rm_f(FROZONE_OPT_STAMP)
+    frozone_box_gen
+    frozone_box_compile(force: true)
+    frozone_box_link
+  end
+
+  desc 'Run gen phase only (regenerate cpp/gen/box/)'
+  task :gen do
+    frozone_box_gen
+  end
+
+  desc 'Compile-only (assumes gen has run)'
+  task :compile do
+    frozone_box_compile
+  end
+
+  desc 'Link-only (assumes .o files present)'
+  task :link do
+    frozone_box_link
+  end
+
+  desc 'Run a script through frozone_box (rake frozone:run[path/to/script.rb])'
+  task :run, [:script] do |_, args|
+    abort 'usage: rake frozone:run[path/to/script.rb]' unless args[:script]
+    abort "frozone_box not built — run `rake frozone:build` first" unless File.executable?(FROZONE_BOX_BIN)
+    exec FROZONE_BOX_BIN, args[:script]
+  end
+
+  desc 'Wipe .o files + binary (keeps .cpp/.hpp gen)'
+  task :clean do
+    FileUtils.rm_f(Dir["#{FROZONE_BOX_GEN_DIR}/frozone*.cpp.o"])
+    FileUtils.rm_f(FROZONE_BOX_BIN)
+    FileUtils.rm_f(FROZONE_HEADER_STAMP)
+    FileUtils.rm_f(FROZONE_OPT_STAMP)
+    puts '[frozone:clean] removed .o files and binary'
+  end
+end
