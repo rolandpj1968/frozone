@@ -1513,6 +1513,25 @@ module Frozone
           # one of these to build the MRI-format message and throw
           # ArgumentError. Cold-path only — the check is the single
           # integer compare emitted at method-body entry.
+          # Shared NotImplementedError thrower for the abort-stub
+          # intrinsics that want a Ruby-catchable exception instead of
+          # std::abort (Integer#to_c, String#to_c, …). KernelFn rather
+          # than inline-in-intrinsics.hpp because NotImplementedError
+          # isn't in POST_HPP_VALUE_TYPES — the class isn't visible
+          # where the intrinsic .hpps are processed. As a KernelFn the
+          # body lives in universe.cpp where all classes are complete.
+          THROW_NOT_IMPLEMENTED_FN = KernelFn.new(
+            name: "throw_not_implemented",
+            signature: "[[noreturn]] void throw_not_implemented(const char* msg)",
+            body: <<~CPP.chomp,
+              throw static_cast<Exception*>(
+                (&NotImplementedError_CLASS)->m_new(new Array({static_cast<BasicObject*>(
+                  new String(msg, std::strlen(msg))
+                )}))
+              );
+            CPP
+          )
+
           # Shared worker for raise_arity_* / raise_missing_kw /
           # raise_unknown_kw / raise_arity — printf-style format into a
           # stack buffer, then throw ArgumentError wrapping the formatted
@@ -2139,6 +2158,7 @@ module Frozone
             SPLAT_TO_ARRAY_FN, RESCUE_SPLAT_MATCHES_FN,
             BUILD_INT_ARRAY_FN, INT_BOX_FN,
             COERCE_TO_INT_FN,
+            THROW_NOT_IMPLEMENTED_FN,
             THROW_ARGUMENT_ERROR_FMT_FN, RAISE_ARITY_FN,
             RAISE_ARITY_FIXED_FN, RAISE_ARITY_RANGE_FN, RAISE_ARITY_MIN_FN,
             RAISE_MISSING_KW_FN, RAISE_UNKNOWN_KW_FN,

@@ -788,7 +788,8 @@ inline BasicObject* intrinsic_string_unicode_normalized_q(BasicObject* /*s*/, Ba
   std::fprintf(stderr, "[box-first] string_unicode_normalized? not yet supported\n"); std::abort();
 }
 inline BasicObject* intrinsic_string_to_c(BasicObject* /*s*/) {
-  std::fprintf(stderr, "[box-first] string_to_c not yet supported\n"); std::abort();
+  // Complex construction not yet wired up — same gap as Integer#to_c.
+  throw_not_implemented("String#to_c not yet supported in box-first (Complex class not wired up)");
 }
 inline BasicObject* intrinsic_string_upto(BasicObject* /*s*/, BasicObject* /*end*/, BasicObject* /*excl*/, BasicObject* /*block*/) {
   std::fprintf(stderr, "[box-first] string_upto not yet supported\n"); std::abort();

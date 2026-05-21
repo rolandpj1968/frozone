@@ -180,13 +180,14 @@ inline BasicObject* intrinsic_integer_to_s(BasicObject* s, BasicObject* base) {
 }
 
 inline BasicObject* intrinsic_integer_to_c(BasicObject* /*s*/) {
-  // Complex requires the Complex class machinery; integer.rb callers
-  // are rare. Loud abort until a real caller arrives.
-  std::fprintf(stderr, "[box-first] integer_to_c not yet supported\n");
-  std::abort();
+  // Complex requires the Complex class machinery; box-first stubs out
+  // the constructor delegation until a real caller arrives. Throws
+  // NotImplementedError so user code can rescue it (was std::abort).
+  throw_not_implemented("Integer#to_c not yet supported in box-first (Complex class not wired up)");
 }
 inline BasicObject* intrinsic_integer_to_r(BasicObject* /*s*/) {
-  std::fprintf(stderr, "[box-first] integer_to_r not yet supported\n");
-  std::abort();
+  // Rational construction same story as Complex — see Time.to_r in
+  // time_intrinsics.hpp for the same gap.
+  throw_not_implemented("Integer#to_r not yet supported in box-first (Rational construction not wired up)");
 }
 #endif  // FROZONE_INTEGER_INTRINSICS_HPP
