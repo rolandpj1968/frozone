@@ -2718,6 +2718,7 @@ module Frozone
             Range Regexp MatchData
             Exception NoMethodError RuntimeError
             Random Time ThrownTag
+            Frozone_Vm_IOObject
           ].freeze
 
           # frozone_post.hpp — receives the post-class content moved

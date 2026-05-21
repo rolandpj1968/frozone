@@ -240,6 +240,7 @@ namespace integer_detail {
 #include "intrinsics/hash_intrinsics.hpp"
 #include "intrinsics/integer_intrinsics.hpp"
 #include "intrinsics/io_intrinsics.hpp"
+#include "intrinsics/posix_io.hpp"
 #include "intrinsics/kernel_intrinsics.hpp"
 #include "intrinsics/object_intrinsics.hpp"
 #include "intrinsics/process_intrinsics.hpp"

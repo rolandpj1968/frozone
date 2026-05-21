@@ -55,6 +55,39 @@ module Frozone
           # → op_plus`. Identifier methods always encode as
           # `m_<name>`; operator methods always as `op_<symbolic>`.
           # Two non-overlapping namespaces.
+          # Vm IO intrinsic bodies in lib/frozone/vm/intrinsics/io_intrinsics.rb
+          # delegate to MRI's IO via `receiver.native_io.X(args)`. In box-
+          # first there's no MRI — @native_io is nil; @native_fd carries
+          # the POSIX fd instead. The compiler rewrites the delegating
+          # call to a small HPP helper that operates on iv_native_fd.
+          # Surface table: Ruby method name → HPP free-function name.
+          # Methods NOT in this table fall through normally (so the
+          # rewriter only kicks in for known POSIX-backed primitives).
+          NATIVE_IO_REWRITES = {
+            read:  "posix_io_read",
+            write: "posix_io_write",
+            close: "posix_io_close",
+            gets:  "posix_io_gets",
+            puts:  "posix_io_puts",
+            eof?:  "posix_io_eof_q",
+            flush: "posix_io_flush",
+            sync:  "posix_io_sync",
+            "sync=": "posix_io_sync_set",
+            fileno: "posix_io_fileno",
+            isatty: "posix_io_isatty",
+            tty?:   "posix_io_isatty",
+            seek:   "posix_io_seek",
+            pos:    "posix_io_pos",
+            "pos=": "posix_io_pos_set",
+            rewind: "posix_io_rewind",
+            closed?: "posix_io_closed_q",
+            getbyte: "posix_io_getbyte",
+            getc:    "posix_io_getc",
+            readbyte: "posix_io_readbyte",
+            readchar: "posix_io_readchar",
+            binmode:  "posix_io_binmode",
+          }.freeze
+
           OP_NAMES = {
             # Arithmetic
             :+   => "op_plus",  :-   => "op_minus",
@@ -439,6 +472,27 @@ module Frozone
               if flat && cpp_leaf_names.include?(flat.to_s)
                 return "boxed_bool(#{from_expr(recv, locals)}->typeid_eq_q<#{flat}>())"
               end
+            end
+
+            # `RECV.native_io.X(args)` → `posix_io_X(RECV, args)` in
+            # box-first. The Vm intrinsic bodies (lib/frozone/vm/intrinsics/
+            # io_intrinsics.rb) delegate to MRI's IO via @native_io; that
+            # @native_io is nil in compiled mode (no MRI). Rewrite the
+            # delegation call to a POSIX helper that reads the IOObject's
+            # @native_fd ivar instead. The surrounding Vm body (arg
+            # coercion, error mapping, etc.) is unchanged.
+            #
+            # Why pattern-rewrite vs HPP_INTRINSICS allowlist: every Vm
+            # io_X would need a full HPP re-impl. Rewriting just the
+            # delegation call lets us reuse the Vm body — one small
+            # posix_io_X HPP per primitive instead of full Vm body re-write.
+            if recv && NATIVE_IO_REWRITES.include?(name) &&
+               recv.is_a?(Ast::MethodCall) && recv.name == :native_io &&
+               (recv.arg_nodes || []).empty? && recv.receiver_node
+              args = arg_nodes.map { |a| from_expr(a, locals) }
+              inner = from_expr(recv.receiver_node, locals)
+              all_args = ([inner] + args).join(", ")
+              return "#{NATIVE_IO_REWRITES[name]}(#{all_args})"
             end
 
             # `.new` has no special case: `Foo.new(args)` dispatches via
