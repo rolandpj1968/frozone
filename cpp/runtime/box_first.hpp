@@ -42,6 +42,7 @@
 #include <unistd.h>
 #include <dirent.h>
 #include <cerrno>
+#include <fcntl.h>
 #include <fstream>
 #include <sstream>
 #include <chrono>

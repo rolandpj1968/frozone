@@ -2719,6 +2719,7 @@ module Frozone
             Exception NoMethodError RuntimeError
             Random Time ThrownTag
             Frozone_Vm_IOObject
+            IO
           ].freeze
 
           # frozone_post.hpp — receives the post-class content moved

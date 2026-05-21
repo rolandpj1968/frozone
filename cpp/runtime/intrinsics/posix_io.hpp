@@ -26,6 +26,133 @@ namespace posix_io_detail {
     if (!iv || iv == nil_instance()) return -1;
     return static_cast<int>(static_cast<Integer*>(iv)->raw_);
   }
+
+  // Parse an MRI-style mode string into POSIX open(2) flags.
+  // Handles the common letters: r/w/a (+ optional '+' for read-write,
+  // 'b' / 't' ignored, ':' / encoding suffix ignored). Returns
+  // O_RDONLY for unknown / empty modes (mirrors MRI default).
+  inline int parse_mode(const char* mode_str, std::size_t n) {
+    if (!mode_str || n == 0) return O_RDONLY;
+    char first = mode_str[0];
+    bool plus = false;
+    for (std::size_t i = 1; i < n && mode_str[i] != ':'; i++) {
+      if (mode_str[i] == '+') { plus = true; break; }
+    }
+    switch (first) {
+      case 'r': return plus ? O_RDWR : O_RDONLY;
+      case 'w': return (plus ? O_RDWR : O_WRONLY) | O_CREAT | O_TRUNC;
+      case 'a': return (plus ? O_RDWR : O_WRONLY) | O_CREAT | O_APPEND;
+      default:  return O_RDONLY;
+    }
+  }
+}
+
+// File.new_from_fd(path_or_fd, mode, opts) — box-first HPP override
+// of the Vm intrinsic. When path_or_fd is an Integer it's a real fd
+// (e.g. from File.for_fd, $stdout backing-fd refresh); when it's a
+// String we treat it as a path and open(2). Wraps the result in a
+// Frozone_Vm_IOObject with iv_native_fd set.
+inline BasicObject* intrinsic_file_new_from_fd(BasicObject* path_or_fd,
+                                               BasicObject* mode, BasicObject* /*opts*/) {
+  int fd;
+  if (auto* i = dynamic_cast<Integer*>(path_or_fd)) {
+    fd = static_cast<int>(i->raw_);
+  } else if (auto* s = dynamic_cast<String*>(path_or_fd)) {
+    int posix_flags = O_RDONLY;
+    if (auto* m = dynamic_cast<String*>(mode)) {
+      posix_flags = posix_io_detail::parse_mode(
+          reinterpret_cast<const char*>(m->bytes.data()), m->bytes.size());
+    }
+    std::string path_str(reinterpret_cast<const char*>(s->bytes.data()), s->bytes.size());
+    fd = ::open(path_str.c_str(), posix_flags, 0666);
+    if (fd < 0) {
+      // TODO: throw Errno::ENOENT/etc — would need Frozone_Vm_FrozoneException
+      // in POST_HPP_VALUE_TYPES or its own KernelFn helper. Abort for now.
+      std::fprintf(stderr, "[box-first] file_new_from_fd: open(\"%s\") failed: %s\n",
+                   path_str.c_str(), std::strerror(errno));
+      std::abort();
+    }
+  } else {
+    std::fprintf(stderr, "[box-first] file_new_from_fd: unsupported arg type\n");
+    std::abort();
+  }
+  auto* io = new Frozone_Vm_IOObject();
+  io->iv_native_fd = new Integer(static_cast<int64_t>(fd));
+  io->iv_native_io = nil_instance();
+  io->iv_class_object = static_cast<BasicObject*>(&IO_CLASS);
+  return io;
+}
+
+// File.open(path, mode, block, perm, flags, opts) — box-first HPP
+// override of the Vm intrinsic. Bypasses the Vm-side `File.open(*args)`
+// which calls MRI (not available in compiled mode). open(2) the path,
+// build a Frozone_Vm_IOObject with iv_native_fd, run the block under
+// an ensure-close guard if given.
+inline BasicObject* intrinsic_file_open(BasicObject* path, BasicObject* mode,
+                                        BasicObject* block, BasicObject* perm,
+                                        BasicObject* /*flags*/,
+                                        BasicObject* /*extra_opts*/ = nil_instance()) {
+  auto* path_s = dynamic_cast<String*>(path);
+  if (!path_s) {
+    std::fprintf(stderr, "[box-first] file_open: non-String path\n");
+    std::abort();
+  }
+  std::string path_str(reinterpret_cast<const char*>(path_s->bytes.data()), path_s->bytes.size());
+
+  int posix_flags = O_RDONLY;
+  if (auto* mode_s = dynamic_cast<String*>(mode)) {
+    posix_flags = posix_io_detail::parse_mode(
+        reinterpret_cast<const char*>(mode_s->bytes.data()), mode_s->bytes.size());
+  } else if (auto* mode_i = dynamic_cast<Integer*>(mode)) {
+    posix_flags = static_cast<int>(mode_i->raw_);
+  }
+
+  mode_t perm_mode = 0666;
+  if (auto* perm_i = dynamic_cast<Integer*>(perm)) {
+    perm_mode = static_cast<mode_t>(perm_i->raw_);
+  }
+
+  int fd = ::open(path_str.c_str(), posix_flags, perm_mode);
+  if (fd < 0) {
+    // TODO: throw Errno::ENOENT/etc — needs Frozone_Vm_FrozoneException
+    // in POST_HPP_VALUE_TYPES or a KernelFn helper. Abort for now.
+    std::fprintf(stderr, "[box-first] file_open: open(\"%s\") failed: %s\n",
+                 path_str.c_str(), std::strerror(errno));
+    std::abort();
+  }
+
+  auto* io = new Frozone_Vm_IOObject();
+  io->iv_native_fd = new Integer(static_cast<int64_t>(fd));
+  io->iv_native_io = nil_instance();
+  io->iv_class_object = static_cast<BasicObject*>(&IO_CLASS);
+  // NOTE: setting iv_class_object is cosmetic — C++ vtable still treats
+  // this as a Frozone_Vm_IOObject. f.gets / f.read / f.write dispatch
+  // via vtable, not class_object — and Vm_IOObject's vtable picks up
+  // Kernel#gets (= ARGF.gets) before IO's instance methods, since
+  // Frozone_Vm_IOObject inherits from Vm_ObjectObject, not from IO.
+  // The proper fix is class-fusion (Vm_IOObject ≡ IO in box-first,
+  // same C++ type) — see follow-up task. For now this works for the
+  // bootstrap streams ($stdout/$stderr/$stdin set up in vm.rb) where
+  // the dispatch reaches the rewriter via existing Vm io_X paths.
+
+  if (block != nil_instance() && block) {
+    BasicObject* result = nil_instance();
+    try {
+      result = static_cast<Proc*>(block)->m_call(new Array({static_cast<BasicObject*>(io)}));
+    } catch (...) {
+      if (posix_io_detail::fd_of(io) >= 0) {
+        ::close(fd);
+        io->iv_native_fd = nil_instance();
+      }
+      throw;
+    }
+    if (posix_io_detail::fd_of(io) >= 0) {
+      ::close(fd);
+      io->iv_native_fd = nil_instance();
+    }
+    return result;
+  }
+  return io;
 }
 
 // All stubbed for now — bodies coming in next iteration. NotImplemented
@@ -95,10 +222,62 @@ inline BasicObject* posix_io_close(BasicObject* io) {
   static_cast<Frozone_Vm_IOObject*>(io)->iv_native_fd = nil_instance();
   return nil_instance();
 }
-inline BasicObject* posix_io_gets(BasicObject* /*io*/, BasicObject* /*sep*/) { posix_io_unimpl_("gets"); }
-inline BasicObject* posix_io_gets(BasicObject* /*io*/, BasicObject* /*sep*/, BasicObject* /*limit*/) { posix_io_unimpl_("gets/3"); }
+// IO#gets — read up to (and including) separator. sep nil means
+// "read to EOF as one chunk". limit nil means "no byte cap". Returns
+// nil at EOF when nothing was read. Byte-by-byte read(2) — slow but
+// correct; can swap to a per-IO buffer later. No userspace buffer
+// means $stdin / piped input is safe (no over-read).
+inline BasicObject* posix_io_gets(BasicObject* io, BasicObject* sep, BasicObject* limit = nil_instance()) {
+  int fd = posix_io_detail::fd_of(io);
+  if (fd < 0) posix_io_unimpl_("gets (no @native_fd)");
+
+  // Resolve separator: nil → read-to-EOF, default \n otherwise.
+  std::string sep_str = "\n";
+  bool sep_is_nil = (sep == nil_instance());
+  if (!sep_is_nil) {
+    if (auto* s = dynamic_cast<String*>(sep)) {
+      sep_str.assign(reinterpret_cast<const char*>(s->bytes.data()), s->bytes.size());
+    }
+  }
+  int64_t lim = -1;
+  if (limit != nil_instance()) {
+    if (auto* i = dynamic_cast<Integer*>(limit)) lim = i->raw_;
+  }
+
+  std::vector<std::uint8_t, GcAllocator<std::uint8_t>> buf;
+  char c;
+  while (true) {
+    if (lim >= 0 && (int64_t)buf.size() >= lim) break;
+    ssize_t n = ::read(fd, &c, 1);
+    if (n < 0) {
+      if (errno == EINTR) continue;
+      break;
+    }
+    if (n == 0) break;
+    buf.push_back(static_cast<std::uint8_t>(c));
+    if (!sep_is_nil && !sep_str.empty() && buf.size() >= sep_str.size() &&
+        std::memcmp(buf.data() + buf.size() - sep_str.size(), sep_str.data(), sep_str.size()) == 0) {
+      break;
+    }
+  }
+  if (buf.empty()) return nil_instance();
+  auto* s = new String();
+  s->bytes = std::move(buf);
+  return s;
+}
 inline BasicObject* posix_io_puts(BasicObject* /*io*/, BasicObject* /*x*/) { posix_io_unimpl_("puts"); }
-inline BasicObject* posix_io_eof_q(BasicObject* /*io*/) { posix_io_unimpl_("eof_q"); }
+// EOF detection for regular files: stat the fd + compare position.
+// For pipes/sockets/ttys (where lseek isn't meaningful), best-effort
+// returns false — caller's read loop catches the actual EOF.
+inline BasicObject* posix_io_eof_q(BasicObject* io) {
+  int fd = posix_io_detail::fd_of(io);
+  if (fd < 0) return true_instance();
+  struct stat st;
+  if (::fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) return false_instance();
+  off_t pos = ::lseek(fd, 0, SEEK_CUR);
+  if (pos < 0) return false_instance();
+  return boxed_bool(pos >= st.st_size);
+}
 inline BasicObject* posix_io_sync(BasicObject* /*io*/) { posix_io_unimpl_("sync"); }
 inline BasicObject* posix_io_sync_set(BasicObject* /*io*/, BasicObject* /*v*/) { posix_io_unimpl_("sync_set"); }
 inline BasicObject* posix_io_fileno(BasicObject* io) {

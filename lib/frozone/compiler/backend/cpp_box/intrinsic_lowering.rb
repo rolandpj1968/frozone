@@ -61,6 +61,7 @@ module Frozone
           HPP_INTRINSICS = Set.new(%i[
             dbg_write
             io_raw_write_stdout io_raw_write_stderr
+            file_open file_new_from_fd
             string_index string_slice string_split string_chars
             string_inspect string_hash string_to_sym string_to_i_base
             string_format string_replace string_initialize string_tr_raw

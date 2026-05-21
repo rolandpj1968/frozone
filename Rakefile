@@ -948,4 +948,47 @@ namespace :frozone do
     FileUtils.rm_f(FROZONE_OPT_STAMP)
     puts '[frozone:clean] removed .o files and binary'
   end
+
+  desc 'Run the box-first IO test suite through frozone_box (proves posix_io rewriter)'
+  task :io_test do
+    abort "frozone_box not built — run `rake frozone:build`" unless File.executable?(FROZONE_BOX_BIN)
+    suite_dir = File.expand_path('spec/box_first_io', __dir__)
+    abort "no IO test suite at #{suite_dir}" unless File.directory?(suite_dir)
+    scripts = Dir["#{suite_dir}/*.rb"].sort
+    pass = 0; fail = 0; failures = []
+    scripts.each do |script|
+      name = File.basename(script, '.rb')
+      expected_path = "#{suite_dir}/#{name}.expected"
+      expected = File.exist?(expected_path) ? File.read(expected_path) : nil
+      stdin_path = "#{suite_dir}/#{name}.stdin"
+      cmd = if File.exist?(stdin_path)
+              "#{FROZONE_BOX_BIN} #{script} < #{stdin_path} 2>&1"
+            else
+              "#{FROZONE_BOX_BIN} #{script} 2>&1"
+            end
+      actual = `#{cmd}`
+      ok = $?.exitstatus == 0
+      if expected && ok
+        if actual == expected
+          puts "  #{name.ljust(30)} PASS"
+          pass += 1
+        else
+          puts "  #{name.ljust(30)} MISMATCH"
+          puts "    expected: #{expected.lines.first(3).map(&:chomp).join(' | ')}"
+          puts "    actual:   #{actual.lines.first(3).map(&:chomp).join(' | ')}"
+          fail += 1; failures << name
+        end
+      elsif ok
+        puts "  #{name.ljust(30)} RAN (no .expected file)"
+        pass += 1
+      else
+        puts "  #{name.ljust(30)} FAIL (exit=#{$?.exitstatus})"
+        puts "    output: #{actual.lines.last(3).map(&:chomp).join(' | ')}" unless actual.empty?
+        fail += 1; failures << name
+      end
+    end
+    puts ""
+    puts "frozone:io_test: #{pass}/#{pass + fail} pass"
+    abort "failures: #{failures.join(', ')}" unless failures.empty?
+  end
 end
