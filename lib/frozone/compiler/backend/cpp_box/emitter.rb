@@ -294,6 +294,14 @@ module Frozone
             "Frozone::Vm::NilObject"   => { flat: :Frozone_Vm_NilObject,   runtime: "NilClass" },
             "Frozone::Vm::FalseObject" => { flat: :Frozone_Vm_FalseObject, runtime: "FalseClass" },
             "Frozone::Vm::TrueObject"  => { flat: :Frozone_Vm_TrueObject,  runtime: "TrueClass" },
+            # IOObject fusion — Vm wrapper merges into user-facing IO.
+            # Goal: f.gets dispatches to IO::m_gets, not Kernel#gets
+            # (= ARGF.gets) that Vm_IOObject's vtable would otherwise
+            # pick up via Object/Kernel inheritance. Same shape as
+            # Nil/True/False — runtime class wins on name conflict.
+            # IO's iv_native_fd / iv_native_io / iv_stream_tag come
+            # from merging Vm::IOObject#initialize's ivar assignments.
+            "Frozone::Vm::IOObject"    => { flat: :Frozone_Vm_IOObject,    runtime: "IO" },
           }.freeze
           FUSED_VM_CLASS_FLAT_KEYS = Set.new(FUSED_VM_CLASSES.values.map { |v| v[:flat] }).freeze
           FUSED_VM_CLASS_FULL_NAMES = Set.new(FUSED_VM_CLASSES.keys).freeze
@@ -347,7 +355,13 @@ module Frozone
               existing_ivar_names = (klass.members || []).filter_map { |line|
                 line[/\biv_([A-Za-z_][A-Za-z_0-9]*)\b/, 1]
               }.to_set | inherited_ivar_names(klass)
-              extra_ivars = collect_ivars(cls)
+              # Fused Vm wrapper's ivars (e.g. @native_fd / @native_io
+              # / @stream_tag on Vm::IOObject) merge into the runtime
+              # struct too — their accessor methods come over via the
+              # chains merge above, and would reference nonexistent
+              # iv_X fields without this collection step.
+              fused_ivars = (fused_cls = fused_vm_for[klass.name]) ? collect_ivars(fused_cls) : []
+              extra_ivars = (collect_ivars(cls) + fused_ivars).uniq
                 .reject { |iv| existing_ivar_names.include?(iv) }
                 .map { |iv| "BasicObject* iv_#{iv} = nil_instance();" }
               own_hand_coded = (klass.hand_coded_method_names || []).to_set
@@ -1546,6 +1560,19 @@ module Frozone
             @strict_emit = prev
           end
 
+          # For user-class fusion: runtime user-class name → resolved
+          # Vm wrapper Vm::ClassObject (or nil). Computed lazily once
+          # @top_level_scope is populated.
+          def fused_vm_for_user_class(name)
+            @fused_vm_user_lookup ||= FUSED_VM_CLASSES.each_with_object({}) do |(full_name, entry), h|
+              path = full_name.split("::")
+              top = @top_level_scope.constants_table || {}
+              vm_cls = lookup_vm_class_by_path(top, path)
+              h[entry[:runtime]] = vm_cls if vm_cls.is_a?(Vm::ClassObject)
+            end
+            @fused_vm_user_lookup[name.to_s]
+          end
+
           def build_user_class_def(name, cls)
             # `Struct.new(:foo, :bar)` subclasses store their accessors
             # as define_method-generated Procs over closure variables —
@@ -1569,6 +1596,35 @@ module Frozone
             # its own (nil) iv_expression. Drop those duplicates.
             parent_ivars = collect_parent_ivars(cls)
             ivars = ivars.reject { |iv| parent_ivars.include?(iv) }
+            # Fused Vm wrapper merge — for user classes like IO that
+            # absorb Vm::IOObject. Pull the wrapper's :self-origin
+            # ivars and methods into the user-class struct so e.g.
+            # f.gets dispatches via IO's vtable AND f.iv_native_fd
+            # is present. Vm wrapper class is skipped entirely (filtered
+            # out in walk_user_classes via FUSED_VM_CLASS_FULL_NAMES).
+            fused_vm_cls = fused_vm_for_user_class(name)
+            method_chains = class_method_chains(cls)
+            if fused_vm_cls
+              fused_ivars = collect_ivars(fused_vm_cls).reject { |iv| parent_ivars.include?(iv) }
+              ivars = (ivars + fused_ivars).uniq
+              # Merge :self-origin methods only — inherited Kernel/Object
+              # methods on the wrapper would shadow the runtime class's
+              # versions. Runtime class wins on conflict EXCEPT for
+              # :initialize — the Vm wrapper's initialize knows the
+              # native_io / native_fd / stream_tag ivar layout and is
+              # the one Vm-level code (IOObject.new(native, klass))
+              # expects to land in. The user class's initialize is
+              # typically abort-stubbed at this layer anyway (e.g.
+              # IO::m_initialize calls io_reinitialize intrinsic
+              # which we don't impl).
+              fused_chains = class_method_chains(fused_vm_cls)
+                .transform_values { |entries| entries.select { |origin, _| origin == :self } }
+                .reject { |_, entries| entries.empty? }
+              wrapper_wins = %i[initialize].to_set
+              method_chains = fused_chains.merge(method_chains) do |k, from_fused, from_user|
+                wrapper_wins.include?(k) ? from_fused : from_user
+              end
+            end
             eigen_ivars = collect_eigenclass_ivars(cls)
             # Pure modules (not classes) flag is_module so their
             # eigenclass inherits from Module (matching MRI's
@@ -1583,7 +1639,7 @@ module Frozone
               # No special ctor — `initialize` becomes a regular
               # `m_initialize` override; eigenclass auto-emits `m_new`
               # that does `new X(); m_initialize(...); return obj;`.
-              overrides: build_chained_overrides(name.to_s, class_method_chains(cls), host_class: cls),
+              overrides: build_chained_overrides(name.to_s, method_chains, host_class: cls),
               eigenclass_overrides: eigenclass_methods(cls).each_with_object({}) { |(mname, m), h|
                 cpp_name = Cpp.method_name(mname)
                 next if ENV['FROZONE_BOX_NO_PRUNE'] == '1' && WIDENING_BLACKLIST.include?(mname)
@@ -2718,8 +2774,8 @@ module Frozone
             Range Regexp MatchData
             Exception NoMethodError RuntimeError
             Random Time ThrownTag
-            Frozone_Vm_IOObject
             IO
+            Frozone_Vm_Intrinsics
           ].freeze
 
           # frozone_post.hpp — receives the post-class content moved

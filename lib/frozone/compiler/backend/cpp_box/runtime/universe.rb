@@ -197,6 +197,12 @@ module Frozone
               "// emitted by class_emitter (write_send_body) once Array is complete.",
               "virtual BasicObject* m_send(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override;",
               "virtual BasicObject* m___send__(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override;",
+              "// Vm-interpreter dispatch shim for fused wrapper classes",
+              "// (post Vm::IOObject ≡ IO fusion). Out-of-line body emitted",
+              "// by class_emitter (write_dispatch_body) once Array is complete.",
+              "// For non-fused classes, Vm::ObjectObject's own m_dispatch",
+              "// still wins via single-inheritance.",
+              "virtual BasicObject* m_dispatch(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override;",
               "virtual BasicObject* mm_kind_of_q(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
               "  return mm_is_a_q(args, kwargs, block);",
               "}",
@@ -206,7 +212,7 @@ module Frozone
             ],
             hand_coded_method_names: %w[
               op_case_eq mm_nil_q m_freeze mm_frozen_q m_object_id
-              m_class mm_respond_to_q m_send m___send__
+              m_class mm_respond_to_q m_send m___send__ m_dispatch
               mm_is_a_q mm_kind_of_q mm_instance_of_q
             ].freeze,
           )

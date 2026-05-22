@@ -18,11 +18,11 @@
 
 namespace posix_io_detail {
   // Extract the IOObject's iv_native_fd as an int. Caller must ensure
-  // `io` is a Frozone_Vm_IOObject. Returns -1 if @native_fd is nil
+  // `io` is a IO. Returns -1 if @native_fd is nil
   // (which signals the caller they're operating on a stream without
   // POSIX backing — e.g. an IOObject from a non-box-first path).
   inline int fd_of(BasicObject* io) {
-    auto* iv = static_cast<Frozone_Vm_IOObject*>(io)->iv_native_fd;
+    auto* iv = static_cast<IO*>(io)->iv_native_fd;
     if (!iv || iv == nil_instance()) return -1;
     return static_cast<int>(static_cast<Integer*>(iv)->raw_);
   }
@@ -51,10 +51,21 @@ namespace posix_io_detail {
 // of the Vm intrinsic. When path_or_fd is an Integer it's a real fd
 // (e.g. from File.for_fd, $stdout backing-fd refresh); when it's a
 // String we treat it as a path and open(2). Wraps the result in a
-// Frozone_Vm_IOObject with iv_native_fd set.
+// IO with iv_native_fd set.
 inline BasicObject* intrinsic_file_new_from_fd(BasicObject* path_or_fd,
                                                BasicObject* mode, BasicObject* /*opts*/) {
   int fd;
+  if (path_or_fd == nil_instance() || !path_or_fd) {
+    // vm.rb bootstrap path: IOObject.new($stdout, …) where $stdout
+    // is nil in box-first compiled mode (no MRI IO exists). Construct
+    // an empty IOObject; the bootstrap follows up with .native_fd = N
+    // to set the fd explicitly.
+    auto* io = new IO();
+    io->iv_native_fd = nil_instance();
+    io->iv_native_io = nil_instance();
+    io->iv_class_object = static_cast<BasicObject*>(&IO_CLASS);
+    return io;
+  }
   if (auto* i = dynamic_cast<Integer*>(path_or_fd)) {
     fd = static_cast<int>(i->raw_);
   } else if (auto* s = dynamic_cast<String*>(path_or_fd)) {
@@ -76,17 +87,27 @@ inline BasicObject* intrinsic_file_new_from_fd(BasicObject* path_or_fd,
     std::fprintf(stderr, "[box-first] file_new_from_fd: unsupported arg type\n");
     std::abort();
   }
-  auto* io = new Frozone_Vm_IOObject();
+  auto* io = new IO();
   io->iv_native_fd = new Integer(static_cast<int64_t>(fd));
   io->iv_native_io = nil_instance();
   io->iv_class_object = static_cast<BasicObject*>(&IO_CLASS);
   return io;
 }
 
+// IO.new(fd, mode, opts) — box-first HPP override. Vm's io_new_from_fd
+// is MRI-backed (::IO.for_fd / ::IO.new); in box-first we just take a
+// raw fd Integer and wrap. Currently the Vm path expects an actual fd
+// (not a path); we error on String path here since IO.new(path) is
+// non-canonical Ruby anyway.
+inline BasicObject* intrinsic_io_new_from_fd(BasicObject* fd_obj, BasicObject* mode,
+                                             BasicObject* opts) {
+  return intrinsic_file_new_from_fd(fd_obj, mode, opts);
+}
+
 // File.open(path, mode, block, perm, flags, opts) — box-first HPP
 // override of the Vm intrinsic. Bypasses the Vm-side `File.open(*args)`
 // which calls MRI (not available in compiled mode). open(2) the path,
-// build a Frozone_Vm_IOObject with iv_native_fd, run the block under
+// build a IO with iv_native_fd, run the block under
 // an ensure-close guard if given.
 inline BasicObject* intrinsic_file_open(BasicObject* path, BasicObject* mode,
                                         BasicObject* block, BasicObject* perm,
@@ -121,19 +142,10 @@ inline BasicObject* intrinsic_file_open(BasicObject* path, BasicObject* mode,
     std::abort();
   }
 
-  auto* io = new Frozone_Vm_IOObject();
+  auto* io = new IO();
   io->iv_native_fd = new Integer(static_cast<int64_t>(fd));
   io->iv_native_io = nil_instance();
   io->iv_class_object = static_cast<BasicObject*>(&IO_CLASS);
-  // NOTE: setting iv_class_object is cosmetic — C++ vtable still treats
-  // this as a Frozone_Vm_IOObject. f.gets / f.read / f.write dispatch
-  // via vtable, not class_object — and Vm_IOObject's vtable picks up
-  // Kernel#gets (= ARGF.gets) before IO's instance methods, since
-  // Frozone_Vm_IOObject inherits from Vm_ObjectObject, not from IO.
-  // The proper fix is class-fusion (Vm_IOObject ≡ IO in box-first,
-  // same C++ type) — see follow-up task. For now this works for the
-  // bootstrap streams ($stdout/$stderr/$stdin set up in vm.rb) where
-  // the dispatch reaches the rewriter via existing Vm io_X paths.
 
   if (block != nil_instance() && block) {
     BasicObject* result = nil_instance();
@@ -219,7 +231,7 @@ inline BasicObject* posix_io_close(BasicObject* io) {
   int fd = posix_io_detail::fd_of(io);
   if (fd >= 0) ::close(fd);
   // Clear the fd to mark closed.
-  static_cast<Frozone_Vm_IOObject*>(io)->iv_native_fd = nil_instance();
+  static_cast<IO*>(io)->iv_native_fd = nil_instance();
   return nil_instance();
 }
 // IO#gets — read up to (and including) separator. sep nil means

@@ -38,6 +38,20 @@ module Frozone
           #
           # Raises Cpp::EmissionError if no template matches or if
           # the template's lambda rejects the arg arity.
+          # Intrinsics whose compiled body lives on the Frozone::Vm::
+          # Intrinsics eigenclass — for these, the lower fallback
+          # emits a vtable dispatch to that singleton instead of
+          # aborting. Used post-IO-fusion so IO::m_write etc. (which
+          # were abort-stubbed pre-fusion because they were never
+          # reachable on Vm_IOObject — Vm dispatch routed elsewhere)
+          # can now run their Vm bodies. The Vm bodies use the
+          # native_io.X rewriter for the actual POSIX call.
+          VM_DISPATCH_INTRINSICS = Set.new(%i[
+            io_write io_read io_fileno io_close io_isatty io_gets
+            io_eof io_flush io_sync io_pos io_seek io_rewind
+            io_print io_inspect io_readable
+          ]).freeze
+
           def lower(name, *arg_strs)
             template = TEMPLATES[name]
             return template.call(*arg_strs) if template
@@ -46,7 +60,16 @@ module Frozone
             # uses the canonical `intrinsic_foo_q` name.
             cpp_name = name.to_s.end_with?('?') ? "#{name.to_s.chomp('?')}_q" : name.to_s
             return "intrinsic_#{cpp_name}(#{arg_strs.join(', ')})" if HPP_INTRINSICS.include?(cpp_name.to_sym)
-            raise Cpp::EmissionError, "intrinsic :#{name} not yet supported"
+            if VM_DISPATCH_INTRINSICS.include?(name)
+              m_cpp = Cpp.method_name(name)
+              # Vm intrinsic methods take (context, *real_args) — context
+              # is the interpreter Vm::Context (nil in compiled mode).
+              # Prepend nil so the receiver-side signature matches.
+              prefixed_args = (["nil_instance()"] + arg_strs).join(", ")
+              "(&Frozone_Vm_Intrinsics_CLASS)->#{m_cpp}((new Array({#{prefixed_args}})), (&EMPTY_KWARGS), nil_instance())"
+            else
+              raise Cpp::EmissionError, "intrinsic :#{name} not yet supported"
+            end
           rescue ArgumentError => e
             raise Cpp::EmissionError, "intrinsic :#{name}: #{e.message}"
           end
@@ -61,7 +84,7 @@ module Frozone
           HPP_INTRINSICS = Set.new(%i[
             dbg_write
             io_raw_write_stdout io_raw_write_stderr
-            file_open file_new_from_fd
+            file_open file_new_from_fd io_new_from_fd
             string_index string_slice string_split string_chars
             string_inspect string_hash string_to_sym string_to_i_base
             string_format string_replace string_initialize string_tr_raw

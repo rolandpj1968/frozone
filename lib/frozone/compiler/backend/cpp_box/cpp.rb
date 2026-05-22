@@ -1057,7 +1057,15 @@ module Frozone
             raise EmissionError, "super used outside a method body" unless ctx
             chain = ctx[:chain]
             next_idx = ctx[:origin_index] + 1
-            raise EmissionError, "super: no superclass method '#{ctx[:method_name]}' for #{ctx[:host_name]}" if next_idx >= chain.size
+            if next_idx >= chain.size
+              # initialize is the canonical "super lands on a no-op
+              # ancestor" case — Object/BasicObject's initialize do
+              # nothing useful in MRI. Treat as nil expression rather
+              # than abort. Other methods stay an error (load-bearing
+              # super call masks a real bug if we silently drop it).
+              return "nil_instance()" if ctx[:method_name] == :initialize
+              raise EmissionError, "super: no superclass method '#{ctx[:method_name]}' for #{ctx[:host_name]}"
+            end
             next_origin, _ = chain[next_idx]
             # Pick the qualifying class for the C++ call:
             #  - Module origin: slot lives on the host as sm_X__from_<Origin>.

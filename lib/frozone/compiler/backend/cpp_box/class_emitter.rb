@@ -241,6 +241,7 @@ module Frozone
               write_natural_arity_default_bodies(emit, call_surface, classes.find { |k| k.name == "BasicObject" })
               write_trampoline_defs(emit, method_ids)
               write_send_body(emit, method_ids)
+              write_dispatch_body(emit)
               write_is_a_lut(emit, class_ids, is_a_lut)
               write_method_missing_default(emit)
               write_constant_typeerror_body(emit)
@@ -1064,6 +1065,30 @@ module Frozone
           # through the method-vtable indexed by Symbol::method_id_.
           # Negative id (interned name not in call surface) →
           # method_missing.
+          # Object::m_dispatch shim for Vm-interpreter dispatch-style
+          # calls (`obj.dispatch(ctx, :name, args, kwargs, block)`) that
+          # land on fused user classes (post Vm::IOObject ≡ IO fusion).
+          # The Vm wrapper's m_dispatch (on Frozone_Vm_ObjectObject)
+          # still wins via single-inheritance for non-fused classes —
+          # only IO and friends inherit this Object-level version.
+          # Unpacks dispatch's positional args [ctx, name_sym, call_args,
+          # call_kwargs, block?] and delegates to m_send.
+          def self.write_dispatch_body(emit)
+            emit.line "BasicObject* Object::m_dispatch(Array* args, Hash* kwargs, BasicObject* block) {"
+            emit.indented do
+              emit.line "if (args->data.size() < 4) return mm_dispatch(this, args, kwargs, block, \"dispatch\");"
+              emit.line "Array* send_args = new Array();"
+              emit.line "send_args->data.push_back(args->data[1]);"
+              emit.line "Array* call_args = static_cast<Array*>(args->data[2]);"
+              emit.line "for (auto* a : call_args->data) send_args->data.push_back(a);"
+              emit.line "Hash* call_kwargs = static_cast<Hash*>(args->data[3]);"
+              emit.line "BasicObject* call_block = args->data.size() > 4 ? args->data[4] : nil_instance();"
+              emit.line "return this->m_send(send_args, call_kwargs, call_block);"
+            end
+            emit.line "}"
+            emit.blank
+          end
+
           def self.write_send_body(emit, _method_ids)
             ["m_send", "m___send__"].each do |fn|
               emit.line "BasicObject* Object::#{fn}(Array* args, Hash* kwargs, BasicObject* block) {"

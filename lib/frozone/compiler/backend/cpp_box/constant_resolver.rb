@@ -222,6 +222,12 @@ module Frozone
             Frozone_Vm_NilObject:   "NilClass",
             Frozone_Vm_FalseObject: "FalseClass",
             Frozone_Vm_TrueObject:  "TrueClass",
+            # User-class fusion — Vm wrapper merges into user-facing
+            # class for C++ dispatch (see emitter.rb FUSED_VM_CLASSES).
+            # Constant references like `IOObject.new(...)` in Vm code
+            # become `(&IO_CLASS)->m_new(...)` so dispatch lands on
+            # the merged IO struct (with Vm's initialize and ivars).
+            Frozone_Vm_IOObject:    "IO",
           }.freeze
           FUSED_CONSTANT_TARGETS = {
             Frozone_Vm_NilObject_NIL:    "nil_instance()",
