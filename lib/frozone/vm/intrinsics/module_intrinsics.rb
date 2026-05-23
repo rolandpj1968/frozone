@@ -2083,12 +2083,15 @@ module Frozone
         def n2f_arr(elements, class_obj = nil) = ArrayObject.new(elements, class_obj)
         def n2f_hash(elements = {}, default_value: nil, default_block: nil) = HashObject.new(elements, default_value: default_value, default_block: default_block)
         # Type predicates: check Frozone object type
+        # Post-cascade-fusion: also accept runtime classes for the fused
+        # types (Array, IO etc). Vm wrapper-only predicates that haven't
+        # been fused stay narrow.
         def fnil?(obj)   = obj.equal?(FNIL)
         def fint?(obj)   = obj.is_a?(IntegerObject)
         def ffloat?(obj) = obj.is_a?(FloatObject)
-        def fstr?(obj)   = obj.is_a?(StringObject)
+        def fstr?(obj)   = obj.is_a?(StringObject) || obj.is_a?(::String)
         def fsym?(obj)   = obj.is_a?(SymbolObject)
-        def farray?(obj) = obj.is_a?(ArrayObject)
+        def farray?(obj) = obj.is_a?(ArrayObject) || obj.is_a?(::Array)
         def fhash?(obj)  = obj.is_a?(HashObject)
         def ftrue?(obj)  = obj.is_a?(TrueObject)
         def ffalse?(obj)  = obj.is_a?(FalseObject)
