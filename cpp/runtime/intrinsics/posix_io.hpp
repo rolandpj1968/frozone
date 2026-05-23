@@ -53,17 +53,24 @@ namespace posix_io_detail {
 // String we treat it as a path and open(2). Wraps the result in a
 // IO with iv_native_fd set.
 inline BasicObject* intrinsic_file_new_from_fd(BasicObject* path_or_fd,
-                                               BasicObject* mode, BasicObject* /*opts*/) {
+                                               BasicObject* mode, BasicObject* opts) {
   int fd;
   if (path_or_fd == nil_instance() || !path_or_fd) {
     // vm.rb bootstrap path: IOObject.new($stdout, …) where $stdout
     // is nil in box-first compiled mode (no MRI IO exists). Construct
     // an empty IOObject; the bootstrap follows up with .native_fd = N
-    // to set the fd explicitly.
+    // to set the fd explicitly. Preserve stream_tag from opts hash if
+    // present (vm.rb passes stream_tag: :stdout/:stderr/:stdin).
     auto* io = new IO();
     io->iv_native_fd = nil_instance();
     io->iv_native_io = nil_instance();
     io->iv_class_object = static_cast<BasicObject*>(&IO_CLASS);
+    if (auto* opts_h = dynamic_cast<Hash*>(opts)) {
+      auto it = opts_h->data.find(intern("stream_tag"));
+      if (it != opts_h->data.end()) {
+        io->iv_stream_tag = it->second;
+      }
+    }
     return io;
   }
   if (auto* i = dynamic_cast<Integer*>(path_or_fd)) {

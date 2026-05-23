@@ -35,8 +35,14 @@ module Frozone
       def to_s = "intrinsic[#{@name}](#{@param_nodes.map(&:to_s).join(', ')})"
 
       def evaluate(context)
+        # Non-splat params return ONE arg each — wrap in a single-element
+        # Array so flat_map doesn't accidentally flatten when the param's
+        # evaluated value IS an Array (post Vm::ArrayObject ≡ Array
+        # fusion: passing an Array argument was a Vm::ArrayObject
+        # pre-fusion, so flat_map left it intact; post-fusion it's a
+        # runtime Array, flat_map flattens, downstream arity breaks).
         args = @param_nodes.flat_map do |p|
-          p.is_a?(SplatArg) ? p.evaluate(context).raw : p.evaluate(context)
+          p.is_a?(SplatArg) ? p.evaluate(context).raw : [p.evaluate(context)]
         end
         Vm::Intrinsics.send(@name, context, *args)
       end

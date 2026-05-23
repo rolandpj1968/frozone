@@ -819,6 +819,15 @@ module Frozone
               "m_bytesize" => { params: [], body: "return new Integer(static_cast<std::int64_t>(bytes.size()));" },
               "mm_empty_q"  => { params: [], body: "return boxed_bool(bytes.empty());" },
               "m_to_s"     => { params: [], body: "return this;" },
+              # Post Vm::StringObject ≡ String fusion shim: Vm intrinsic
+              # bodies call s.raw to get the underlying Ruby String. After
+              # fusion (or before, via the IOObject fusion's transitive
+              # surface), the runtime String IS the underlying data —
+              # return self. (Future StringObject fusion would let this
+              # be discovered automatically; for now it's a hand-coded
+              # shim so we can unblock io_write reaching s_obj.raw on
+              # post-fusion path.)
+              "m_raw" => { params: [], body: "return this;" },
               "op_eq_q"     => {
                 params: ["BasicObject* other"],
                 body: "auto* o = dynamic_cast<String*>(other); return boxed_bool(o && bytes == o->bytes);",

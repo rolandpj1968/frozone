@@ -725,12 +725,23 @@ module Frozone
             # on the runtime String). puts/p ignore the return — best
             # effort 0. Real IO#write callers go through a real native.
             tag = receiver.stream_tag
+            fd = receiver.native_fd
             args.raw.each do |arg|
               s_obj = arg.dispatch(context, :to_s, [], {})
               case tag
               when :stdout then Intrinsics.io_raw_write_stdout(self, s_obj.raw)
               when :stderr then Intrinsics.io_raw_write_stderr(self, s_obj.raw)
-              else raise FrozoneException.make(:IOError, 'closed stream')
+              else
+                # Post Vm::IOObject ≡ IO fusion fallback — fd path when
+                # the user-facing IO.new flow didn't set stream_tag.
+                # Maps fd 1/2 to the bootstrap raw_write paths.
+                if fd && fd.is_a?(Integer) && (fd == 1 || fd == 2)
+                  if fd == 1 then Intrinsics.io_raw_write_stdout(self, s_obj.raw)
+                  else Intrinsics.io_raw_write_stderr(self, s_obj.raw)
+                  end
+                else
+                  raise FrozoneException.make(:IOError, 'closed stream')
+                end
               end
             end
             receiver.buffered_write = true
