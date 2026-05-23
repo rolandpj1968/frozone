@@ -2085,7 +2085,14 @@ module Frozone
         # is_a? check is false and we wrap as before.
         def n2f_time(t) = t.is_a?(TimeObject) ? t : TimeObject.new(t)
         def n2f_arr(elements, class_obj = nil) = ArrayObject.new(elements, class_obj)
-        def n2f_hash(elements = {}, default_value: nil, default_block: nil) = HashObject.new(elements, default_value: default_value, default_block: default_block)
+        # Post Vm::HashObject ≡ Hash fusion: if elements is already a
+        # Hash (runtime), it's the fused wrapper — return it. Avoids
+        # going through user-facing Hash.new which rejects the Vm
+        # kwargs (default_value:/default_block:).
+        def n2f_hash(elements = {}, default_value: nil, default_block: nil)
+          return elements if elements.is_a?(HashObject)
+          HashObject.new(elements, default_value: default_value, default_block: default_block)
+        end
         # Type predicates: check Frozone object type
         # Post-cascade-fusion: also accept runtime classes for the fused
         # types (Array, IO etc). Vm wrapper-only predicates that haven't
