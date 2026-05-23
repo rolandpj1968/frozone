@@ -135,6 +135,7 @@ module Frozone
             eval_snippet(scripts.join("\n"))
           end
         rescue FrozoneException => e
+          Intrinsics.dbg_write(self, "[vm.rb debug] caught: " + (e.vm_object&.class_object&.name.to_s rescue "?") + " msg=" + (e.message.to_s rescue "?"))
           vm_obj = e.vm_object
           if vm_obj.is_a?(ObjectObject)
             cls = vm_obj.class_object
