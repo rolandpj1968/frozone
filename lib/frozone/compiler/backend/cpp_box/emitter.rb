@@ -302,7 +302,23 @@ module Frozone
             # IO's iv_native_fd / iv_native_io / iv_stream_tag come
             # from merging Vm::IOObject#initialize's ivar assignments.
             "Frozone::Vm::IOObject"    => { flat: :Frozone_Vm_IOObject,    runtime: "IO" },
+            # Cascade fusion follows the IO template. Vm wrapper merges
+            # into runtime class; .raw shim returns self post-fusion
+            # (the runtime data IS what was wrapped).
+            "Frozone::Vm::ArrayObject" => { flat: :Frozone_Vm_ArrayObject, runtime: "Array" },
           }.freeze
+          # Per-runtime-class method names that the fused Vm wrapper
+          # owns even when the runtime class also defines them. Default
+          # is "runtime wins". IO's initialize is in here because the
+          # runtime IO::m_initialize is itself abort-stubbed (calls the
+          # unimpl io_reinitialize intrinsic) — the Vm wrapper's body
+          # is the one that actually populates the iv_native_fd etc.
+          # Array's runtime initialize is correct (handles Array.new(n,
+          # fill) etc.) so its key is absent — runtime wins.
+          FUSION_WRAPPER_WINS = {
+            "IO" => Set.new(%i[initialize]),
+          }.freeze
+
           FUSED_VM_CLASS_FLAT_KEYS = Set.new(FUSED_VM_CLASSES.values.map { |v| v[:flat] }).freeze
           FUSED_VM_CLASS_FULL_NAMES = Set.new(FUSED_VM_CLASSES.keys).freeze
           # Reverse map for ref resolution: fused flat name → runtime
@@ -1610,17 +1626,14 @@ module Frozone
               # Merge :self-origin methods only — inherited Kernel/Object
               # methods on the wrapper would shadow the runtime class's
               # versions. Runtime class wins on conflict EXCEPT for
-              # :initialize — the Vm wrapper's initialize knows the
-              # native_io / native_fd / stream_tag ivar layout and is
-              # the one Vm-level code (IOObject.new(native, klass))
-              # expects to land in. The user class's initialize is
-              # typically abort-stubbed at this layer anyway (e.g.
-              # IO::m_initialize calls io_reinitialize intrinsic
-              # which we don't impl).
+              # methods listed per-class in FUSION_WRAPPER_WINS — those
+              # are owned by the Vm wrapper (e.g. IO's initialize needs
+              # the Vm version because the runtime one is abort-stubbed
+              # via io_reinitialize unimpl).
               fused_chains = class_method_chains(fused_vm_cls)
                 .transform_values { |entries| entries.select { |origin, _| origin == :self } }
                 .reject { |_, entries| entries.empty? }
-              wrapper_wins = %i[initialize].to_set
+              wrapper_wins = FUSION_WRAPPER_WINS[name.to_s] || Set.new
               method_chains = fused_chains.merge(method_chains) do |k, from_fused, from_user|
                 wrapper_wins.include?(k) ? from_fused : from_user
               end

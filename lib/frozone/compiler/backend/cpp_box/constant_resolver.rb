@@ -228,6 +228,7 @@ module Frozone
             # become `(&IO_CLASS)->m_new(...)` so dispatch lands on
             # the merged IO struct (with Vm's initialize and ivars).
             Frozone_Vm_IOObject:    "IO",
+            Frozone_Vm_ArrayObject: "Array",
           }.freeze
           FUSED_CONSTANT_TARGETS = {
             Frozone_Vm_NilObject_NIL:    "nil_instance()",

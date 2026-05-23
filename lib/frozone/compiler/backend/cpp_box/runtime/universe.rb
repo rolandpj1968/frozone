@@ -530,6 +530,17 @@ module Frozone
               %(const char* ruby_class_name() const override { return "Array"; }),
             ],
             overrides: {
+              # Post-IO-fusion compatibility shim: Vm intrinsic bodies do
+              # `args.raw.each` etc., where args was a Vm::ArrayObject
+              # wrapping a Ruby Array. Post-Vm::ArrayObject ≡ Array
+              # fusion, .raw returns self — the runtime Array is itself
+              # the underlying data. Vm::ArrayObject#raw (def raw =
+              # @elements) would shadow this if we didn't list it in
+              # FUSION_WRAPPER_WINS to keep runtime's version.
+              "m_raw" => {
+                params: [],
+                body: "return this;",
+              },
               "m_size" => {
                 params: [],
                 body: "return new Integer(static_cast<int64_t>(data.size()));",
