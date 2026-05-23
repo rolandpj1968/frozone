@@ -16,6 +16,14 @@ module Frozone
       end
 
       def to_s = @raw.to_s
+      # Post Vm::IOObject fusion: Vm-interpreter-evaluated arithmetic
+      # results (e.g. block bodies like `{ |x| x * 10 }`) flow back
+      # through compiled runtime Array#inspect → element.inspect.
+      # Without this shim, the default `#<Frozone_Vm_IntegerObject>`
+      # falls out. Forward to to_s for the Integer format. Future
+      # Vm::IntegerObject ≡ Integer fusion would replace this with
+      # direct runtime Integer dispatch.
+      def inspect = @raw.to_s
       def inspect_for_error = @raw.inspect
 
       # Marshal support: serialize just the raw integer and restore with the
