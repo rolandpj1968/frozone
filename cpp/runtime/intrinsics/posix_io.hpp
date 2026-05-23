@@ -55,6 +55,14 @@ namespace posix_io_detail {
 inline BasicObject* intrinsic_file_new_from_fd(BasicObject* path_or_fd,
                                                BasicObject* mode, BasicObject* opts) {
   int fd;
+  // Post Vm::IOObject ≡ IO fusion: Vm intrinsic file_open's body does
+  //   f = File.open(*open_args, **open_kwargs)  ← my HPP returns IO*
+  //   io_obj = IOObject.new(f, file_klass)      ← IO.new(IO, ...) — double-wrap
+  // The wrapping path comes through io_new_from_fd → here with path_or_fd
+  // already an IO. Just return it — no need to re-wrap.
+  if (auto* existing_io = dynamic_cast<IO*>(path_or_fd)) {
+    return existing_io;
+  }
   if (path_or_fd == nil_instance() || !path_or_fd) {
     // vm.rb bootstrap path: IOObject.new($stdout, …) where $stdout
     // is nil in box-first compiled mode (no MRI IO exists). Construct
@@ -91,7 +99,8 @@ inline BasicObject* intrinsic_file_new_from_fd(BasicObject* path_or_fd,
       std::abort();
     }
   } else {
-    std::fprintf(stderr, "[box-first] file_new_from_fd: unsupported arg type\n");
+    std::fprintf(stderr, "[box-first] file_new_from_fd: unsupported arg type — got %s\n",
+                 path_or_fd ? path_or_fd->ruby_class_name() : "(null)");
     std::abort();
   }
   auto* io = new IO();
@@ -249,7 +258,6 @@ inline BasicObject* posix_io_close(BasicObject* io) {
 inline BasicObject* posix_io_gets(BasicObject* io, BasicObject* sep, BasicObject* limit = nil_instance()) {
   int fd = posix_io_detail::fd_of(io);
   if (fd < 0) posix_io_unimpl_("gets (no @native_fd)");
-
   // Resolve separator: nil → read-to-EOF, default \n otherwise.
   std::string sep_str = "\n";
   bool sep_is_nil = (sep == nil_instance());

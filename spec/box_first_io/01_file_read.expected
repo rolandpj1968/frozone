@@ -1,0 +1,2 @@
+bytes:246
+first:# Simplest: File.read of a known-fixed file via intrinsic_file_read.

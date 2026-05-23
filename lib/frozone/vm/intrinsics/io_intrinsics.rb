@@ -720,10 +720,6 @@ module Frozone
           # @stream_tag (:stdout/:stderr) lets us route through the raw
           # HPP intrinsic instead of dispatching on nil.
           if native.nil? && receiver.is_a?(IOObject)
-            # Box-first bootstrap path: byte-counting hits a Vm/runtime
-            # layer mismatch (s_obj is Vm::StringObject; bytesize lives
-            # on the runtime String). puts/p ignore the return — best
-            # effort 0. Real IO#write callers go through a real native.
             tag = receiver.stream_tag
             fd = receiver.native_fd
             args.raw.each do |arg|
@@ -734,10 +730,13 @@ module Frozone
               else
                 # Post Vm::IOObject ≡ IO fusion fallback — fd path when
                 # the user-facing IO.new flow didn't set stream_tag.
-                # Maps fd 1/2 to the bootstrap raw_write paths.
-                if fd && fd.is_a?(Integer) && (fd == 1 || fd == 2)
-                  if fd == 1 then Intrinsics.io_raw_write_stdout(self, s_obj.raw)
-                  else Intrinsics.io_raw_write_stderr(self, s_obj.raw)
+                # For fd 1/2 routes through the existing raw stdout/stderr
+                # paths; for any other fd uses generic io_raw_write_fd.
+                if fd && fd.is_a?(Integer)
+                  case fd
+                  when 1 then Intrinsics.io_raw_write_stdout(self, s_obj.raw)
+                  when 2 then Intrinsics.io_raw_write_stderr(self, s_obj.raw)
+                  else Intrinsics.io_raw_write_fd(self, fd, s_obj.raw)
                   end
                 else
                   raise FrozoneException.make(:IOError, 'closed stream')

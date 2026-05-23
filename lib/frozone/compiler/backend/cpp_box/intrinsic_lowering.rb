@@ -50,6 +50,7 @@ module Frozone
             io_write io_read io_fileno io_close io_isatty io_gets
             io_eof io_flush io_sync io_pos io_seek io_rewind
             io_print io_inspect io_readable
+            file_delete_strict
           ]).freeze
 
           def lower(name, *arg_strs)
@@ -62,10 +63,13 @@ module Frozone
             return "intrinsic_#{cpp_name}(#{arg_strs.join(', ')})" if HPP_INTRINSICS.include?(cpp_name.to_sym)
             if VM_DISPATCH_INTRINSICS.include?(name)
               m_cpp = Cpp.method_name(name)
-              # Vm intrinsic methods take (context, *real_args) — context
-              # is the interpreter Vm::Context (nil in compiled mode).
-              # Prepend nil so the receiver-side signature matches.
-              prefixed_args = (["nil_instance()"] + arg_strs).join(", ")
+              # Vm intrinsic methods take (context, *real_args). The
+              # interpreter Vm::Context lives in Fiber[:context] (set
+              # by vm.rb's main loop). Vm bodies do `context.frame`
+              # without safe-nav so passing nil here causes downstream
+              # NoMethodError. Use the global Fiber-storage instead.
+              ctx_expr = "intrinsic_fiber_storage_get(nil_instance(), intern(\"context\"))"
+              prefixed_args = ([ctx_expr] + arg_strs).join(", ")
               "(&Frozone_Vm_Intrinsics_CLASS)->#{m_cpp}((new Array({#{prefixed_args}})), (&EMPTY_KWARGS), nil_instance())"
             else
               raise Cpp::EmissionError, "intrinsic :#{name} not yet supported"
@@ -83,7 +87,7 @@ module Frozone
           # intrinsics that reference _block, helper-renames.)
           HPP_INTRINSICS = Set.new(%i[
             dbg_write
-            io_raw_write_stdout io_raw_write_stderr
+            io_raw_write_stdout io_raw_write_stderr io_raw_write_fd
             file_open file_new_from_fd io_new_from_fd
             string_index string_slice string_split string_chars
             string_inspect string_hash string_to_sym string_to_i_base

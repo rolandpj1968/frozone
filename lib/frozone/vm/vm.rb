@@ -322,6 +322,11 @@ module Frozone
         GLOBALS[:"$LOADED_FEATURES"] = ArrayObject.new([StringObject.new(pp_path), StringObject.new(stringio_path)])
         GLOBALS[:"$\""] = GLOBALS[:"$LOADED_FEATURES"]  # $" is alias for $LOADED_FEATURES
         GLOBALS[:"$/"] = StringObject.new("\n")
+        # Post Vm::IOObject ≡ IO fusion: compiled io.rb's `$/` access
+        # goes through runtime g_global_or_nil which reads a DIFFERENT
+        # store than the Vm GLOBALS Hash. Mirror $/ into the runtime
+        # globals so f.gets's default separator works.
+        $/ = "\n"
         GLOBALS[:"$\\"] = NilObject::NIL
         GLOBALS[:"$,"] = NilObject::NIL
         GLOBALS[:"$;"] = NilObject::NIL
