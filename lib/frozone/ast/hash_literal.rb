@@ -59,7 +59,14 @@ module Frozone
             result[key_val] = v.evaluate(context)
           end
         end
-        Vm::HashObject.new(result)
+        # Post Vm::HashObject ≡ Hash fusion: HashObject.new(elements)
+        # would dispatch to runtime Hash.new which doesn't accept
+        # a Hash argument (MRI Hash.new(default) treats arg as default
+        # value, not initial entries). Build a fresh Hash and populate
+        # via assignment — the only portable construction shape.
+        h = Vm::HashObject.new
+        result.each { |k, v| h[k] = v }
+        h
       end
 
       private
