@@ -7,6 +7,19 @@
 
 // ---- Hash ----------------------------------------------------------
 
+// Hash.new(default, &block) — post Vm::HashObject ≡ Hash fusion. The
+// Vm hash_new body uses HashObject.new internally which would recurse
+// after fusion. Direct allocation + default-value/proc setup.
+inline BasicObject* intrinsic_hash_new(BasicObject* default_val, BasicObject* block) {
+  auto* h = new Hash();
+  if (block && block != nil_instance()) {
+    h->default_proc_ = block;
+  } else if (default_val && default_val != nil_instance()) {
+    h->default_value_ = default_val;
+  }
+  return h;
+}
+
 // `Hash#each { |k, v| ... }` — iterate, calling block with [k, v]
 // Array. Returns self. The 2-element Array argument enables `|k, v|`
 // destructuring at the block-arg unpacking site.

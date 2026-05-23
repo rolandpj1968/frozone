@@ -307,6 +307,7 @@ module Frozone
             # (the runtime data IS what was wrapped).
             "Frozone::Vm::ArrayObject" => { flat: :Frozone_Vm_ArrayObject, runtime: "Array" },
             "Frozone::Vm::TimeObject"  => { flat: :Frozone_Vm_TimeObject,  runtime: "Time" },
+            "Frozone::Vm::HashObject"  => { flat: :Frozone_Vm_HashObject,  runtime: "Hash" },
           }.freeze
           # Per-runtime-class method names that the fused Vm wrapper
           # owns even when the runtime class also defines them. Default
@@ -2789,7 +2790,7 @@ module Frozone
             Exception NoMethodError RuntimeError
             Random Time ThrownTag
             IO
-            Frozone_Vm_Intrinsics
+            Frozone_Vm_Intrinsics Frozone_Vm_FrozoneException
           ].freeze
 
           # frozone_post.hpp — receives the post-class content moved

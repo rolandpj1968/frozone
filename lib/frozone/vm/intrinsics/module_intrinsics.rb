@@ -2096,7 +2096,7 @@ module Frozone
         def fstr?(obj)   = obj.is_a?(StringObject) || obj.is_a?(::String)
         def fsym?(obj)   = obj.is_a?(SymbolObject)
         def farray?(obj) = obj.is_a?(ArrayObject) || obj.is_a?(::Array)
-        def fhash?(obj)  = obj.is_a?(HashObject)
+        def fhash?(obj)  = obj.is_a?(HashObject) || obj.is_a?(::Hash)
         def ftrue?(obj)  = obj.is_a?(TrueObject)
         def ffalse?(obj)  = obj.is_a?(FalseObject)
         def fobj?(obj)    = obj.is_a?(ObjectObject)

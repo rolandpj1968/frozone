@@ -1034,6 +1034,11 @@ module Frozone
               %(const char* ruby_class_name() const override { return "Hash"; }),
             ],
             overrides: {
+              # Post Vm::HashObject ≡ Hash fusion shim — Vm bodies call
+              # h.raw which on the Vm wrapper transform_keys unwraps
+              # KeyWrappers. Post-fusion runtime Hash keys aren't wrapped
+              # so .raw returns self.
+              "m_raw" => { params: [], body: "return this;" },
               "m_size"   => { params: [], body: "return new Integer(static_cast<int64_t>(data.size()));" },
               "m_length" => { params: [], body: "return new Integer(static_cast<int64_t>(data.size()));" },
               "mm_empty_q"=> { params: [], body: "return boxed_bool(data.empty());" },

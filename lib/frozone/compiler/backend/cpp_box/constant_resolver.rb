@@ -230,6 +230,7 @@ module Frozone
             Frozone_Vm_IOObject:    "IO",
             Frozone_Vm_ArrayObject: "Array",
             Frozone_Vm_TimeObject:  "Time",
+            Frozone_Vm_HashObject:  "Hash",
           }.freeze
           FUSED_CONSTANT_TARGETS = {
             Frozone_Vm_NilObject_NIL:    "nil_instance()",
