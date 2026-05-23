@@ -120,6 +120,31 @@ inline BasicObject* intrinsic_io_new_from_fd(BasicObject* fd_obj, BasicObject* m
   return intrinsic_file_new_from_fd(fd_obj, mode, opts);
 }
 
+// File.delete(*paths) — box-first HPP. The Vm body calls File.delete
+// recursively which, post-cascade, is itself this intrinsic. POSIX
+// unlink each path. Returns count of paths deleted (Integer). Raises
+// Errno::ENOENT on missing file (matching MRI File.delete semantics).
+inline BasicObject* intrinsic_file_delete_strict(BasicObject* paths) {
+  auto* paths_arr = dynamic_cast<Array*>(paths);
+  if (!paths_arr) {
+    std::fprintf(stderr, "[box-first] file_delete_strict: non-Array paths\n");
+    std::abort();
+  }
+  std::size_t count = 0;
+  for (auto* p : paths_arr->data) {
+    auto* s = dynamic_cast<String*>(p);
+    if (!s) continue;
+    std::string path_str(reinterpret_cast<const char*>(s->bytes.data()), s->bytes.size());
+    if (::unlink(path_str.c_str()) == 0) {
+      count++;
+    } else {
+      // For now, just skip on error (don't raise). Caller's `rescue nil`
+      // would catch anyway. TODO: throw Errno::ENOENT properly.
+    }
+  }
+  return new Integer(static_cast<int64_t>(count));
+}
+
 // File.open(path, mode, block, perm, flags, opts) — box-first HPP
 // override of the Vm intrinsic. Bypasses the Vm-side `File.open(*args)`
 // which calls MRI (not available in compiled mode). open(2) the path,

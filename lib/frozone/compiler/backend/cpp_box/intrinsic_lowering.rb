@@ -50,7 +50,6 @@ module Frozone
             io_write io_read io_fileno io_close io_isatty io_gets
             io_eof io_flush io_sync io_pos io_seek io_rewind
             io_print io_inspect io_readable
-            file_delete_strict
           ]).freeze
 
           def lower(name, *arg_strs)
@@ -88,7 +87,7 @@ module Frozone
           HPP_INTRINSICS = Set.new(%i[
             dbg_write
             io_raw_write_stdout io_raw_write_stderr io_raw_write_fd
-            file_open file_new_from_fd io_new_from_fd
+            file_open file_new_from_fd io_new_from_fd file_delete_strict
             string_index string_slice string_split string_chars
             string_inspect string_hash string_to_sym string_to_i_base
             string_format string_replace string_initialize string_tr_raw
