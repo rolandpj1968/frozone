@@ -1083,6 +1083,24 @@ module Frozone
               emit.line "for (auto* a : call_args->data) send_args->data.push_back(a);"
               emit.line "Hash* call_kwargs = static_cast<Hash*>(args->data[3]);"
               emit.line "BasicObject* call_block = args->data.size() > 4 ? args->data[4] : nil_instance();"
+              # Vm interpreter wraps blocks in Frozone_Vm_BlockObject (or
+              # ProcObject around BlockObject). Runtime methods like
+              # Array::m_each do `static_cast<Proc*>(block)->m_call(args)`
+              # — and because runtime Proc is `final`, the C++ compiler
+              # devirtualises m_call to Proc::m_call directly, reading
+              # fn_ from the BlockObject's memory layout → empty
+              # std::function → bad_function_call at runtime. Wrap any
+              # non-Proc block in a real Proc whose fn_ delegates to the
+              # block's m_call virtual (which hits BlockObject's shim →
+              # invoke).
+              emit.line "if (call_block != nil_instance() && call_block && !dynamic_cast<Proc*>(call_block)) {"
+              emit.indented do
+                emit.line "BasicObject* _b = call_block;"
+                emit.line "call_block = new Proc([_b](Array* _a) -> BasicObject* {"
+                emit.line "  return _b->m_call(_a, &EMPTY_KWARGS, nil_instance());"
+                emit.line "});"
+              end
+              emit.line "}"
               emit.line "return this->m_send(send_args, call_kwargs, call_block);"
             end
             emit.line "}"
