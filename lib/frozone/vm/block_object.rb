@@ -12,6 +12,17 @@ module Frozone
 
       def lambda? = @is_lambda
 
+      # Box-first runtime classes (compiled lib/core/4.0/array.rb's
+      # Array#map etc.) call `block->m_call(args)` after fusion paths.
+      # The Vm interpreter wraps blocks in this BlockObject; the .call
+      # method must exist for the C++ vtable dispatch to land. Forward
+      # to invoke (Vm interpreter dispatch with Frame setup). Future
+      # block/proc invocation specialization (0/1/2-arg fast paths)
+      # would bypass this general entry for the hot case.
+      def call(*args, **kw_args, &block)
+        invoke(Fiber[:context], args, kw_args: kw_args, block: block)
+      end
+
       def initialize(required_params, optional_params, rest_param, post_params,
                      required_kw_params, optional_kw_params, kw_rest_param,
                      block_param, auto_splat, locals, body, enclosing_frame,
