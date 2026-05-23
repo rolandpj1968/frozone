@@ -168,6 +168,14 @@ module Frozone
               "BasicObject* iv_eigenclass = nil_instance();",
               "BasicObject* iv_instance_variables_hash = nil_instance();",
               "BasicObject* iv_frozen_object = nil_instance();",
+              "// Vm-Ruby `def class_object` getter/setter. Post Vm::IOObject",
+              "// ≡ IO etc. fusion, Vm intrinsic bodies call obj.class_object",
+              "// where obj is now a runtime class instance. Was defined on",
+              "// Frozone_Vm_ObjectObject; expose it on Object too so the",
+              "// runtime hierarchy has the slot. Getter inline (no Array",
+              "// access); setter out-of-line (see write_dispatch_body).",
+              "virtual BasicObject* m_class_object(Array* /*args*/ = &EMPTY_ARGS, Hash* /*kwargs*/ = &EMPTY_KWARGS, BasicObject* /*block*/ = nil_instance()) override { return iv_class_object; }",
+              "virtual BasicObject* mm_class_object_eq(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override;",
               "// === defaults to ==. Module/Class override for `Class === obj`.",
               "virtual BasicObject* op_case_eq(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
               "  return op_eq_q(args, kwargs, block);",
@@ -1320,6 +1328,23 @@ module Frozone
               "Time() = default;",
               %(const char* ruby_class_name() const override { return "Time"; }),
             ],
+            overrides: {
+              # Post Vm::TimeObject ≡ Time fusion: Vm bodies do t.raw to
+              # get the wrapped MRI Time. Post-fusion runtime Time IS the
+              # data — return self.
+              "m_raw" => { params: [], body: "return this;" },
+              # Vm body for t.utc mutates t.raw in place then returns t.
+              # Runtime Time.utc returns a NEW utc Time. After fusion,
+              # m_utc needs to make `self` utc in-place to match Vm
+              # body's `t.raw.utc; t` semantics. Mutating is_utc_ and
+              # zeroing utc_offset_ matches the new-Time-returned form
+              # semantically (immutable-style usage already returns
+              # `out` which has the same fields).
+              "m_utc" => {
+                params: [],
+                body: "this->utc_offset_ = 0; this->is_utc_ = true; return this;",
+              },
+            },
           )
 
           # separate). Tag comparison at catch time uses pointer

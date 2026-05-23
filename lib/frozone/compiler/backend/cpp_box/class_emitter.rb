@@ -242,6 +242,7 @@ module Frozone
               write_trampoline_defs(emit, method_ids)
               write_send_body(emit, method_ids)
               write_dispatch_body(emit)
+              write_class_object_eq_body(emit)
               write_is_a_lut(emit, class_ids, is_a_lut)
               write_method_missing_default(emit)
               write_constant_typeerror_body(emit)
@@ -1073,6 +1074,20 @@ module Frozone
           # only IO and friends inherit this Object-level version.
           # Unpacks dispatch's positional args [ctx, name_sym, call_args,
           # call_kwargs, block?] and delegates to m_send.
+          # Object::mm_class_object_eq out-of-line body — needs Array
+          # complete to access args->data. Stores the value into the
+          # iv_class_object field that's part of Object's struct.
+          def self.write_class_object_eq_body(emit)
+            emit.line "BasicObject* Object::mm_class_object_eq(Array* args, Hash* /*kwargs*/, BasicObject* /*block*/) {"
+            emit.indented do
+              emit.line "if (args->data.empty()) return iv_class_object;"
+              emit.line "iv_class_object = args->data[0];"
+              emit.line "return iv_class_object;"
+            end
+            emit.line "}"
+            emit.blank
+          end
+
           def self.write_dispatch_body(emit)
             emit.line "BasicObject* Object::m_dispatch(Array* args, Hash* kwargs, BasicObject* block) {"
             emit.indented do

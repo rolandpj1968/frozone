@@ -306,6 +306,7 @@ module Frozone
             # into runtime class; .raw shim returns self post-fusion
             # (the runtime data IS what was wrapped).
             "Frozone::Vm::ArrayObject" => { flat: :Frozone_Vm_ArrayObject, runtime: "Array" },
+            "Frozone::Vm::TimeObject"  => { flat: :Frozone_Vm_TimeObject,  runtime: "Time" },
           }.freeze
           # Per-runtime-class method names that the fused Vm wrapper
           # owns even when the runtime class also defines them. Default

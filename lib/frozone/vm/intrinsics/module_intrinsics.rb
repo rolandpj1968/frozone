@@ -2079,7 +2079,11 @@ module Frozone
         def n2f_int(n) = IntegerObject.new(n)
         def n2f_float(f) = FloatObject.new(f)
         def n2f_sym(sym) = SymbolObject.from(sym)
-        def n2f_time(t) = TimeObject.new(t)
+        # Post Vm::TimeObject ≡ Time fusion: if t is already a Time
+        # (runtime), it's the fused wrapper — return it directly.
+        # In interpreter mode (MRI Time != Vm::TimeObject), the
+        # is_a? check is false and we wrap as before.
+        def n2f_time(t) = t.is_a?(TimeObject) ? t : TimeObject.new(t)
         def n2f_arr(elements, class_obj = nil) = ArrayObject.new(elements, class_obj)
         def n2f_hash(elements = {}, default_value: nil, default_block: nil) = HashObject.new(elements, default_value: default_value, default_block: default_block)
         # Type predicates: check Frozone object type
