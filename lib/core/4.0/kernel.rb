@@ -13,6 +13,8 @@ module Kernel
   def instance_of?(klass) = Intrinsics.object_instance_of(self, klass)
   def freeze = Intrinsics.object_freeze(self)
   def frozen? = Intrinsics.object_frozen(self)
+  def frozen_object? = frozen?
+  def truthy? = !equal?(false) && !equal?(nil)
   def methods(include_super = true) = Intrinsics.object_methods(self, include_super)
   def public_methods(include_super = true) = Intrinsics.object_public_methods(self, include_super)
   def private_methods(include_super = true) = Intrinsics.object_private_methods(self, include_super)
