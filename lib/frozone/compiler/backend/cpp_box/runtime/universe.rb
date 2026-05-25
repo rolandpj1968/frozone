@@ -816,6 +816,7 @@ module Frozone
               "String(const char* s, std::size_t n, Enc e) : enc(e) { bytes.assign(s, s + n); }",
               "",
               %(const char* ruby_class_name() const override { return "String"; }),
+              "int _set_iv_class_object_ = (iv_class_object = reinterpret_cast<BasicObject*>(&String_CLASS), 0);",
               "",
               "// Codepoint-aware length for UTF-8 (cached); byte count for BINARY.",
               "std::int64_t length() const {",
