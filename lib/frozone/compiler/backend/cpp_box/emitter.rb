@@ -1645,12 +1645,23 @@ module Frozone
             # eigenclass inherits from Module (matching MRI's
             # `mod.class == Module`).
             is_module = cls.is_a?(Vm::ModuleObject) && !cls.is_a?(Vm::ClassObject)
+            # Fused-class iv_class_object init: runtime ctors (`new IO()`
+            # etc.) bypass the Vm super chain that would normally set
+            # iv_class_object. AST-interpreted dispatch reads it via
+            # Vm::ObjectObject#lookup_class, so leaving it nil_instance
+            # crashes with `lookup_method on NilClass`. The member-init
+            # runs after Object's default-init, so the comma-op assigns
+            # into the inherited field. See project_iv_class_object_gap.md.
+            members = [%(const char* ruby_class_name() const override { return "#{name}"; })]
+            if fused_vm_cls
+              members << "int _set_iv_class_object_ = (iv_class_object = reinterpret_cast<BasicObject*>(&#{name}_CLASS), 0);"
+            end
             Runtime::RubyClass.new(
               name: name.to_s,
               parent: parent_name_for(cls),
               is_module: is_module,
               ivars: ivars.map { |iv| "BasicObject* iv_#{iv} = nil_instance();" },
-              members: [%(const char* ruby_class_name() const override { return "#{name}"; })],
+              members: members,
               # No special ctor — `initialize` becomes a regular
               # `m_initialize` override; eigenclass auto-emits `m_new`
               # that does `new X(); m_initialize(...); return obj;`.

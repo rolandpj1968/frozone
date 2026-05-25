@@ -320,7 +320,10 @@ module Frozone
           NIL_CLASS = RubyClass.new(
             name: "NilClass",
             parent: "Object",
-            members: [%(const char* ruby_class_name() const override { return "NilClass"; })],
+            members: [
+              %(const char* ruby_class_name() const override { return "NilClass"; }),
+              "int _set_iv_class_object_ = (iv_class_object = reinterpret_cast<BasicObject*>(&NilClass_CLASS), 0);",
+            ],
             singleton: "NIL_INSTANCE",
             overrides: {
               "m_to_s"  => { params: [], body: %(return new String("", 0);) },
@@ -331,7 +334,10 @@ module Frozone
           TRUE_CLASS = RubyClass.new(
             name: "TrueClass",
             parent: "Object",
-            members: [%(const char* ruby_class_name() const override { return "TrueClass"; })],
+            members: [
+              %(const char* ruby_class_name() const override { return "TrueClass"; }),
+              "int _set_iv_class_object_ = (iv_class_object = reinterpret_cast<BasicObject*>(&TrueClass_CLASS), 0);",
+            ],
             singleton: "TRUE_INSTANCE",
             overrides: {
               "m_to_s" => { params: [], body: %(return new String("true", 4);) },
@@ -341,7 +347,10 @@ module Frozone
           FALSE_CLASS = RubyClass.new(
             name: "FalseClass",
             parent: "Object",
-            members: [%(const char* ruby_class_name() const override { return "FalseClass"; })],
+            members: [
+              %(const char* ruby_class_name() const override { return "FalseClass"; }),
+              "int _set_iv_class_object_ = (iv_class_object = reinterpret_cast<BasicObject*>(&FalseClass_CLASS), 0);",
+            ],
             singleton: "FALSE_INSTANCE",
             overrides: {
               "m_to_s" => { params: [], body: %(return new String("false", 5);) },
@@ -536,6 +545,12 @@ module Frozone
               "  data.assign(n, fill ? fill : nil_instance());",
               "}",
               %(const char* ruby_class_name() const override { return "Array"; }),
+              # Restore the Vm-dispatch invariant: lookup_class reads
+              # iv_class_object, which the runtime ctors leave at the
+              # Object default (nil_instance). Member-init runs after
+              # Object's init, so the comma-op assigns into the inherited
+              # field. See project_iv_class_object_gap.md.
+              "int _set_iv_class_object_ = (iv_class_object = reinterpret_cast<BasicObject*>(&Array_CLASS), 0);",
             ],
             overrides: {
               # Post-IO-fusion compatibility shim: Vm intrinsic bodies do
@@ -1032,6 +1047,7 @@ module Frozone
               "  for (auto& p : init) data.insert(p);",
               "}",
               %(const char* ruby_class_name() const override { return "Hash"; }),
+              "int _set_iv_class_object_ = (iv_class_object = reinterpret_cast<BasicObject*>(&Hash_CLASS), 0);",
             ],
             overrides: {
               # Post Vm::HashObject ≡ Hash fusion shim — Vm bodies call
@@ -1332,6 +1348,7 @@ module Frozone
               "BasicObject* iv_frozone_timezone = nil_instance();",
               "Time() = default;",
               %(const char* ruby_class_name() const override { return "Time"; }),
+              "int _set_iv_class_object_ = (iv_class_object = reinterpret_cast<BasicObject*>(&Time_CLASS), 0);",
             ],
             overrides: {
               # Post Vm::TimeObject ≡ Time fusion: Vm bodies do t.raw to

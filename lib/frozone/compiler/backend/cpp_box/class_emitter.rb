@@ -957,6 +957,16 @@ module Frozone
             emit.indented do
               klass.members&.each { |m| emit.line m }
               klass.ivars&.each { |iv| emit.line iv }
+              # Eigenclass singletons (Foo_CLASS) get iv_class_object
+              # init too. Their instance.class is Class (or Module for
+              # pure modules). Same reason as in build_user_class_def /
+              # the universe.rb fused entries: Vm::ObjectObject#lookup_class
+              # reads iv_class_object; AST-interpreter dispatch crashes
+              # when it's nil_instance. See project_iv_class_object_gap.md.
+              if klass.name.end_with?("_eigenclass") && klass.name != "BasicObject_eigenclass"
+                target = (klass.parent == "Module") ? "Module_CLASS" : "Class_CLASS"
+                emit.line "int _set_iv_class_object_ = (iv_class_object = reinterpret_cast<BasicObject*>(&#{target}), 0);"
+              end
               # Auto-emit __class_id__ override per class — simple int
               # return, no cross-class refs, safe inline.
               cid = @class_ids && @class_ids[klass.name]
