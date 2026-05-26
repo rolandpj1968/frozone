@@ -290,11 +290,13 @@ module Frozone
           # entirely; class-level constants (NIL/FALSE/TRUE) remapped
           # to runtime singletons via constant_resolver. Map is full
           # Ruby name → flat user-class key → runtime class name.
-          FUSED_VM_CLASSES = {
-            "Frozone::Vm::NilObject"   => { flat: :Frozone_Vm_NilObject,   runtime: "NilClass" },
-            "Frozone::Vm::FalseObject" => { flat: :Frozone_Vm_FalseObject, runtime: "FalseClass" },
-            "Frozone::Vm::TrueObject"  => { flat: :Frozone_Vm_TrueObject,  runtime: "TrueClass" },
-          }.freeze
+          # De-fused: nil/true/false are now ordinary Vm classes (the
+          # interpreter keeps the membrane — guest nil is Vm::NilObject::NIL,
+          # distinct from frozone-internal nil_instance(); only the AOT
+          # compiler dissolves the distinction). Empty table = no class is
+          # collapsed onto its runtime counterpart in the compiled
+          # interpreter.
+          FUSED_VM_CLASSES = {}.freeze
           FUSED_VM_CLASS_FLAT_KEYS = Set.new(FUSED_VM_CLASSES.values.map { |v| v[:flat] }).freeze
           FUSED_VM_CLASS_FULL_NAMES = Set.new(FUSED_VM_CLASSES.keys).freeze
           # Reverse map for ref resolution: fused flat name → runtime
@@ -618,11 +620,10 @@ module Frozone
           # emission time, so no k_<flat>() accessor is needed and
           # any accessor that DID get emitted would try to construct a
           # filtered-out class.
-          FUSED_VM_BOOTSTRAP_CONSTANTS = %i[
-            Frozone_Vm_NilObject_NIL
-            Frozone_Vm_FalseObject_FALSE
-            Frozone_Vm_TrueObject_TRUE
-          ].to_set.freeze
+          # De-fused: the NIL/FALSE/TRUE guest singletons now get real
+          # per-constant accessors (they construct Vm::NilObject etc.),
+          # so nothing is skipped here.
+          FUSED_VM_BOOTSTRAP_CONSTANTS = Set.new.freeze
 
           # True if `val` is the Frozone::Vm::*Object singleton instance
           # (NIL / FALSE / TRUE) of any of the fused VM classes. The
@@ -642,20 +643,16 @@ module Frozone
           end
 
           # When frozone-AOT is the root (Frozone_Vm_ObjectObject is in
-          # user_classes), restore the C-form fusion parent for NilClass /
-          # TrueClass / FalseClass / Module so the compiled interpreter's
-          # `recv.dispatch(...)` works on nil / true / false / module
-          # receivers. Without this they inherit from Object only, and
-          # Frozone::Vm::ObjectObject's m_dispatch / m_set_ivar / etc.
-          # become unreachable via vtable on those fused singletons.
-          # Sub-stubs (no frozone interpreter loaded) don't need this —
-          # they never call Vm::ObjectObject methods on nil / true / false.
+          # user_classes), reparent runtime Module → Frozone_Vm_ObjectObject
+          # in self-host so the compiled interpreter's `recv.dispatch(...)`
+          # works on module receivers. (NilClass/TrueClass/FalseClass were
+          # de-fused — guest nil/true/false are now Vm::* objects with
+          # dispatch built in, so the runtime singletons no longer need
+          # the C-form fusion parent.) Module is left here pending the
+          # class-membrane discussion — see project_fusion_membrane_principle.
           def restore_fusion_parents_for_self_host!
             return unless @user_classes.key?(:Frozone_Vm_ObjectObject)
-            { "NilClass" => "Frozone_Vm_ObjectObject",
-              "TrueClass" => "Frozone_Vm_ObjectObject",
-              "FalseClass" => "Frozone_Vm_ObjectObject",
-              "Module" => "Frozone_Vm_ObjectObject" }.each do |name, parent|
+            { "Module" => "Frozone_Vm_ObjectObject" }.each do |name, parent|
               ru = Runtime::ALL_CLASSES.find { |c| c.name == name }
               ru.parent = parent if ru
             end
@@ -710,35 +707,43 @@ module Frozone
             consts
           end
 
-          # Map runtime-singleton-name → C++ accessor expression. Used by
-          # build_user_constant_accessors when a user_constant value is
-          # a fused VM singleton (NilObject::NIL aliased as e.g.
-          # Frozone::Vm::Intrinsics::FNIL).
-          FUSED_SINGLETON_ACCESSOR = {
-            "Frozone::Vm::NilObject"   => "nil_instance()",
-            "Frozone::Vm::TrueObject"  => "true_instance()",
-            "Frozone::Vm::FalseObject" => "false_instance()",
+          # De-fused: guest singletons are real Vm instances now. But the
+          # singleton must stay *singular* — frozone aliases the one nil
+          # under many constant names (NilObject::NIL, Intrinsics::FNIL,
+          # …) and relies on object identity (fnil? is `equal?(FNIL)`).
+          # The canonical constant constructs the instance; every alias
+          # routes to the canonical accessor so all references are the
+          # same object. (Pre-defuse this was free because fusion sent
+          # them all to nil_instance(); now we enforce identity ourselves.)
+          GUEST_SINGLETON_ACCESSOR = {
+            "Frozone::Vm::NilObject"   => "k_Frozone_Vm_NilObject_NIL",
+            "Frozone::Vm::TrueObject"  => "k_Frozone_Vm_TrueObject_TRUE",
+            "Frozone::Vm::FalseObject" => "k_Frozone_Vm_FalseObject_FALSE",
           }.freeze
 
-          def fused_singleton_accessor_for(val)
+          # For an alias constant whose value is a guest singleton, return
+          # the canonical accessor name; nil for the canonical constant
+          # itself (so it falls through to the real `new` construction)
+          # and for non-singleton values.
+          def guest_singleton_canonical_accessor_for(name, val)
             return nil unless val.is_a?(Vm::ObjectObject)
             return nil unless val.respond_to?(:class_object) && val.class_object
             full = (val.class_object.full_name || val.class_object.name).to_s
-            FUSED_SINGLETON_ACCESSOR[full]
+            acc = GUEST_SINGLETON_ACCESSOR[full]
+            return nil unless acc
+            return nil if name.to_s == acc.sub(/\Ak_/, "")  # the canonical itself
+            acc
           end
 
           def build_user_constant_accessors
             @user_constants.map do |name, val|
-              # Constants whose value is a fused VM singleton (e.g.
-              # `Frozone::Vm::Intrinsics::FNIL = NilObject::NIL`) get
-              # an accessor that returns the runtime singleton directly,
-              # skipping the `new <ClassName>()` path that'd otherwise
-              # try to construct a class filtered out by Phase 2 fusion.
-              if (rt_accessor = fused_singleton_accessor_for(val))
+              # Alias of a guest singleton → return the one canonical
+              # instance (keeps `equal?`-based identity intact).
+              if (canon = guest_singleton_canonical_accessor_for(name, val))
                 next Runtime::KernelFn.new(
                   name: "k_#{name}",
                   signature: "BasicObject* k_#{name}()",
-                  body: "return static_cast<BasicObject*>(#{rt_accessor});",
+                  body: "return static_cast<BasicObject*>(#{canon}());",
                 )
               end
               if val.is_a?(Vm::HoistedConstantSentinel)
@@ -3114,15 +3119,12 @@ module Frozone
                 # by the runtime ConstantWrite — no static ivar snapshot
                 # to emit (they're not a Vm::ObjectObject yet).
                 next if obj.is_a?(Vm::HoistedConstantSentinel)
-                # Phase 2 fusion: fused-singleton user constants (e.g.
-                # `Frozone::Vm::Intrinsics::FNIL = NilObject::NIL`)
-                # alias the runtime nil/false/true singletons. Their
-                # ivars don't apply to the runtime class (NilClass has
-                # no iv_class_object slot) and the snapshot would emit
-                # `static_cast<Frozone_Vm_NilObject*>(...)` referencing
-                # a filtered-out type. Skip — the runtime singleton
-                # carries its state through nil_instance() etc.
-                next if fused_singleton_accessor_for(obj)
+                # Guest-singleton ALIASES (e.g. Intrinsics::FNIL =
+                # NilObject::NIL) route to the canonical accessor and
+                # have no storage of their own — skip them. The
+                # canonical constant (Frozone_Vm_NilObject_NIL itself)
+                # returns nil here and gets its ivar snapshot below.
+                next if guest_singleton_canonical_accessor_for(flat, obj)
                 klass = obj.class_object.full_name.to_s.gsub("::", "_")
                 target = "(*static_cast<#{klass}*>(k_#{flat}()))"
                 (obj.instance_variables_hash || {}).each do |name, val|

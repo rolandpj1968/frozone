@@ -218,16 +218,13 @@ module Frozone
           # NilObject::NIL is just nil_instance(), etc. Same for
           # FalseObject/TrueObject. Maps are scoped here to keep
           # format_constant the single point of resolution.
-          FUSED_CLASS_TARGETS = {
-            Frozone_Vm_NilObject:   "NilClass",
-            Frozone_Vm_FalseObject: "FalseClass",
-            Frozone_Vm_TrueObject:  "TrueClass",
-          }.freeze
-          FUSED_CONSTANT_TARGETS = {
-            Frozone_Vm_NilObject_NIL:    "nil_instance()",
-            Frozone_Vm_FalseObject_FALSE: "false_instance()",
-            Frozone_Vm_TrueObject_TRUE:  "true_instance()",
-          }.freeze
+          # De-fused: Vm::NilObject etc. are their own classes again; no
+          # reference is redirected to the runtime NilClass/etc.
+          FUSED_CLASS_TARGETS = {}.freeze
+          # De-fused: NilObject::NIL etc. resolve to their own Vm singleton
+          # accessors (k_Frozone_Vm_NilObject_NIL()), not the runtime
+          # nil_instance()/false_instance()/true_instance().
+          FUSED_CONSTANT_TARGETS = {}.freeze
 
           # Format a resolved Symbol as the right C++ expression:
           # accessor call for value constants, address-of-singleton for
