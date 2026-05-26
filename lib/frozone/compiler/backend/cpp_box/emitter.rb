@@ -603,34 +603,6 @@ module Frozone
             consts
           end
 
-          # De-fused: guest singletons are real Vm instances now. But the
-          # singleton must stay *singular* — frozone aliases the one nil
-          # under many constant names (NilObject::NIL, Intrinsics::FNIL,
-          # …) and relies on object identity (fnil? is `equal?(FNIL)`).
-          # The canonical constant constructs the instance; every alias
-          # routes to the canonical accessor so all references are the
-          # same object. (Pre-defuse this was free because fusion sent
-          # them all to nil_instance(); now we enforce identity ourselves.)
-          GUEST_SINGLETON_ACCESSOR = {
-            "Frozone::Vm::NilObject"   => "k_Frozone_Vm_NilObject_NIL",
-            "Frozone::Vm::TrueObject"  => "k_Frozone_Vm_TrueObject_TRUE",
-            "Frozone::Vm::FalseObject" => "k_Frozone_Vm_FalseObject_FALSE",
-          }.freeze
-
-          # For an alias constant whose value is a guest singleton, return
-          # the canonical accessor name; nil for the canonical constant
-          # itself (so it falls through to the real `new` construction)
-          # and for non-singleton values.
-          def guest_singleton_canonical_accessor_for(name, val)
-            return nil unless val.is_a?(Vm::ObjectObject)
-            return nil unless val.respond_to?(:class_object) && val.class_object
-            full = (val.class_object.full_name || val.class_object.name).to_s
-            acc = GUEST_SINGLETON_ACCESSOR[full]
-            return nil unless acc
-            return nil if name.to_s == acc.sub(/\Ak_/, "")  # the canonical itself
-            acc
-          end
-
           # Seed the snapshot graph: constants + class/module instance
           # ivars + class variables are the load-phase roots. Discovery
           # closes over them transitively. (Eigenclass ivars and load-phase
@@ -655,19 +627,12 @@ module Frozone
 
           def build_user_constant_accessors
             @user_constants.filter_map do |name, val|
-              # Slotted objects (String/Array/Hash/ObjectObject) are emitted
-              # by Snapshot#alloc_fns with identity-preserving accessors
-              # (canonical k_<flat> or a router for aliases) — skip here.
+              # Slotted objects (String/Array/Hash/ObjectObject — including
+              # the guest nil/true/false singletons, which are ObjectObjects
+              # at the meta level) are emitted by Snapshot#alloc_fns with
+              # identity-preserving accessors (canonical k_<flat> or a router
+              # for aliases), so all references stay one object — skip here.
               next nil if @snapshot.slotted?(val)
-              # Alias of a guest singleton → return the one canonical
-              # instance (keeps `equal?`-based identity intact).
-              if (canon = guest_singleton_canonical_accessor_for(name, val))
-                next Runtime::KernelFn.new(
-                  name: "k_#{name}",
-                  signature: "BasicObject* k_#{name}()",
-                  body: "return static_cast<BasicObject*>(#{canon}());",
-                )
-              end
               if val.is_a?(Vm::HoistedConstantSentinel)
                 # --hoist-class-consts moved this constant's init to the
                 # execute phase. The slot starts as nil_instance() and gets
