@@ -15,6 +15,7 @@
 # functions producing cpp strings live on `Cpp` (held as `emit.cpp`).
 
 require_relative 'cpp'
+require_relative 'snapshot'
 require_relative 'class_emitter'
 require_relative 'method_emitter'
 require_relative 'expr_emitter'
@@ -156,6 +157,14 @@ module Frozone
             @user_classes = collect_all_classes
             @cpp = Cpp.new(user_classes: @user_classes, user_constants: @user_constants)
             @cpp.emit = self
+            # Load-phase object-graph snapshot: discover all reachable
+            # objects from the roots (constants + class/module ivars +
+            # cvars), assign identity-preserving slots, and route every
+            # subsequent emit_vm_value through them. Built before accessor
+            # emission + decorate_eigenclasses (which calls emit_vm_value).
+            @snapshot = Snapshot.new(@cpp)
+            register_snapshot_roots(@snapshot)
+            @cpp.snapshot = @snapshot
             @call_surface = collect_call_surface
             @const_surface = collect_dynamic_constant_surface
             print_method_def_analysis if ENV['FROZONE_BOX_ANALYSIS'] == '1'
@@ -209,7 +218,7 @@ module Frozone
             # the parent now lives among user classes, not before them.
             classes = topo_sort_by_parent(all_classes + all_eigenclasses)
             @class_ids_for_init = classes.each_with_index.to_h { |k, i| [k.name, i] }
-            kernel_fns = Runtime::ALL_KERNEL_FNS + build_user_constant_accessors
+            kernel_fns = Runtime::ALL_KERNEL_FNS + build_user_constant_accessors + @snapshot.alloc_fns
             with_stream(:base) { write_base_open }
             with_stream(:post) { write_post_open }
             with_stream(:layouts) { write_layouts_open }
@@ -718,8 +727,33 @@ module Frozone
             acc
           end
 
+          # Seed the snapshot graph: constants + class/module instance
+          # ivars + class variables are the load-phase roots. Discovery
+          # closes over them transitively. (Eigenclass ivars and load-phase
+          # globals are additional roots to add for completeness — both
+          # currently zero-occurrence; covered by snapshot_spec test cases.)
+          def register_snapshot_roots(snap)
+            # Constants FIRST so a named object owns its k_<flat> accessor
+            # (a later anon root referencing it would otherwise mint k_snap_N).
+            @user_constants.each do |flat, val|
+              next if val.is_a?(Vm::HoistedConstantSentinel)
+              snap.register_constant(flat, val)
+            end
+            # Then anonymous roots: class/module instance ivars + cvars.
+            @user_classes.each_value do |cls|
+              (cls.instance_variables_hash || {}).each_value { |v| snap.register_anon(v) }
+              if cls.respond_to?(:class_variables) && cls.class_variables
+                cls.class_variables.each_value { |v| snap.register_anon(v) }
+              end
+            end
+          end
+
           def build_user_constant_accessors
-            @user_constants.map do |name, val|
+            @user_constants.filter_map do |name, val|
+              # Slotted objects (String/Array/Hash/ObjectObject) are emitted
+              # by Snapshot#alloc_fns with identity-preserving accessors
+              # (canonical k_<flat> or a router for aliases) — skip here.
+              next nil if @snapshot.slotted?(val)
               # Alias of a guest singleton → return the one canonical
               # instance (keeps `equal?`-based identity intact).
               if (canon = guest_singleton_canonical_accessor_for(name, val))
@@ -3096,24 +3130,13 @@ module Frozone
                   emit_static_iv_assign("#{flat}_CLASS", flat, name, val)
                 end
               end
-              @user_constants.each do |flat, obj|
-                next if primitive_vm_value?(obj)  # literals have no ivars
-                # Hoisted constants start as nil_instance() and get bound
-                # by the runtime ConstantWrite — no static ivar snapshot
-                # to emit (they're not a Vm::ObjectObject yet).
-                next if obj.is_a?(Vm::HoistedConstantSentinel)
-                # Guest-singleton ALIASES (e.g. Intrinsics::FNIL =
-                # NilObject::NIL) route to the canonical accessor and
-                # have no storage of their own — skip them. The
-                # canonical constant (Frozone_Vm_NilObject_NIL itself)
-                # returns nil here and gets its ivar snapshot below.
-                next if guest_singleton_canonical_accessor_for(flat, obj)
-                klass = obj.class_object.full_name.to_s.gsub("::", "_")
-                target = "(*static_cast<#{klass}*>(k_#{flat}()))"
-                (obj.instance_variables_hash || {}).each do |name, val|
-                  emit_static_iv_assign(target, flat, name, val)
-                end
-              end
+              # Snapshot object graph: wire every reachable object's
+              # elements / entries / ivars, identity-preserving + cycle-safe.
+              # This subsumes the old per-constant ivar loop AND captures
+              # interior unnamed objects + shared/aliased objects + cycles.
+              # alloc_fns (called earlier when building kernel_fns) has set
+              # each array's leaf_full flag, so wiring reads it correctly.
+              @snapshot.wire_lines.each { |l| line l }
               # Class variables: snapshot each class's @class_variables
               # captured during load phase. Only emit assignments for
               # cvars that have been referenced during emission (i.e.

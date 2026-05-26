@@ -197,6 +197,12 @@ module Frozone
           # in the post-class out-of-line section.
           attr_reader :class_vars
 
+          # The load-phase Snapshot graph serializer. Set by the emitter
+          # after discovery; when present, emit_vm_value routes slottable
+          # objects (String/Array/Hash/ObjectObject) to their canonical
+          # snapshot accessor instead of constructing them inline.
+          attr_accessor :snapshot
+
           def initialize(user_classes:, user_constants:)
             @user_classes = user_classes
             @user_constants = user_constants
@@ -1232,13 +1238,55 @@ module Frozone
             "(new Float(#{v}))"
           end
 
+          # Leaf-only emission: value-types, class/module refs, and the
+          # inline-constructed Regexp/Proc snapshots. These need no shared
+          # materialization — interned (Integer/Symbol), singleton
+          # (nil/true/false), address-of (&Foo_CLASS), or rarely-shared
+          # (Regexp/Proc). The Snapshot graph serializer calls this for
+          # the leaves of the object graph; String/Array/Hash/ObjectObject
+          # are NOT leaves and must go through a snapshot slot.
+          def emit_leaf(val)
+            case val
+            when Vm::IntegerObject then intern_int(val.raw)
+            when Vm::FloatObject   then float_literal(val.raw)
+            when Vm::SymbolObject  then "intern(#{cpp_string_literal(val.raw.to_s)})"
+            when Vm::NilObject     then "nil_instance()"
+            when Vm::TrueObject    then "true_instance()"
+            when Vm::FalseObject   then "false_instance()"
+            when Vm::RegexpObject
+              src = val.raw.source
+              flags = val.raw.options
+              "([&]() -> BasicObject* { Regexp* _re = new Regexp(); Array* _a = new Array({static_cast<BasicObject*>((new String(#{cpp_string_literal(src)}, #{src.bytesize}))), static_cast<BasicObject*>(new Integer(#{flags}))}); _re->m_initialize(_a); return _re; }())"
+            when Vm::ClassObject, Vm::ModuleObject
+              flat = class_object_to_flat(val)
+              raise EmissionError, "emit_leaf: #{val.class.name.split('::').last} #{val.full_name} not in emitted set" unless flat
+              format_constant(flat)
+            when Vm::ProcObject
+              loc = val.block_object&.source_location || ["unknown", 0]
+              %{(new Proc([](Array*) -> BasicObject* { /* snapshot Proc placeholder, defined at #{loc[0]}:#{loc[1]} */ return nil_instance(); }))}
+            else
+              raise EmissionError, "emit_leaf: #{val.class.name} is not a leaf value (String/Array/Hash/ObjectObject must be snapshot-slotted)"
+            end
+          end
+
+          # Large Integer-only arrays: emit values as a static int64_t[]
+          # and build the Array at runtime (compact source + cheap parse).
+          # Returns the build expression, registering the table; nil if the
+          # array doesn't qualify (caller emits elementwise).
+          def int_array_build_expr(raw_elems)
+            return nil unless raw_elems.size > INT_ARRAY_THRESHOLD && raw_elems.all? { |e| e.is_a?(Vm::IntegerObject) }
+            idx = @raw_int_arrays.size
+            @raw_int_arrays << raw_elems.map(&:raw)
+            "build_int_array(__TBL_INT_#{idx}__, #{raw_elems.size})"
+          end
+
           # Render a Vm value as a C++ expression that produces the
-          # equivalent box at runtime. Used by static-state capture
-          # (ClassObject ivar materialization). Recursive across
-          # arrays / hashes; returns plain literals for scalars.
-          # Unsupported types raise EmissionError so the caller can
-          # skip the offending init.
+          # equivalent box at runtime. With a Snapshot attached, slottable
+          # objects route to their canonical snapshot accessor (identity-
+          # preserving); leaves go inline via emit_leaf. Without a snapshot
+          # (unit tests / legacy), constructs inline as before.
           def emit_vm_value(val)
+            return @snapshot.ref_expr(val) if @snapshot
             case val
             when Vm::IntegerObject then intern_int(val.raw)
             when Vm::FloatObject   then float_literal(val.raw)
