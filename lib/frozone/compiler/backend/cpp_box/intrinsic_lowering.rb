@@ -127,7 +127,18 @@ module Frozone
             string_unicode_normalized_q string_to_c string_upto
           ]).freeze
 
+          # Unary <cmath> Float→Float intrinsics (Math.* + Float math
+          # methods): intrinsic name → C math function. Each lowers to
+          # `(new Float(std::FN(recv.raw_)))`. Spliced into TEMPLATES below.
+          FLOAT_UNARY_CMATH = %i[
+            sqrt cbrt exp log log2 log10 sin cos tan asin acos atan
+            sinh cosh tanh asinh acosh atanh expm1 log1p erf erfc
+          ].each_with_object({}) { |fn, h|
+            h[:"float_#{fn}"] = ->(s) { "(new Float(std::#{fn}(static_cast<Float*>(#{s})->raw_)))" }
+          }.freeze
+
           TEMPLATES = {
+            **FLOAT_UNARY_CMATH,
             # Class — raw allocator that bypasses Ruby-level overrides.
             # `Thread.allocate` raises TypeError, so calling through
             # m_allocate would hit that. m_raw_allocate is a non-Ruby
@@ -177,6 +188,29 @@ module Frozone
             float_to_s:      ->(s) {
               "([&]() -> BasicObject* { char _buf[32]; double _v = static_cast<Float*>(#{s})->raw_; if (std::isnan(_v)) return new String(\"NaN\", 3); if (std::isinf(_v)) return new String(_v > 0 ? \"Infinity\" : \"-Infinity\", _v > 0 ? 8 : 9); int _n = std::snprintf(_buf, sizeof(_buf), \"%.17g\", _v); return new String(_buf, _n); }())"
             },
+
+            # Float arithmetic + comparison — unboxed double ops on raw_,
+            # reboxed. (+ - * / are usually handled by the typed-operator
+            # fast path; these are the dynamic-dispatch fallback bodies.)
+            float__plus_:  ->(s, o) { "(new Float(static_cast<Float*>(#{s})->raw_ + static_cast<Float*>(#{o})->raw_))" },
+            float__minus_: ->(s, o) { "(new Float(static_cast<Float*>(#{s})->raw_ - static_cast<Float*>(#{o})->raw_))" },
+            float__mul_:   ->(s, o) { "(new Float(static_cast<Float*>(#{s})->raw_ * static_cast<Float*>(#{o})->raw_))" },
+            float__div_:   ->(s, o) { "(new Float(static_cast<Float*>(#{s})->raw_ / static_cast<Float*>(#{o})->raw_))" },
+            float__pow_:   ->(s, o) { "(new Float(std::pow(static_cast<Float*>(#{s})->raw_, static_cast<Float*>(#{o})->raw_)))" },
+            float__lt_:    ->(s, o) { "boxed_bool(static_cast<Float*>(#{s})->raw_ <  static_cast<Float*>(#{o})->raw_)" },
+            float__le_:    ->(s, o) { "boxed_bool(static_cast<Float*>(#{s})->raw_ <= static_cast<Float*>(#{o})->raw_)" },
+            float__ge_:    ->(s, o) { "boxed_bool(static_cast<Float*>(#{s})->raw_ >= static_cast<Float*>(#{o})->raw_)" },
+            float__gt_:    ->(s, o) { "boxed_bool(static_cast<Float*>(#{s})->raw_ >  static_cast<Float*>(#{o})->raw_)" },
+            float_eq:      ->(s, o) { "boxed_bool(static_cast<Float*>(#{s})->raw_ == static_cast<Float*>(#{o})->raw_)" },
+            float_infinity: -> { "(new Float(std::numeric_limits<double>::infinity()))" },
+            float_nan:      -> { "(new Float(std::numeric_limits<double>::quiet_NaN()))" },
+            # Ruby Float#remainder is truncated (sign of dividend) == C fmod.
+            float_remainder: ->(s, o) { "(new Float(std::fmod(static_cast<Float*>(#{s})->raw_, static_cast<Float*>(#{o})->raw_)))" },
+            float_atan2:    ->(s, o) { "(new Float(std::atan2(static_cast<Float*>(#{s})->raw_, static_cast<Float*>(#{o})->raw_)))" },
+            float_hypot:    ->(s, o) { "(new Float(std::hypot(static_cast<Float*>(#{s})->raw_, static_cast<Float*>(#{o})->raw_)))" },
+            float_ldexp:    ->(s, o) { "(new Float(std::ldexp(static_cast<Float*>(#{s})->raw_, static_cast<int>(static_cast<Integer*>(#{o})->raw_))))" },
+            float_next_float: ->(s) { "(new Float(std::nextafter(static_cast<Float*>(#{s})->raw_, std::numeric_limits<double>::infinity())))" },
+            float_prev_float: ->(s) { "(new Float(std::nextafter(static_cast<Float*>(#{s})->raw_, -std::numeric_limits<double>::infinity())))" },
 
             # Range — direct field access on the C++ struct (begin_,
             # end_, exclude_end_, initialized_).
