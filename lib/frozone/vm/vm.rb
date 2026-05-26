@@ -4,6 +4,14 @@ require_relative 'proc_object'
 require_relative 'hoisted_constant_sentinel'
 
 require_relative 'parser'
+# vm.rb#parse defaults to WqParser when no --parser flag is given, so vm.rb
+# must ensure both frontends are loaded — not just the Prism one above.
+# (Previously only frozone.rb pre-loaded wq_parser, so any embedder that
+# required vm.rb directly — e.g. the rspec harness's vm_loader — hit an
+# uninitialized-constant on the default parse path.) Load-phase require,
+# so box-first BUILD_FILES capture is unaffected. No cycle: wq_parser pulls
+# only parser/ruby40 + ../ast.
+require_relative 'wq_parser'
 
 require_relative 'context'
 require_relative 'frame'
