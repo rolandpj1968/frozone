@@ -135,6 +135,26 @@ module Frozone
             @nodes.flat_map { |n| wire_node(n) }
           end
 
+          # Wire-phase lines grouped by owning source file, for distributed
+          # emission. Keys: owner flat-name (Symbol) | SHARED. Each value:
+          #   { lines: [String], structs: Set[String] }
+          # `structs` are the class flat-names whose definitions the lines
+          # need *complete* (cast targets / constructed types) — for precise
+          # per-TU includes, so the per-owner TU never parses full layouts.
+          # Element/value references are BasicObject* accessors, so they add
+          # nothing.
+          def wire_groups
+            groups = Hash.new { |h, k| h[k] = { lines: [], structs: Set.new } }
+            @nodes.each do |n|
+              lines = wire_node(n)
+              next if lines.empty?
+              g = groups[@owner_of[n.val.object_id]]
+              g[:lines].concat(lines)
+              lines.each { |l| g[:structs].merge(structs_in(l)) }
+            end
+            groups
+          end
+
           # True if this value owns / aliases a snapshot slot (so the
           # emitter's leaf/sentinel accessor builder skips it — the
           # snapshot's alloc_fns emits its accessor instead).
@@ -222,6 +242,26 @@ module Frozone
             when Vm::HashObject  then "(new Hash())"
             else "(new #{val.class_object.full_name.to_s.gsub('::', '_')}())"
             end
+          end
+
+          # Class structs a generated wire line needs *complete*, derived by
+          # scanning the line itself (exact — matches what emit_leaf / cast /
+          # construct actually emitted, so e.g. a `k_X()` user-constant ref
+          # adds nothing while a `(&X_CLASS)` ref pulls X's eigenclass).
+          #   static_cast<T*>  → T          (cast target; BasicObject is base)
+          #   new T(           → T          (constructed type)
+          #   &X_CLASS         → X_eigenclass (the singleton's static type)
+          #   (&_f_i_N)        → Integer    (interned int literal)
+          # Floats / Regexps / Procs surface as `new Float(` / `new Regexp(`
+          # / `new Proc(` and are caught by the `new T(` scan.
+          def structs_in(line)
+            return Set.new if line.start_with?("//")   # // skipped <label>
+            s = Set.new
+            line.scan(/static_cast<(\w+)\*>/) { |(t)| s << t unless t == "BasicObject" }
+            line.scan(/\bnew\s+(\w+)\(/)      { |(t)| s << t }
+            line.scan(/&(\w+)_CLASS\b/)       { |(t)| s << "#{t}_eigenclass" }
+            s << "Integer" if line.include?("_f_i_")
+            s
           end
 
           def wire_node(n)

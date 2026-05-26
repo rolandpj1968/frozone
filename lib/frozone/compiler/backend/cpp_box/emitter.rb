@@ -235,6 +235,7 @@ module Frozone
               # (frozone_static.cpp) — huge AOT-captured constant
               # initializers live there. Step 6 of TU split.
               with_stream(:static) { write_static_state_init }
+              write_snapshot_owner_tus
               write_main_object
             end
             with_stream(:base) { write_base_close }
@@ -3082,7 +3083,45 @@ module Frozone
           #     has @name = "ASCII-8BIT" etc.)
           # Failures (unsupported value type, unresolved class) skip
           # that one ivar with a comment.
+          # Snapshot wire lines grouped by owning source file (memoized —
+          # wire_node has side effects, e.g. int-literal registration, so
+          # it must run exactly once).
+          def snapshot_wire_groups = @snapshot_wire_groups ||= @snapshot.wire_groups
+
+          # Per-owner snapshot wiring TUs. Each owning file's local objects
+          # (~94% of the graph) are wired in their own
+          # frozone_static_<owner>.cpp via __init_static_<owner>__(), so
+          # editing one class recompiles only its small wiring TU (and the
+          # 132 TUs compile in parallel). Precise includes — just the
+          # receiver structs the lines cast to — keep each TU off the full
+          # layouts.hpp parse. SHARED objects stay in frozone_static.cpp.
+          def write_snapshot_owner_tus
+            snapshot_wire_groups.each do |owner, g|
+              next if owner == Snapshot::SHARED || g[:lines].empty?
+              with_stream(:"static_#{owner}") do
+                line %(#include "#{@base_name}_all.hpp")
+                g[:structs].to_a.sort.each { |c| line %(#include "class/#{c}.hpp") }
+                blank
+                line "namespace Ruby {"
+                blank
+                line "void __init_static_#{owner}__() {"
+                indented { g[:lines].each { |l| line l } }
+                line "}"
+                blank
+                line "}  // namespace Ruby"
+                blank
+              end
+            end
+          end
+
           def write_static_state_init
+            # Forward-declare the per-owner wiring entry points (defined in
+            # their own frozone_static_<owner>.cpp TUs) so the dispatcher
+            # below can call them.
+            snapshot_wire_groups.each do |owner, g|
+              next if owner == Snapshot::SHARED || g[:lines].empty?
+              line "void __init_static_#{owner}__();"
+            end
             line "void __init_static_state__() {"
             indented do
               line %|std::fprintf(stderr, "[trace] __init_static_state__ start\\n");| if trace?
@@ -3137,13 +3176,19 @@ module Frozone
                   emit_static_iv_assign("#{flat}_CLASS", flat, name, val)
                 end
               end
-              # Snapshot object graph: wire every reachable object's
-              # elements / entries / ivars, identity-preserving + cycle-safe.
-              # This subsumes the old per-constant ivar loop AND captures
-              # interior unnamed objects + shared/aliased objects + cycles.
-              # alloc_fns (called earlier when building kernel_fns) has set
-              # each array's leaf_full flag, so wiring reads it correctly.
-              @snapshot.wire_lines.each { |l| line l }
+              # Snapshot object graph, distributed by owning source file.
+              # SHARED objects (reached from >=2 files) are wired here in
+              # frozone_static.cpp (it parses full layouts.hpp anyway); each
+              # owning file's local objects are wired by its own
+              # __init_static_<owner>__() TU, dispatched below. Accessors
+              # self-allocate lazily on first call, so cross-TU order and
+              # cycles resolve regardless of dispatch order.
+              shared = snapshot_wire_groups[Snapshot::SHARED]
+              (shared ? shared[:lines] : []).each { |l| line l }
+              snapshot_wire_groups.each do |owner, g|
+                next if owner == Snapshot::SHARED || g[:lines].empty?
+                line "__init_static_#{owner}__();"
+              end
               # Class variables: snapshot each class's @class_variables
               # captured during load phase. Only emit assignments for
               # cvars that have been referenced during emission (i.e.

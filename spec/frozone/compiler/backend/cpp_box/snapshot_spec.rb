@@ -123,6 +123,33 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Snapshot do
     end
   end
 
+  describe "wire_groups distributes lines + precise structs by owner" do
+    it "groups each owner's wiring with the receiver structs it needs" do
+      inner = obj(:@v => int(7))
+      outer = obj(:@inner => inner)              # both owned by :A
+      snap.register_constant(:A_C, outer, owner: :A)
+      other = arr([str("z")])                    # owned by :B
+      snap.register_constant(:B_C, other, owner: :B)
+
+      groups = snap.wire_groups
+      expect(groups[:A][:lines].join("\n")).to include("iv_inner")
+      expect(groups[:A][:structs]).to include("Object")   # ObjectObject cast
+      expect(groups[:B][:structs]).to include("Array")    # array push_back cast
+      # A's group has no Array struct (it wires no arrays)
+      expect(groups[:A][:structs]).not_to include("Array")
+    end
+
+    it "routes a SHARED object's wiring into the SHARED group" do
+      shared_arr = arr([int(1)])
+      a = obj(:@s => shared_arr)
+      b = obj(:@s => shared_arr)
+      snap.register_constant(:A_C, a, owner: :A)
+      snap.register_constant(:B_C, b, owner: :B)   # shared_arr now SHARED
+      groups = snap.wire_groups
+      expect(groups[described_class::SHARED][:structs]).to include("Array")
+    end
+  end
+
   describe "cycles terminate and self-reference resolves" do
     it "handles an object whose ivar points at itself" do
       a = obj

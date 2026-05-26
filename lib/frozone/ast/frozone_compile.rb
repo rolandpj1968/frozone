@@ -89,6 +89,9 @@ module Frozone
               s = stream.to_s
               return "class/#{s.sub('class_hpp_', '')}.hpp" if s.start_with?("class_hpp_")
               return "#{base}_#{stream}.cpp" if s.start_with?("class_")
+              # Per-owner snapshot wiring TUs: `:static_<owner>` →
+              # `frozone_static_<owner>.cpp` (distributed object graph).
+              return "#{base}_#{stream}.cpp" if s.start_with?("static_")
               raise "unknown emit stream: #{stream}"
             end
             written_count = 0
