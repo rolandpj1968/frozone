@@ -135,13 +135,10 @@ module Frozone
             "(k_#{flat}() = #{from_expr(node.value_node, locals)})"
           end
 
-          # Fused singletons + class-CLASS singletons are not writable
-          # storage — they're returned by-value or as address-of-static.
-          # Raising here keeps the runtime abort message specific.
+          # class-CLASS singletons are not writable storage — they're
+          # returned as address-of-static. Raising here keeps the runtime
+          # abort message specific.
           def ensure_writable_constant!(flat, kind)
-            if FUSED_CONSTANT_TARGETS.key?(flat) || FUSED_CLASS_TARGETS.key?(flat)
-              raise Cpp::EmissionError, "#{kind}: target #{flat} is a fused singleton — not writable"
-            end
             unless @user_constants.key?(flat)
               raise Cpp::EmissionError, "#{kind}: target #{flat} is not a user_constant — not writable (class CLASS singleton or runtime-only)"
             end
@@ -199,43 +196,19 @@ module Frozone
           def resolve_constant(parts)
             (scope_prefixes + [[]]).each do |prefix|
               flat = (prefix + parts).join("_").to_sym
-              return flat if @user_constants.key?(flat) || instantiable_class?(flat) ||
-                             FUSED_CONSTANT_TARGETS.key?(flat)
+              return flat if @user_constants.key?(flat) || instantiable_class?(flat)
             end
             nil
           end
 
           def resolve_top_level(parts)
             flat = parts.join("_").to_sym
-            (@user_constants.key?(flat) || instantiable_class?(flat) ||
-              FUSED_CONSTANT_TARGETS.key?(flat)) ? flat : nil
+            (@user_constants.key?(flat) || instantiable_class?(flat)) ? flat : nil
           end
 
-          # Phase 2 fusion: Frozone::Vm::{Nil,False,True}Object are the
-          # interpreter's host-Ruby class declarations for nil/false/true.
-          # In compiled mode they collapse into the runtime's nil/false/
-          # true classes — so a reference to NilObject is just NilClass,
-          # NilObject::NIL is just nil_instance(), etc. Same for
-          # FalseObject/TrueObject. Maps are scoped here to keep
-          # format_constant the single point of resolution.
-          # De-fused: Vm::NilObject etc. are their own classes again; no
-          # reference is redirected to the runtime NilClass/etc.
-          FUSED_CLASS_TARGETS = {}.freeze
-          # De-fused: NilObject::NIL etc. resolve to their own Vm singleton
-          # accessors (k_Frozone_Vm_NilObject_NIL()), not the runtime
-          # nil_instance()/false_instance()/true_instance().
-          FUSED_CONSTANT_TARGETS = {}.freeze
-
-          # Format a resolved Symbol as the right C++ expression:
-          # accessor call for value constants, address-of-singleton for
-          # classes.
+          # Format a resolved Symbol as the right C++ expression: accessor
+          # call for value constants, address-of-singleton for classes.
           def format_constant(name)
-            if (runtime_inst = FUSED_CONSTANT_TARGETS[name])
-              return "static_cast<BasicObject*>(#{runtime_inst})"
-            end
-            if (runtime_class = FUSED_CLASS_TARGETS[name])
-              return "(&#{runtime_class}_CLASS)"
-            end
             return "k_#{name}()" if @user_constants.key?(name)
             "(&#{name}_CLASS)"
           end
@@ -279,7 +252,6 @@ module Frozone
           # class.
           def instantiable_class?(name)
             @user_classes.key?(name) ||
-              FUSED_CLASS_TARGETS.key?(name) ||
               Runtime::ALL_CLASSES.any? { |k| k.name == name.to_s }
           end
 

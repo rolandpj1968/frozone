@@ -292,31 +292,6 @@ module Frozone
           # etc.) — they have hand-coded backing already.
           UNIVERSE_NAMES = Set.new(Runtime::ALL_CLASSES.map(&:name)).freeze
 
-          # Phase 2 singleton fusion: Frozone::Vm::{Nil,False,True}Object
-          # are the interpreter's host-Ruby class declarations for
-          # nil/false/true. In compiled mode they collapse into the
-          # runtime nil/false/true classes — methods overlaid into
-          # NilClass/FalseClass/TrueClass; the standalone class skipped
-          # entirely; class-level constants (NIL/FALSE/TRUE) remapped
-          # to runtime singletons via constant_resolver. Map is full
-          # Ruby name → flat user-class key → runtime class name.
-          # De-fused: nil/true/false are now ordinary Vm classes (the
-          # interpreter keeps the membrane — guest nil is Vm::NilObject::NIL,
-          # distinct from frozone-internal nil_instance(); only the AOT
-          # compiler dissolves the distinction). Empty table = no class is
-          # collapsed onto its runtime counterpart in the compiled
-          # interpreter.
-          FUSED_VM_CLASSES = {}.freeze
-          FUSED_VM_CLASS_FLAT_KEYS = Set.new(FUSED_VM_CLASSES.values.map { |v| v[:flat] }).freeze
-          FUSED_VM_CLASS_FULL_NAMES = Set.new(FUSED_VM_CLASSES.keys).freeze
-          # Reverse map for ref resolution: fused flat name → runtime
-          # flat name. Used in host_class_refs collection to redirect
-          # references to fused classes (Frozone_Vm_FalseObject ⇒
-          # FalseClass) since the fused class has no per-class hpp.
-          FUSED_VM_FLAT_TO_RUNTIME = FUSED_VM_CLASSES.values.each_with_object({}) do |v, h|
-            h[v[:flat]] = v[:runtime].to_sym
-          end.freeze
-
           # Methods that the receiver-aware send widening would normally
           # pull into the surface but whose compiled bodies break the
           # C++ build. Blacklist them until the underlying emission
@@ -335,15 +310,6 @@ module Frozone
           def overlay_universe_methods(universe_classes)
             top = @top_level_scope.constants_table || {}
             by_name = universe_classes.each_with_object({}) { |k, h| h[k.name] = k }
-            # Fused-VM lookup: runtime class name → matching
-            # Frozone::Vm::*Object Vm::ClassObject (or nil). Their
-            # methods are merged into the runtime class below; the
-            # user-level NilClass (etc.) wins on name conflict.
-            fused_vm_for = FUSED_VM_CLASSES.each_with_object({}) do |(full_name, entry), h|
-              path = full_name.split("::")
-              cls = lookup_vm_class_by_path(top, path)
-              h[entry[:runtime]] = cls if cls.is_a?(Vm::ClassObject)
-            end
             universe_classes.map do |klass|
               cls = top[klass.name.to_sym]
               next klass unless cls.is_a?(Vm::ClassObject)
@@ -364,27 +330,6 @@ module Frozone
                 .map { |iv| "BasicObject* iv_#{iv} = nil_instance();" }
               own_hand_coded = (klass.hand_coded_method_names || []).to_set
               chains = class_method_chains(cls)
-              # Phase 2 fusion: merge methods defined directly on the
-              # matching Frozone::Vm::*Object class into the runtime
-              # overlay. Only :self-origin entries — inherited methods
-              # from Frozone::Vm::ObjectObject etc. would reference
-              # ivars (iv_class_object, iv_eigenclass) that don't
-              # exist on the runtime class struct (NilClass extends
-              # Object, not Frozone_Vm_ObjectObject). Inherited methods
-              # are still reachable on the original Frozone::Vm::*Object
-              # path via normal dispatch when called on instances of
-              # those user classes.
-              # User-level class (e.g. NilClass) wins on name conflict
-              # — the merge block keeps `chains`'s entry over the
-              # fused VM source's, so MRI-correct definitions
-              # (NilClass#to_s = "") aren't shadowed by interpreter-
-              # internal helpers (NilObject#to_s = "nil").
-              if (fused_cls = fused_vm_for[klass.name])
-                fused_chains = class_method_chains(fused_cls)
-                  .transform_values { |entries| entries.select { |origin, _| origin == :self } }
-                  .reject { |_, entries| entries.empty? }
-                chains = fused_chains.merge(chains) { |_k, _from_fused, from_user| from_user }
-              end
               klass.dup.tap do |k|
                 k.overrides = overlay_overrides_chained(klass.name, klass.overrides || {}, chains, hand_coded, own_hand_coded, host_class: cls)
                 # Eigenclass methods don't take super (no MRO walk for
@@ -394,23 +339,6 @@ module Frozone
                 k.members = (k.members || []) + extra_ivars unless extra_ivars.empty?
               end
             end
-          end
-
-          # Walk a constants tree by Symbol path: ["Frozone", "Vm",
-          # "NilObject"] → top[:Frozone].constants_table[:Vm].constants_table[:NilObject].
-          # Returns the resolved value or nil at any failure.
-          def lookup_vm_class_by_path(top_consts, path)
-            current = top_consts
-            path.each_with_index do |part, idx|
-              if idx == 0
-                current = current[part.to_sym]
-              else
-                return nil unless current.respond_to?(:constants_table)
-                current = (current.constants_table || {})[part.to_sym]
-              end
-              return nil if current.nil?
-            end
-            current
           end
 
           # Union of hand_coded_method_names across the runtime ancestor
@@ -582,14 +510,9 @@ module Frozone
                   # would re-emit its methods, defeating the universe
                   # overlay). Compare by `full_name` since that's what
                   # the universe knows about.
-                  # Also filter out FUSED_VM_CLASSES — those share C++
-                  # backing with runtime nil/false/true and their
-                  # methods are merged into the runtime class via
-                  # overlay_universe_methods (see fused_vm_method_chains).
                   vm_full = (val.full_name || val.name).to_s
                   is_universe = UNIVERSE_NAMES.include?(flat.to_s) || UNIVERSE_NAMES.include?(vm_full)
-                  is_fused = FUSED_VM_CLASS_FULL_NAMES.include?(vm_full) || FUSED_VM_CLASS_FLAT_KEYS.include?(flat)
-                  classes[flat] = val unless is_universe || is_fused
+                  classes[flat] = val unless is_universe
                   walk.call(val, flat)
                 end
               end
@@ -624,34 +547,6 @@ module Frozone
           # `k_<flat>()` later — primitives emit as literal
           # expressions, ObjectObjects as default-construct + ivar
           # populate from the snapshot.
-          # Skip the bootstrap NIL/FALSE/TRUE constants on the fused
-          # Frozone::Vm classes — constant_resolver remaps them to
-          # nil_instance() / false_instance() / true_instance() at
-          # emission time, so no k_<flat>() accessor is needed and
-          # any accessor that DID get emitted would try to construct a
-          # filtered-out class.
-          # De-fused: the NIL/FALSE/TRUE guest singletons now get real
-          # per-constant accessors (they construct Vm::NilObject etc.),
-          # so nothing is skipped here.
-          FUSED_VM_BOOTSTRAP_CONSTANTS = Set.new.freeze
-
-          # True if `val` is the Frozone::Vm::*Object singleton instance
-          # (NIL / FALSE / TRUE) of any of the fused VM classes. The
-          # filter has to be by class-name (not object identity) because
-          # the constant might be reached via an alias path
-          # (Frozone::Vm::Intrinsics::FNIL aliases NilObject::NIL); the
-          # Vm::ObjectObject value itself is the same singleton in all
-          # cases. constant_resolver redirects fused-singleton refs to
-          # nil_instance()/false_instance()/true_instance() at emission;
-          # no per-constant accessor is needed (and any accessor would
-          # try to construct a filtered-out class).
-          def fused_vm_singleton?(val)
-            return false unless val.is_a?(Vm::ObjectObject)
-            return false unless val.respond_to?(:class_object) && val.class_object
-            full = (val.class_object.full_name || val.class_object.name).to_s
-            FUSED_VM_CLASS_FULL_NAMES.include?(full)
-          end
-
           def collect_user_constants
             consts = {}
             # Owning source file per constant flat-name: the enclosing scope's
@@ -668,7 +563,8 @@ module Frozone
                 if val.is_a?(Vm::ClassObject) || val.is_a?(Vm::ModuleObject)
                   walk.call(val, flat)
                 elsif val.is_a?(Vm::ObjectObject)
-                  (consts[flat] = val; @constant_owner[flat] = owner) unless FUSED_VM_BOOTSTRAP_CONSTANTS.include?(flat)
+                  consts[flat] = val
+                  @constant_owner[flat] = owner
                 elsif val.is_a?(Vm::HoistedConstantSentinel)
                   # --hoist-class-consts moved this constant's initialiser
                   # to the execute phase. The slot is occupied by a sentinel
@@ -695,7 +591,8 @@ module Frozone
                   if val.is_a?(Vm::ClassObject) || val.is_a?(Vm::ModuleObject)
                     walk.call(val, flat)
                   elsif val.is_a?(Vm::ObjectObject)
-                    (consts[flat] = val; @constant_owner[flat] = owner) unless FUSED_VM_BOOTSTRAP_CONSTANTS.include?(flat)
+                    consts[flat] = val
+                    @constant_owner[flat] = owner
                   elsif val.is_a?(Vm::HoistedConstantSentinel)
                     consts[flat] = val
                   end
@@ -1059,12 +956,6 @@ module Frozone
                 scope = scope_owner.respond_to?(:full_name) ? Reachability.scope_for_class(scope_owner) : []
                 resolved = const_path_to_class.call(node, scope)
                 if resolved
-                  # Redirect refs to fused VM classes (Frozone::Vm::NilObject
-                  # etc.) to their runtime fusion target (NilClass etc.).
-                  # The fused class has no per-class hpp file.
-                  if FUSED_VM_FLAT_TO_RUNTIME.key?(resolved[1])
-                    resolved = [nil, FUSED_VM_FLAT_TO_RUNTIME[resolved[1]]]
-                  end
                   # Compute the host's flat name for indexing.
                   # Eigenclasses (`is_singleton_class`) get a synthetic
                   # `<OwnerFlat>_eigenclass` form that matches the
@@ -1443,7 +1334,6 @@ module Frozone
                 # picks up the corresponding `#include "class/Foo_eigenclass.hpp"`.
                 if val.is_a?(Vm::ModuleObject) && val.full_name
                   ref_flat = val.full_name.to_s.gsub("::", "_").to_sym
-                  ref_flat = FUSED_VM_FLAT_TO_RUNTIME[ref_flat] if FUSED_VM_FLAT_TO_RUNTIME.key?(ref_flat)
                   @host_class_refs[eigen.name.to_sym] << ref_flat
                 end
               end
@@ -3128,37 +3018,6 @@ module Frozone
               # Onigmo regex engine — must run before any Regexp
               # construction. Cheap (registers UTF-8 encoding tables).
               line "init_onigmo();"
-              # Singleton ivar init for fused VM singletons.
-              # Post-de-fusion (#79): NilClass / TrueClass / FalseClass
-              # inherit from Object, which carries the iv_class_object /
-              # iv_eigenclass / iv_frozen_object / iv_instance_variables_hash
-              # slots. The fused singletons (NIL_INSTANCE etc.) still need
-              # iv_class_object populated so any code that reads it (frozen-
-              # AOT's compiled dispatch/lookup_method etc.) sees a real
-              # Vm::ClassObject. The bootstrap-side accessor
-              # `k_Frozone_Vm_Core_<X>_CLASS()` returns the
-              # Frozone_Vm_ClassObject* whose ivars are written further
-              # down in this same init function.
-              runtime_by_name = Runtime::ALL_CLASSES.each_with_object({}) { |c, h| h[c.name] = c }
-              FUSED_VM_CLASSES.each_value do |entry|
-                runtime_cls = runtime_by_name[entry[:runtime]] or next
-                singleton = runtime_cls.singleton or next
-                # "NilClass" → "NIL_CLASS"; bootstrap accessor is
-                # `k_Frozone_Vm_Core_NIL_CLASS_CLASS()` — only emitted
-                # when frozen-AOT is the build root (Frozone::Vm::Core::
-                # NIL_CLASS is in @user_constants then). Sub-stubs (fib.rb
-                # etc.) skip the iv_class_object init; the singleton's
-                # default nil_instance() is fine since static dispatch
-                # never reads it.
-                snake_upper = entry[:runtime].gsub(/([A-Z]+)([A-Z][a-z])/, '\\1_\\2')
-                                             .gsub(/([a-z\\d])([A-Z])/, '\\1_\\2').upcase
-                vm_const_flat = :"Frozone_Vm_Core_#{snake_upper}_CLASS"
-                if @user_constants.key?(vm_const_flat)
-                  line "#{singleton}.iv_class_object = k_#{vm_const_flat}();"
-                end
-                line "#{singleton}.iv_instance_variables_hash = new Hash();"
-                line "#{singleton}.iv_frozen_object = true_instance();"
-              end
               # Eigenclass singleton class-id population — drives
               # is_a?'s LUT lookup. Also goes via static state init
               # (singletons are constructed before main; we're just
