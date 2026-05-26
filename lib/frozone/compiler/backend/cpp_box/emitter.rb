@@ -164,6 +164,7 @@ module Frozone
             # emission + decorate_eigenclasses (which calls emit_vm_value).
             @snapshot = Snapshot.new(@cpp)
             register_snapshot_roots(@snapshot)
+            warn "[snapshot] partition #{@snapshot.partition_report.inspect}" if ENV['FROZONE_SNAPSHOT_STATS'] == '1'
             @cpp.snapshot = @snapshot
             @call_surface = collect_call_surface
             @const_surface = collect_dynamic_constant_surface
@@ -652,16 +653,21 @@ module Frozone
 
           def collect_user_constants
             consts = {}
+            # Owning source file per constant flat-name: the enclosing scope's
+            # flat-name (its TU), or :main for top-level. Drives the snapshot's
+            # object-graph distribution to owning TUs.
+            @constant_owner = {}
             seen = Set.new
             walk = ->(scope, prefix) {
               return if seen.include?(scope.object_id)
               seen << scope.object_id
+              owner = prefix || :main
               (scope.constants_table || {}).each do |name, val|
                 flat = prefix ? :"#{prefix}_#{name}" : name
                 if val.is_a?(Vm::ClassObject) || val.is_a?(Vm::ModuleObject)
                   walk.call(val, flat)
                 elsif val.is_a?(Vm::ObjectObject)
-                  consts[flat] = val unless FUSED_VM_BOOTSTRAP_CONSTANTS.include?(flat)
+                  (consts[flat] = val; @constant_owner[flat] = owner) unless FUSED_VM_BOOTSTRAP_CONSTANTS.include?(flat)
                 elsif val.is_a?(Vm::HoistedConstantSentinel)
                   # --hoist-class-consts moved this constant's initialiser
                   # to the execute phase. The slot is occupied by a sentinel
@@ -688,7 +694,7 @@ module Frozone
                   if val.is_a?(Vm::ClassObject) || val.is_a?(Vm::ModuleObject)
                     walk.call(val, flat)
                   elsif val.is_a?(Vm::ObjectObject)
-                    consts[flat] = val unless FUSED_VM_BOOTSTRAP_CONSTANTS.include?(flat)
+                    (consts[flat] = val; @constant_owner[flat] = owner) unless FUSED_VM_BOOTSTRAP_CONSTANTS.include?(flat)
                   elsif val.is_a?(Vm::HoistedConstantSentinel)
                     consts[flat] = val
                   end
@@ -737,13 +743,14 @@ module Frozone
             # (a later anon root referencing it would otherwise mint k_snap_N).
             @user_constants.each do |flat, val|
               next if val.is_a?(Vm::HoistedConstantSentinel)
-              snap.register_constant(flat, val)
+              snap.register_constant(flat, val, owner: @constant_owner[flat] || :main)
             end
-            # Then anonymous roots: class/module instance ivars + cvars.
-            @user_classes.each_value do |cls|
-              (cls.instance_variables_hash || {}).each_value { |v| snap.register_anon(v) }
+            # Then anonymous roots: class/module instance ivars + cvars. The
+            # owning file is the class's own TU (its flat-name key).
+            @user_classes.each do |flat, cls|
+              (cls.instance_variables_hash || {}).each_value { |v| snap.register_anon(v, owner: flat) }
               if cls.respond_to?(:class_variables) && cls.class_variables
-                cls.class_variables.each_value { |v| snap.register_anon(v) }
+                cls.class_variables.each_value { |v| snap.register_anon(v, owner: flat) }
               end
             end
           end

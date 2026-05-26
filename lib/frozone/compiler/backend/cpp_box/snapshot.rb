@@ -39,11 +39,18 @@ module Frozone
           # leaf_full: array fully built at alloc (int64_t[] table) — no wiring.
           Node = Struct.new(:val, :accessor, :leaf_full, keyword_init: true)
 
+          # Sentinel owner: object reached from ≥2 owning source files, so it
+          # (and its whole closure) lives in the shared/global TU rather than
+          # any one owner's file. Distinct from an unseen object (absent key)
+          # and from a single owner (a flat-name Symbol).
+          SHARED = :__shared__
+
           def initialize(cpp)
             @cpp = cpp
             @by_id  = {}   # object_id => canonical accessor name (no parens)
             @nodes  = []   # [Node] canonical objects, discovery order
             @aliases = []  # [[alias_accessor, canonical_accessor]]
+            @owner_of = {} # object_id => owning-file flat-name | SHARED
             @anon_seq = 0
           end
 
@@ -51,23 +58,38 @@ module Frozone
           #   :canonical — this name owns a freshly-interned object
           #   :alias     — object already owned elsewhere; routes to it
           #   :leaf      — not slottable (caller emits inline as before)
-          def register_constant(flat, val)
+          def register_constant(flat, val, owner: :main)
             return :leaf unless slottable?(val)
             name = "k_#{flat}"
             oid = val.object_id
             if (canon = @by_id[oid])
               @aliases << [name, canon]
+              note_owner(val, owner)   # a 2nd file naming it may make it shared
               :alias
             else
-              intern(val, preferred: name)
+              intern(val, preferred: name, owner: owner)
               :canonical
             end
           end
 
           # Seed an anonymous root (class/module ivar value, cvar value).
-          def register_anon(val)
-            intern(val, preferred: nil) if slottable?(val)
+          def register_anon(val, owner: :main)
+            intern(val, preferred: nil, owner: owner) if slottable?(val)
             nil
+          end
+
+          # Owning source file for a value: a flat-name Symbol, SHARED, or nil
+          # (leaf / never interned). Valid after discovery.
+          def owner_of(val) = @owner_of[val.object_id]
+
+          # Local-vs-shared partition stats (valid after discovery). Predicts
+          # the distribution win: `local` objects move to their owning TU,
+          # `shared` stay in the global TU.
+          def partition_report
+            by_owner = @owner_of.values.tally
+            shared = by_owner.delete(SHARED) || 0
+            { total: @nodes.size, shared: shared, local: by_owner.values.sum,
+              owners: by_owner.size, top: by_owner.sort_by { |_, c| -c }.first(8) }
           end
 
           # C++ reference expression for a value (valid after discovery).
@@ -139,14 +161,39 @@ module Frozone
             end
           end
 
-          def intern(val, preferred:)
+          def intern(val, preferred:, owner:)
             oid = val.object_id
-            return @by_id[oid] if @by_id.key?(oid)
+            if @by_id.key?(oid)
+              note_owner(val, owner)   # revisit: same owner is fine, cross-owner shares
+              return @by_id[oid]
+            end
             acc = preferred || "k_snap_#{@anon_seq += 1}"
             @by_id[oid] = acc
+            @owner_of[oid] = owner
             @nodes << Node.new(val: val, accessor: acc)
-            edges_of(val).each { |ref| intern(ref, preferred: nil) if slottable?(ref) }
+            edges_of(val).each { |ref| intern(ref, preferred: nil, owner: owner) if slottable?(ref) }
             acc
+          end
+
+          # Record a (re)visit to an already-interned object from `owner`.
+          # Unchanged if same owner or already shared; a different owner means
+          # the object is reachable from ≥2 files → promote it (and its whole
+          # closure) to SHARED.
+          def note_owner(val, owner)
+            cur = @owner_of[val.object_id]
+            return if cur == SHARED || cur == owner
+            promote(val)
+          end
+
+          # Mark val + everything reachable from it SHARED. The early
+          # SHARED return makes this idempotent and cycle-safe (a cyclic
+          # shared subgraph stops once every node is marked).
+          def promote(val)
+            return unless slottable?(val)
+            oid = val.object_id
+            return if @owner_of[oid] == SHARED
+            @owner_of[oid] = SHARED
+            edges_of(val).each { |ref| promote(ref) }
           end
 
           def edges_of(val)

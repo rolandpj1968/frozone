@@ -85,6 +85,44 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Snapshot do
     end
   end
 
+  describe "owner partition (distribution to owning source file)" do
+    it "keeps an object local when reached only from one owner" do
+      x = arr([int(1)])
+      snap.register_constant(:A_C1, x, owner: :A)
+      snap.register_constant(:A_C2, x, owner: :A)   # same owner, second reference
+      expect(snap.owner_of(x)).to eq(:A)
+    end
+
+    it "promotes an object to SHARED when reached from two owners" do
+      x = arr([int(1)])
+      snap.register_constant(:A_C, x, owner: :A)
+      snap.register_constant(:B_C, x, owner: :B)
+      expect(snap.owner_of(x)).to eq(described_class::SHARED)
+    end
+
+    it "promotes the whole closure when a parent is promoted" do
+      inner = obj(:@v => int(7))
+      outer = obj(:@inner => inner)
+      snap.register_constant(:A_C, outer, owner: :A)   # A owns outer + inner
+      other = obj(:@ref => outer)
+      snap.register_constant(:B_C, other, owner: :B)   # B reaches outer
+      expect(snap.owner_of(outer)).to eq(described_class::SHARED)
+      expect(snap.owner_of(inner)).to eq(described_class::SHARED)  # closure promoted recursively
+      expect(snap.owner_of(other)).to eq(:B)                       # B's private wrapper stays local
+    end
+
+    it "terminates closure promotion across a cycle" do
+      a = obj
+      b = obj(:@back => a)
+      a.set_ivar(:@fwd, b)
+      snap.register_constant(:A_C, a, owner: :A)       # A owns a + b
+      holder = obj(:@h => a)
+      snap.register_constant(:B_C, holder, owner: :B)  # B reaches a → promote a + b (cyclic)
+      expect(snap.owner_of(a)).to eq(described_class::SHARED)
+      expect(snap.owner_of(b)).to eq(described_class::SHARED)
+    end
+  end
+
   describe "cycles terminate and self-reference resolves" do
     it "handles an object whose ivar points at itself" do
       a = obj
