@@ -155,6 +155,14 @@ module Frozone
               "([&]() -> BasicObject* { auto* _a = static_cast<Array*>(#{self_}); int64_t _i = static_cast<Integer*>(#{i})->raw_; return (_i < 0 || _i >= (int64_t)_a->data.size()) ? nil_instance() : _a->data[_i]; }())"
             },
             array_push: ->(self_, v) { "(static_cast<Array*>(#{self_})->data.push_back(#{v}), #{self_})" },
+            # pop/shift: core's __check_frozen__ runs before the intrinsic,
+            # so no frozen recheck here. Empty → nil.
+            array_pop: ->(self_) {
+              "([&]() -> BasicObject* { auto* _a = static_cast<Array*>(#{self_}); if (_a->data.empty()) return nil_instance(); BasicObject* _v = _a->data.back(); _a->data.pop_back(); return _v; }())"
+            },
+            array_shift: ->(self_) {
+              "([&]() -> BasicObject* { auto* _a = static_cast<Array*>(#{self_}); if (_a->data.empty()) return nil_instance(); BasicObject* _v = _a->data.front(); _a->data.erase(_a->data.begin()); return _v; }())"
+            },
             array_replace: ->(self_, other) {
               "(static_cast<Array*>(#{self_})->data = static_cast<Array*>(#{other})->data, #{self_})"
             },
