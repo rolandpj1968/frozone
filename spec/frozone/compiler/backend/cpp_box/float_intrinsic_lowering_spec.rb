@@ -62,9 +62,26 @@ RSpec.describe "Float intrinsic lowering" do
     end
   end
 
-  describe "deferred (Phase 2) intrinsics still raise" do
-    it "float_round is not yet lowered" do
-      expect { lower(:float_round, "x") }.to raise_error(Frozone::Compiler::Backend::CppBox::Cpp::EmissionError)
+  describe "Phase 2 round-family + multi-return → hpp functions" do
+    it "lowers float_round to the hpp fn with self/ndigits/half" do
+      expect(lower(:float_round, "s", "n", "h")).to eq("intrinsic_float_round(s, n, h)")
+    end
+    it "lowers float_ceil / float_floor / float_truncate with ndigits" do
+      expect(lower(:float_ceil, "s", "n")).to eq("intrinsic_float_ceil(s, n)")
+      expect(lower(:float_floor, "s", "n")).to eq("intrinsic_float_floor(s, n)")
+      expect(lower(:float_truncate, "s", "n")).to eq("intrinsic_float_truncate(s, n)")
+    end
+    it "lowers float_frexp / float_lgamma (multi-value returns)" do
+      expect(lower(:float_frexp, "s")).to eq("intrinsic_float_frexp(s)")
+      expect(lower(:float_lgamma, "s")).to eq("intrinsic_float_lgamma(s)")
+    end
+  end
+
+  describe "still-deferred (Rational / domain-raise) intrinsics raise" do
+    %i[float_to_r float_rationalize float_gamma].each do |name|
+      it "#{name} is not yet lowered" do
+        expect { lower(name, "x") }.to raise_error(Frozone::Compiler::Backend::CppBox::Cpp::EmissionError)
+      end
     end
   end
 end

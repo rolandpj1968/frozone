@@ -461,10 +461,12 @@ module Frozone
               "op_ne_q"     => { params: ["BasicObject* other"], body: "if (auto* f = dynamic_cast<Float*>(other)) return boxed_bool(raw_ != f->raw_); if (auto* i = dynamic_cast<Integer*>(other)) return boxed_bool(raw_ != static_cast<double>(i->raw_)); return true_instance();" },
               "op_neg"      => { params: [],                     body: "return new Float(-raw_);" },
               "op_pow"       => { params: ["BasicObject* other"], body: "return new Float(std::pow(raw_, as_double(other)));" },
-              "m_floor"    => { params: [], body: "return new Integer(static_cast<int64_t>(std::floor(raw_)));" },
-              "m_ceil"     => { params: [], body: "return new Integer(static_cast<int64_t>(std::ceil(raw_)));" },
-              "m_round"    => { params: [], body: "return new Integer(static_cast<int64_t>(std::round(raw_)));" },
-              "m_truncate" => { params: [], body: "return new Integer(static_cast<int64_t>(std::trunc(raw_)));" },
+              # ceil/floor/round/truncate live in core/4.0/float.rb, which
+              # declares the optional ndigits param (and round's half:
+              # keyword) and delegates to the ndigits-aware
+              # intrinsic_float_* functions. A hand-coded params:[] override
+              # here would both shadow those and silently ignore ndigits
+              # (x.round(2) → wrong), so it's intentionally absent.
               "m_abs"      => { params: [], body: "return new Float(std::fabs(raw_));" },
               "m_to_int"   => { params: [], body: "return new Integer(static_cast<int64_t>(std::trunc(raw_)));" },
               "mm_finite_q" => { params: [], body: "return boxed_bool(std::isfinite(raw_));" },

@@ -237,6 +237,7 @@ namespace integer_detail {
 #include "intrinsics/dir_intrinsics.hpp"
 #include "intrinsics/env_intrinsics.hpp"
 #include "intrinsics/file_intrinsics.hpp"
+#include "intrinsics/float_intrinsics.hpp"
 #include "intrinsics/hash_intrinsics.hpp"
 #include "intrinsics/integer_intrinsics.hpp"
 #include "intrinsics/io_intrinsics.hpp"
