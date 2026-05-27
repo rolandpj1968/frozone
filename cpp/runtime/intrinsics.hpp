@@ -38,6 +38,17 @@
 // since this file is `#include`d inside `namespace Ruby { ... }` and
 // nesting <csignal>/<unistd.h> there breaks symbol resolution.)
 
+// Loud stub for a reachable-but-deliberately-unimplemented intrinsic.
+// IntrinsicLowering emits a call to this for names in STUB_INTRINSICS,
+// so the method compiles (and is reached/dispatched normally) but a hit
+// aborts loudly with the name instead of silently falling through to
+// method_missing. [[noreturn]] keeps the enclosing method's control-flow
+// analysis clean (no -Wreturn-type) despite the BasicObject* return type.
+[[noreturn]] inline BasicObject* intrinsic_not_implemented(const char* name) {
+  std::fprintf(stderr, "[box-first] intrinsic %s not implemented (reachable stub)\n", name);
+  std::abort();
+}
+
 // ---- String --------------------------------------------------------
 
 // `String#index(sub, offset = :__unset__)` — find first byte-position

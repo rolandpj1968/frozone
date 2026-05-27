@@ -18,7 +18,9 @@ require 'set'
 require 'frozone/compiler/backend/cpp_box/cpp'
 
 IL = Frozone::Compiler::Backend::CppBox::IntrinsicLowering
-lowered = (IL::TEMPLATES.keys.map(&:to_s) + IL::HPP_INTRINSICS.map(&:to_s)).to_set
+real    = (IL::TEMPLATES.keys.map(&:to_s) + IL::HPP_INTRINSICS.map(&:to_s)).to_set
+stubbed = (IL.const_defined?(:STUB_INTRINSICS) ? IL::STUB_INTRINSICS.map(&:to_s) : []).to_set
+lowered = real | stubbed   # both are "definite states"; gap = neither
 
 core_glob = File.expand_path('../lib/core/4.0/**/*.rb', __dir__)
 calls = Hash.new { |h, k| h[k] = 0 }   # cpp-name => call-site count
@@ -37,8 +39,10 @@ cat = ->(n) { n.split('_').first }
 by_cat = gap.group_by(&cat)
 reach_by_cat = reachable.group_by(&cat)
 
+real_n = (reachable & real).size
+stub_n = (reachable & stubbed).size
 puts "=== Box-first intrinsic coverage (compiled core/4.0 surface) ==="
-puts "reachable: #{reachable.size}   lowered: #{covered.size}   GAP: #{gap.size}"
+puts "reachable: #{reachable.size}   real: #{real_n}   stubbed: #{stub_n}   unclassified GAP: #{gap.size}"
 puts
 puts "By category  (reachable / gap):"
 reach_by_cat.keys.sort_by { |c| -(by_cat[c]&.size || 0) }.each do |c|

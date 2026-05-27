@@ -46,10 +46,50 @@ module Frozone
             # uses the canonical `intrinsic_foo_q` name.
             cpp_name = name.to_s.end_with?('?') ? "#{name.to_s.chomp('?')}_q" : name.to_s
             return "intrinsic_#{cpp_name}(#{arg_strs.join(', ')})" if HPP_INTRINSICS.include?(cpp_name.to_sym)
-            raise Cpp::EmissionError, "intrinsic :#{name} not yet supported"
+            # Deliberately-stubbed reachable intrinsic: compile a method
+            # that aborts loudly with the name if reached, rather than
+            # silently skipping to method_missing. A definite, tracked
+            # state (see scripts/intrinsic_coverage.rb).
+            return "intrinsic_not_implemented(#{cpp_name.inspect})" if STUB_INTRINSICS.include?(cpp_name.to_sym)
+            raise Cpp::EmissionError, "intrinsic :#{name} not yet supported (classify: implement or add to STUB_INTRINSICS)"
           rescue ArgumentError => e
             raise Cpp::EmissionError, "intrinsic :#{name}: #{e.message}"
           end
+
+          # Reachable-from-core intrinsics deliberately left unimplemented:
+          # lower() emits intrinsic_not_implemented(name) (loud abort) so a
+          # hit is visible, not a silent method_missing. Conservative — only
+          # categories the interpreter does not exercise internally
+          # (ObjectSpace, Encoding::Converter, Method/UnboundMethod
+          # reflection, niche singletons). Risky/load-bearing reflection
+          # (module_attr_*, object_clone, Fiber[:context] storage, binding,
+          # define_method) stays UNclassified (raises → skip) until each is
+          # implemented or proven dead. Upgrade stub→real by demand; the
+          # build aborts loudly if one of these turns out to be exercised.
+          STUB_INTRINSICS = Set.new(%i[
+            objectspace_count_objects objectspace_define_finalizer
+            objectspace_each_object objectspace_garbage_collect
+            objectspace_id2ref objectspace_undefine_finalizer
+            encoding_converter_asciicompat_encoding encoding_converter_convert
+            encoding_converter_convpath encoding_converter_destination_encoding
+            encoding_converter_finish encoding_converter_insert_output
+            encoding_converter_inspect encoding_converter_last_error
+            encoding_converter_new encoding_converter_primitive_convert
+            encoding_converter_primitive_errinfo encoding_converter_putback
+            encoding_converter_replacement encoding_converter_replacement_set
+            encoding_converter_search_convpath encoding_converter_source_encoding
+            bound_method_arity bound_method_call bound_method_dup bound_method_eql
+            bound_method_hash bound_method_name bound_method_original_name
+            bound_method_owner bound_method_parameters bound_method_receiver
+            bound_method_source_location bound_method_super bound_method_to_proc
+            bound_method_unbind
+            unbound_method_arity unbound_method_bind unbound_method_dup
+            unbound_method_eq unbound_method_hash unbound_method_name
+            unbound_method_original_name unbound_method_owner
+            unbound_method_parameters unbound_method_source_location
+            unbound_method_super
+            locale_charmap refinement_import_method method_ruby_defined_q
+          ]).freeze
 
           # Names with `intrinsic_<name>(...)` definitions in
           # cpp/runtime/intrinsics.hpp. Anything in this set lowers to
@@ -176,7 +216,7 @@ module Frozone
             # Integer arithmetic — direct unboxed ops on raw_ + box.
             integer__plus_:  ->(s, o) { "(new Integer(static_cast<Integer*>(#{s})->raw_ + static_cast<Integer*>(#{o})->raw_))" },
             integer__minus_: ->(s, o) { "(new Integer(static_cast<Integer*>(#{s})->raw_ - static_cast<Integer*>(#{o})->raw_))" },
-            integer__star_:  ->(s, o) { "(new Integer(static_cast<Integer*>(#{s})->raw_ * static_cast<Integer*>(#{o})->raw_))" },
+            integer__mul_:   ->(s, o) { "(new Integer(static_cast<Integer*>(#{s})->raw_ * static_cast<Integer*>(#{o})->raw_))" },
             integer_spaceship: ->(s, o) {
               "(new Integer(static_cast<int64_t>((static_cast<Integer*>(#{s})->raw_ > static_cast<Integer*>(#{o})->raw_) - (static_cast<Integer*>(#{s})->raw_ < static_cast<Integer*>(#{o})->raw_))))"
             },
