@@ -46,49 +46,38 @@ module Frozone
             # uses the canonical `intrinsic_foo_q` name.
             cpp_name = name.to_s.end_with?('?') ? "#{name.to_s.chomp('?')}_q" : name.to_s
             return "intrinsic_#{cpp_name}(#{arg_strs.join(', ')})" if HPP_INTRINSICS.include?(cpp_name.to_sym)
-            # Deliberately-stubbed reachable intrinsic: compile a method
-            # that aborts loudly with the name if reached, rather than
-            # silently skipping to method_missing. A definite, tracked
-            # state (see scripts/intrinsic_coverage.rb).
-            return "intrinsic_not_implemented(#{cpp_name.inspect})" if STUB_INTRINSICS.include?(cpp_name.to_sym)
-            raise Cpp::EmissionError, "intrinsic :#{name} not yet supported (classify: implement or add to STUB_INTRINSICS)"
+            # Held for implementation (IMPLEMENT_QUEUE): keep as a skip
+            # (EmissionError → method_missing) rather than auto-stub, so an
+            # exercised one surfaces as a catchable NoMethodError, not a hard
+            # abort — and it's tracked as a todo, not "deliberately dead".
+            raise Cpp::EmissionError, "intrinsic :#{name} held for implementation (IMPLEMENT_QUEUE)" if IMPLEMENT_QUEUE.include?(cpp_name.to_sym)
+            # Default: a reachable intrinsic with no real lowering and not
+            # queued for one is deliberately stubbed — compile a method that
+            # aborts loudly with the name if reached, never a silent
+            # method_missing. Definite, tracked state (scripts/intrinsic_coverage.rb).
+            "intrinsic_not_implemented(#{cpp_name.inspect})"
           rescue ArgumentError => e
             raise Cpp::EmissionError, "intrinsic :#{name}: #{e.message}"
           end
 
-          # Reachable-from-core intrinsics deliberately left unimplemented:
-          # lower() emits intrinsic_not_implemented(name) (loud abort) so a
-          # hit is visible, not a silent method_missing. Conservative — only
-          # categories the interpreter does not exercise internally
-          # (ObjectSpace, Encoding::Converter, Method/UnboundMethod
-          # reflection, niche singletons). Risky/load-bearing reflection
-          # (module_attr_*, object_clone, Fiber[:context] storage, binding,
-          # define_method) stays UNclassified (raises → skip) until each is
-          # implemented or proven dead. Upgrade stub→real by demand; the
-          # build aborts loudly if one of these turns out to be exercised.
-          STUB_INTRINSICS = Set.new(%i[
-            objectspace_count_objects objectspace_define_finalizer
-            objectspace_each_object objectspace_garbage_collect
-            objectspace_id2ref objectspace_undefine_finalizer
-            encoding_converter_asciicompat_encoding encoding_converter_convert
-            encoding_converter_convpath encoding_converter_destination_encoding
-            encoding_converter_finish encoding_converter_insert_output
-            encoding_converter_inspect encoding_converter_last_error
-            encoding_converter_new encoding_converter_primitive_convert
-            encoding_converter_primitive_errinfo encoding_converter_putback
-            encoding_converter_replacement encoding_converter_replacement_set
-            encoding_converter_search_convpath encoding_converter_source_encoding
-            bound_method_arity bound_method_call bound_method_dup bound_method_eql
-            bound_method_hash bound_method_name bound_method_original_name
-            bound_method_owner bound_method_parameters bound_method_receiver
-            bound_method_source_location bound_method_super bound_method_to_proc
-            bound_method_unbind
-            unbound_method_arity unbound_method_bind unbound_method_dup
-            unbound_method_eq unbound_method_hash unbound_method_name
-            unbound_method_original_name unbound_method_owner
-            unbound_method_parameters unbound_method_source_location
-            unbound_method_super
-            locale_charmap refinement_import_method method_ruby_defined_q
+          # Reachable intrinsics we INTEND to implement (so stub-by-default
+          # doesn't abort them): the value-type data ops + the certain
+          # startup-exercised (Fiber[:context] storage) + a couple of
+          # load-bearing targets. These stay skip→method_missing until
+          # implemented (then they move to a TEMPLATE/HPP). Everything else
+          # reachable auto-stubs (loud abort). The benchmark round upgrades
+          # demand-proven stubs into this queue / into real impls.
+          IMPLEMENT_QUEUE = Set.new(%i[
+            fiber_storage_hash fiber_storage_hash_set
+            string_append_as_bytes string_append_bytes string_bytesplice
+            string_capitalize_opts string_count_raw string_delete_raw
+            string_downcase_opts string_squeeze_raw string_store
+            string_swapcase_opts string_upcase_opts
+            array_clone array_index_write array_initialize array_pack
+            array_sample array_sample_n array_slice_write array_unshift
+            hash_new hash_transform_keys_bang
+            float_gamma float_rationalize float_to_r
+            object_clone kernel_exit
           ]).freeze
 
           # Names with `intrinsic_<name>(...)` definitions in

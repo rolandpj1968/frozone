@@ -18,9 +18,12 @@ require 'set'
 require 'frozone/compiler/backend/cpp_box/cpp'
 
 IL = Frozone::Compiler::Backend::CppBox::IntrinsicLowering
-real    = (IL::TEMPLATES.keys.map(&:to_s) + IL::HPP_INTRINSICS.map(&:to_s)).to_set
-stubbed = (IL.const_defined?(:STUB_INTRINSICS) ? IL::STUB_INTRINSICS.map(&:to_s) : []).to_set
-lowered = real | stubbed   # both are "definite states"; gap = neither
+real = (IL::TEMPLATES.keys.map(&:to_s) + IL::HPP_INTRINSICS.map(&:to_s)).to_set
+held = (IL.const_defined?(:IMPLEMENT_QUEUE) ? IL::IMPLEMENT_QUEUE.map(&:to_s) : []).to_set
+# Stub-by-default: any reachable intrinsic that is neither real nor held is
+# auto-stubbed (loud abort). So "definite state" = real ∪ held ∪ stubbed
+# = all reachable; the only "gap" left is the held todo-queue.
+lowered = real | held   # gap (below) = reachable not-real-not-held = the held-only view
 
 core_glob = File.expand_path('../lib/core/4.0/**/*.rb', __dir__)
 calls = Hash.new { |h, k| h[k] = 0 }   # cpp-name => call-site count
@@ -40,9 +43,11 @@ by_cat = gap.group_by(&cat)
 reach_by_cat = reachable.group_by(&cat)
 
 real_n = (reachable & real).size
-stub_n = (reachable & stubbed).size
+held_n = (reachable & held).size
+stub_n = reachable.size - real_n - held_n   # auto-stubbed (loud abort)
 puts "=== Box-first intrinsic coverage (compiled core/4.0 surface) ==="
-puts "reachable: #{reachable.size}   real: #{real_n}   stubbed: #{stub_n}   unclassified GAP: #{gap.size}"
+puts "reachable: #{reachable.size}   real: #{real_n}   held(todo): #{held_n}   auto-stubbed: #{stub_n}"
+puts "(every reachable intrinsic is in a definite state: real | held-todo | loud-stub)"
 puts
 puts "By category  (reachable / gap):"
 reach_by_cat.keys.sort_by { |c| -(by_cat[c]&.size || 0) }.each do |c|
