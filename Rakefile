@@ -297,15 +297,16 @@ def time_command(cmd, env: {}, timeout: nil)
 end
 
 def box_compile(stub_name)
-  bin = "cpp/gen/box/#{stub_name}_box"
-  # Wipe prior per-stub artefacts so a previous run's leftover .cpp files
-  # don't sneak into this stub's compile glob (mirrors integration_spec).
-  FileUtils.rm_rf(Dir.glob("cpp/gen/box/#{stub_name}*"))
-  FileUtils.rm_rf("cpp/gen/box/class")
+  dir = "cpp/gen/box/#{stub_name}"
+  bin = "#{dir}/#{stub_name}_box"
+  # Per-app gen dir → full isolation. Wipe the whole subtree (its own
+  # class/ included), so no cross-program stomping and no leftover .cpp
+  # sneaking into this stub's compile glob.
+  FileUtils.rm_rf(dir)
   return [:gen_fail, nil] unless system({"FROZONE_CPP" => "1", "FROZONE_BOX_FIRST" => "1"},
     "bundle exec ruby frozone.rb --aot bench/stubs/#{stub_name}.rb",
     out: File::NULL, err: File::NULL)
-  cpp_files = Dir.glob("cpp/gen/box/#{stub_name}*.cpp").sort
+  cpp_files = Dir.glob("#{dir}/*.cpp").sort
   return [:gen_fail, nil] if cpp_files.empty?
   # Parallel compile each .cpp → .o, then link.
   parallel = ENV.fetch('JOBS', Etc.nprocessors.to_s).to_i
@@ -766,7 +767,7 @@ end
 #   FROZONE_BOX_BIN    binary output path (default bin/frozone_box)
 #   CCACHE=0           disable ccache even if installed (default: auto-use)
 
-FROZONE_BOX_GEN_DIR   = File.expand_path('cpp/gen/box', __dir__)
+FROZONE_BOX_GEN_DIR   = File.expand_path('cpp/gen/box/frozone', __dir__)
 FROZONE_BOX_BIN       = ENV.fetch('FROZONE_BOX_BIN', File.expand_path('bin/frozone_box', __dir__))
 FROZONE_HEADER_STAMP  = File.join(FROZONE_BOX_GEN_DIR, '.headers.fingerprint')
 FROZONE_OPT_STAMP     = File.join(FROZONE_BOX_GEN_DIR, '.opt')
@@ -797,7 +798,7 @@ def frozone_box_header_fingerprint
       h.update(f)
       h.update(File.read(f))
     end
-    Dir['cpp/gen/box/frozone_*.hpp', 'cpp/gen/box/class/*.hpp'].sort.each do |f|
+    Dir['cpp/gen/box/frozone/frozone_*.hpp', 'cpp/gen/box/frozone/class/*.hpp'].sort.each do |f|
       h.update(f)
       h.update(File.read(f))
     end

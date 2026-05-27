@@ -60,7 +60,11 @@ module Frozone
             stub_file: stub_file
           )
           backend_subdir = ENV['FROZONE_BOX_FIRST'] ? 'box' : 'legacy'
-          cpp_dir = File.expand_path("../../../cpp/gen/#{backend_subdir}", __dir__)
+          # Per-app gen dir: cpp/gen/<backend>/<base>/. Each compiled program
+          # gets its own subtree (own class/<Name>.hpp), so concurrent /
+          # sequential builds of different programs (self-host, _unified
+          # bundle, per-stub benchmarks) can't stomp a shared class/ dir.
+          cpp_dir = File.expand_path("../../../cpp/gen/#{backend_subdir}/#{base}", __dir__)
           FileUtils.mkdir_p(cpp_dir)
           # Box-first emitter returns a Hash {stream_name => content}
           # for the TU split (Step 1: :default + :main). Legacy cpp
