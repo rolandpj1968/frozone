@@ -712,6 +712,7 @@ module Frozone
           # circular cause check: walk cause chain looking for exc_obj
           if exc_obj && exc_obj.is_a?(ObjectObject)
             c = cause
+            seen = []
             while c && exception_instance?(c)
               c_cause = c.get_ivar(:@cause)
               break if fnil?(c_cause)
@@ -719,6 +720,10 @@ module Frozone
                 return :skip if auto_cause
                 raise FrozoneException.make(:ArgumentError, "circular causes")
               end
+              # A pre-existing cycle among other exceptions (one not involving
+              # exc_obj) must not spin forever: stop walking on revisit.
+              break if seen.any? { |s| s.equal?(c_cause) }
+              seen << c_cause
               c = c_cause
             end
           end
