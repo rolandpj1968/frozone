@@ -2541,7 +2541,9 @@ module Frozone
           # kernel-fn decls, class-var storage.
           def write_base_open
             line "#pragma once"
-            line %(#include "../../runtime/box_first.hpp")
+            # Gen lives at cpp/gen/<backend>/<base>/ — three levels below cpp/,
+            # so cross-tree includes into cpp/runtime/ traverse ../../../.
+            line %(#include "../../../runtime/box_first.hpp")
             blank
             line "namespace Ruby {"
             blank

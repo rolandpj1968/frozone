@@ -324,7 +324,8 @@ module Frozone
               emit.cpp.write_int_literal_defs(emit)
             end
             emit.with_stream(:post) do
-              emit.line %|#include "../../runtime/intrinsics.hpp"|
+              # cpp/gen/<backend>/<base>/ → cpp/runtime/ is ../../../.
+              emit.line %|#include "../../../runtime/intrinsics.hpp"|
               emit.blank
             end
             emit.with_stream(:post) do
