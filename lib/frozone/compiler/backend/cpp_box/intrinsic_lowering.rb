@@ -425,6 +425,7 @@ module Frozone
             hash_size: ->(self_) {
               "(new Integer(static_cast<int64_t>(static_cast<Hash*>(#{self_})->data.size())))"
             },
+            hash_clear: ->(self_) { "(static_cast<Hash*>(#{self_})->data.clear(), #{self_})" },
 
 
             # Object protocol stubs — most return nil/false/empty/self
