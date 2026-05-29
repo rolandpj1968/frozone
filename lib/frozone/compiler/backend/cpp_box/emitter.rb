@@ -996,7 +996,11 @@ module Frozone
               (k.overrides || {}).each_key { |cpp| seed_names << cpp unless cpp.start_with?("c_", "sm_") || non_ruby_hand_coded.include?(cpp) }
               (k.hand_coded_method_names || []).each { |cpp| seed_names << cpp unless cpp.start_with?("c_", "sm_") || non_ruby_hand_coded.include?(cpp) }
             end
-            seed_names.merge(%w[m_new m_initialize m_class mm_respond_to_q m_method_missing m_const_missing])
+            # m_hash / mm_eql_q are called unconditionally by the runtime
+            # Hash's Hasher/KeyEq (Ruby hash/eql? key protocol), so they must
+            # always be declared on BasicObject even when an app never names
+            # `hash`/`eql?` (otherwise pruned app builds fail to compile).
+            seed_names.merge(%w[m_new m_initialize m_class mm_respond_to_q m_method_missing m_const_missing m_hash mm_eql_q])
             # Frozone::Vm::Intrinsics is special: its eigenclass methods
             # are dispatched purely by Ast::IntrinsicCall#evaluate at
             # runtime via `Vm::Intrinsics.send(@name, ...)`. The @name is

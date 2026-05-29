@@ -91,14 +91,15 @@ end
 
 def run_box_first(stub_name, env_extras: {})
   stub_path = "bench/stubs/#{stub_name}.rb"
-  cpp_path  = File.join(GEN_DIR, "#{stub_name}.cpp")
+  # #138: each app gens into its own cpp/gen/box/<stub>/ subdir (with the
+  # <stub>_*.cpp files and a class/ subdir inside it).
+  gen_dir   = File.join(GEN_DIR, stub_name)
+  cpp_path  = File.join(gen_dir, "#{stub_name}.cpp")
 
   Dir.chdir(PROJECT_ROOT) do
-    # Wipe prior per-stub artefacts so a previous run's leftover .cpp
-    # files don't sneak into this stub's compile glob. Per-class hpps
-    # in class/ are also rewritten so we drop the whole subdir.
-    FileUtils.rm_rf(Dir.glob(File.join(GEN_DIR, "#{stub_name}*")))
-    FileUtils.rm_rf(File.join(GEN_DIR, 'class'))
+    # Wipe the per-stub gen subdir (incl. its class/ hpps) so a previous
+    # run's leftover files don't sneak into this stub's compile glob.
+    FileUtils.rm_rf(gen_dir)
 
     env = { 'FROZONE_CPP' => '1', 'FROZONE_BOX_FIRST' => '1' }.merge(env_extras)
     out, status = Open3.capture2e(env, 'bundle', 'exec', 'ruby', 'frozone.rb', '--aot', stub_path)
@@ -110,7 +111,7 @@ def run_box_first(stub_name, env_extras: {})
     # <stub>_universe.cpp + <stub>_int_literals.cpp + <stub>_class_*.cpp
     # plus <stub>_*.hpp + class/*.hpp. All .cpp files must be compiled
     # together; headers come along via #include.
-    cpp_files = Dir.glob(File.join(GEN_DIR, "#{stub_name}*.cpp")).sort
+    cpp_files = Dir.glob(File.join(gen_dir, "#{stub_name}*.cpp")).sort
     raise "no .cpp files for #{stub_name}" if cpp_files.empty?
 
     bin = Tempfile.new(["box_#{stub_name}_", ''])
@@ -410,13 +411,14 @@ end
 RSpec.describe 'box-first leaf-dispatch codegen' do
   def gen_leaf_test(env_extras)
     Dir.chdir(PROJECT_ROOT) do
-      FileUtils.rm_rf(Dir.glob(File.join(GEN_DIR, 'leaf_dispatch_test*')))
-      FileUtils.rm_rf(File.join(GEN_DIR, 'class'))
+      # #138: gens into cpp/gen/box/leaf_dispatch_test/ (with class/ inside).
+      gen_dir = File.join(GEN_DIR, 'leaf_dispatch_test')
+      FileUtils.rm_rf(gen_dir)
       env = { 'FROZONE_CPP' => '1', 'FROZONE_BOX_FIRST' => '1' }.merge(env_extras)
       out, status = Open3.capture2e(env, 'bundle', 'exec', 'ruby', 'frozone.rb',
                                     '--aot', 'bench/stubs/leaf_dispatch_test.rb')
       raise "gen failed:\n#{out}" unless status.success?
-      File.read(File.join(GEN_DIR, 'leaf_dispatch_test.cpp'))
+      File.read(File.join(gen_dir, 'leaf_dispatch_test.cpp'))
     end
   end
 
