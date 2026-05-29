@@ -167,6 +167,85 @@ inline BasicObject* intrinsic_string_slice(BasicObject* self_, BasicObject* idx,
   return _r;
 }
 
+// `String#[]=` via string_store(self, idx, rest), where rest is [value]
+// or [length, value]. Character-indexed for UTF-8 (byte-indexed for
+// BINARY/pure-ASCII). Handles Integer, Integer+length, Range, and
+// String (substring) idx; Regexp/other deferred (loud). The Ruby
+// wrapper String#[]= performs the frozen check before calling.
+inline BasicObject* intrinsic_string_store(BasicObject* self_, BasicObject* idx, BasicObject* rest_) {
+  auto* _s = static_cast<String*>(self_);
+  auto* _rest = static_cast<Array*>(rest_);
+  std::size_t _rn = _rest->data.size();
+  BasicObject* _repl = (_rn > 0) ? _rest->data[_rn - 1] : nil_instance();
+  auto* _rs = dynamic_cast<String*>(_repl);
+  if (!_rs) {
+    std::string _m = std::string("no implicit conversion of ") + _repl->ruby_class_name() + " into String";
+    throw_type_error(_m.c_str());
+  }
+  bool _bytewise = (_s->enc == String::BINARY) || !_s->has_non_ascii();
+  std::int64_t _clen = _bytewise ? static_cast<std::int64_t>(_s->bytes.size()) : _s->length();
+  // Resolve the replaced span. Substring idx yields byte positions
+  // directly (it matched bytes); other idx forms yield char positions.
+  bool _by_bytes = false;
+  std::size_t _bb0 = 0, _bb1 = 0;
+  std::int64_t _c0 = 0, _c1 = 0;
+  if (auto* _ri = dynamic_cast<Integer*>(idx)) {
+    std::int64_t _i = _ri->raw_;
+    if (_i < 0) _i += _clen;
+    if (_i < 0 || _i > _clen) {
+      char _b[64]; std::snprintf(_b, sizeof(_b), "index %lld out of string", (long long)_ri->raw_);
+      throw_index_error(_b);
+    }
+    std::int64_t _len = 1;
+    if (_rn >= 2) {
+      auto* _li = dynamic_cast<Integer*>(_rest->data[0]);
+      _len = _li ? _li->raw_ : 0;
+      if (_len < 0) {
+        char _b[64]; std::snprintf(_b, sizeof(_b), "negative length %lld", (long long)_len);
+        throw_index_error(_b);
+      }
+    }
+    _c0 = _i; _c1 = std::min<std::int64_t>(_i + _len, _clen);
+  } else if (auto* _rg = dynamic_cast<Range*>(idx)) {
+    auto _toi = [](BasicObject* v, std::int64_t d) -> std::int64_t {
+      if (!v || v == nil_instance()) return d;
+      auto* _ii = dynamic_cast<Integer*>(v); return _ii ? _ii->raw_ : d;
+    };
+    std::int64_t _b = _toi(_rg->begin_, 0);
+    std::int64_t _e = _toi(_rg->end_, _clen);
+    if (_b < 0) _b += _clen;
+    if (_e < 0) _e += _clen;
+    if (_b < 0 || _b > _clen) {
+      char _bf[64]; std::snprintf(_bf, sizeof(_bf), "%lld out of range", (long long)_toi(_rg->begin_, 0));
+      throw_range_error(_bf);
+    }
+    if (!_rg->exclude_end_) _e += 1;
+    if (_e > _clen) _e = _clen;
+    if (_e < _b) _e = _b;
+    _c0 = _b; _c1 = _e;
+  } else if (auto* _ss = dynamic_cast<String*>(idx)) {
+    auto _it = std::search(_s->bytes.begin(), _s->bytes.end(), _ss->bytes.begin(), _ss->bytes.end());
+    if (_it == _s->bytes.end() && !_ss->bytes.empty()) {
+      throw_index_error("string not matched");
+    }
+    _by_bytes = true;
+    _bb0 = static_cast<std::size_t>(_it - _s->bytes.begin());
+    _bb1 = _bb0 + _ss->bytes.size();
+  } else {
+    throw_not_implemented("String#[]= with Regexp/other index not yet supported in box-first");
+  }
+  std::size_t _bs = _by_bytes ? _bb0 : str_char_to_byte(_s, _c0);
+  std::size_t _be = _by_bytes ? _bb1 : str_char_to_byte(_s, _c1);
+  decltype(_s->bytes) _nb;
+  _nb.reserve(_bs + _rs->bytes.size() + (_s->bytes.size() - _be));
+  _nb.insert(_nb.end(), _s->bytes.begin(), _s->bytes.begin() + _bs);
+  _nb.insert(_nb.end(), _rs->bytes.begin(), _rs->bytes.end());
+  _nb.insert(_nb.end(), _s->bytes.begin() + _be, _s->bytes.end());
+  _s->bytes = std::move(_nb);
+  _s->length_cache_ = -1;
+  return _repl;
+}
+
 // `String#split(sep, limit)` — separator: nil (whitespace), String,
 // or Regexp (deferred). limit: :__unset__/nil → all, Integer → at
 // most that many parts. nil sep collapses consecutive whitespace and

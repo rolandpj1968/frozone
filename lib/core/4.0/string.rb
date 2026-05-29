@@ -661,7 +661,10 @@ class String
 
   def []=(idx, *rest)
     __check_frozen__
-    Intrinsics.string_store(self, idx, *rest)
+    # Pass `rest` as an Array (not a splat) so the box-first AOT compiler
+    # can lower this call — a `*rest` SplatArg into an Intrinsics call is
+    # an unhandled from_expr context. string_store unpacks the array.
+    Intrinsics.string_store(self, idx, rest)
   end
 
   def rindex(sub, offset = :__unset__)

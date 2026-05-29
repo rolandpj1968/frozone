@@ -1613,6 +1613,28 @@ module Frozone
             body: %(throw_argument_error_fmt("unknown keyword: :%s", name);),
           )
 
+          # Typed Ruby-error raisers for use from intrinsics headers (which
+          # only see forward-declared error eigenclasses). Defined here in
+          # the universe TU where the error classes are complete, like
+          # throw_argument_error_fmt above.
+          THROW_INDEX_ERROR_FN = KernelFn.new(
+            name: "throw_index_error",
+            signature: "[[noreturn]] void throw_index_error(const char* msg)",
+            body: %(throw static_cast<Exception*>((&IndexError_CLASS)->m_new(new Array({static_cast<BasicObject*>(new String(msg))})));),
+          )
+
+          THROW_TYPE_ERROR_FN = KernelFn.new(
+            name: "throw_type_error",
+            signature: "[[noreturn]] void throw_type_error(const char* msg)",
+            body: %(throw static_cast<Exception*>((&TypeError_CLASS)->m_new(new Array({static_cast<BasicObject*>(new String(msg))})));),
+          )
+
+          THROW_RANGE_ERROR_FN = KernelFn.new(
+            name: "throw_range_error",
+            signature: "[[noreturn]] void throw_range_error(const char* msg)",
+            body: %(throw static_cast<Exception*>((&RangeError_CLASS)->m_new(new Array({static_cast<BasicObject*>(new String(msg))})));),
+          )
+
           BUILD_INT_ARRAY_FN = KernelFn.new(
             name: "build_int_array",
             signature: "Array* build_int_array(const std::int64_t* data, std::size_t n)",
@@ -2189,6 +2211,7 @@ module Frozone
             THROW_ARGUMENT_ERROR_FMT_FN, RAISE_ARITY_FN,
             RAISE_ARITY_FIXED_FN, RAISE_ARITY_RANGE_FN, RAISE_ARITY_MIN_FN,
             RAISE_MISSING_KW_FN, RAISE_UNKNOWN_KW_FN,
+            THROW_INDEX_ERROR_FN, THROW_TYPE_ERROR_FN, THROW_RANGE_ERROR_FN,
             MM_DISPATCH_FN, CM_DISPATCH_FN,
             INIT_ONIGMO_FN, MATCH_DATA_GLOBAL, REGEXP_MATCH_FN, MATCH_DATA_CAP_FN,
             STRING_GSUB_FN, STRING_SCAN_FN, STRING_UNPACK_FN,

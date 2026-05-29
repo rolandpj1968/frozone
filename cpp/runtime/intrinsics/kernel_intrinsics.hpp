@@ -110,6 +110,19 @@ inline BasicObject* intrinsic_kernel_float(BasicObject* /*self_*/, BasicObject* 
   throw static_cast<Exception*>(_exc);
 }
 
+// `Kernel#exit(code)` — code is true (status 0), false (status 1), or an
+// Integer status (the Ruby wrapper __kernel_exit__ coerces other types).
+// Throws SystemExitException; ensures unwind via EnsureGuard and
+// frozone_main_impl converts it to the process exit status.
+[[noreturn]] inline BasicObject* intrinsic_kernel_exit(BasicObject* /*self_*/, BasicObject* code) {
+  std::int64_t _status = 0;
+  if (code == false_instance()) _status = 1;
+  else if (auto* _i = dynamic_cast<Integer*>(code)) _status = _i->raw_;
+  std::fflush(stdout);
+  std::fflush(stderr);
+  throw SystemExitException{_status};
+}
+
 // ---- Fiber storage -------------------------------------------------
 
 // `Fiber[:k]` — read from process-global storage Hash. Symbols intern

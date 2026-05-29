@@ -2887,6 +2887,13 @@ module Frozone
               indented do
                 line "mo.__top_level__();"
               end
+              # Kernel#exit / exit! throw SystemExitException; terminate
+              # with its status (ensures already ran during unwinding).
+              line "} catch (Ruby::SystemExitException& se) {"
+              indented do
+                line "std::fflush(stdout);"
+                line "return static_cast<int>(se.status);"
+              end
               line "} catch (Ruby::BasicObject* e) {"
               indented do
                 # Print the exception class + iv_message (if any) to

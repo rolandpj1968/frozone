@@ -561,8 +561,11 @@ module Frozone
           end
         end
 
-        def string_store(context, v, idx, *rest)
+        def string_store(context, v, idx, rest)
           raise FrozoneException.make(:FrozenError, "can't modify frozen String: #{v.raw.inspect}") if v.frozen?
+          # `rest` is the guest ArrayObject of trailing args ([value] or
+          # [length, value]); operate on its host array of VM elements.
+          rest = rest.raw.dup
           repl_vm = rest.pop
 
           s = v.raw.dup

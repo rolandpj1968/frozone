@@ -49,6 +49,12 @@
   std::abort();
 }
 
+// Kernel#exit / exit! raise this; it propagates through method try/catch
+// (which only catch ReturnException/Exception*) and EnsureGuard (so
+// `ensure` blocks still run during unwinding), and frozone_main_impl
+// catches it to terminate with the requested status.
+struct SystemExitException { std::int64_t status; };
+
 // ---- String --------------------------------------------------------
 
 // `String#index(sub, offset = :__unset__)` — find first byte-position

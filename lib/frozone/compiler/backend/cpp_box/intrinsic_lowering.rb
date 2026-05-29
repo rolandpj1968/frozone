@@ -71,13 +71,13 @@ module Frozone
             fiber_storage_hash fiber_storage_hash_set
             string_append_as_bytes string_append_bytes string_bytesplice
             string_capitalize_opts string_count_raw string_delete_raw
-            string_downcase_opts string_squeeze_raw string_store
+            string_downcase_opts string_squeeze_raw
             string_swapcase_opts string_upcase_opts
             array_clone array_index_write array_initialize array_pack
             array_sample array_sample_n array_slice_write array_unshift
             hash_new hash_transform_keys_bang
             float_gamma float_rationalize float_to_r
-            object_clone kernel_exit
+            object_clone
           ]).freeze
 
           # Names with `intrinsic_<name>(...)` definitions in
@@ -94,7 +94,7 @@ module Frozone
             io_raw_write_stdout io_raw_write_stderr
             string_index string_slice string_split string_chars
             string_inspect string_hash string_to_sym string_to_i_base
-            string_format string_replace string_initialize string_tr_raw
+            string_format string_replace string_store string_initialize string_tr_raw
             string_match string_match_pos
             symbol_to_s symbol_inspect
             regexp_escape regexp_inspect regexp_to_s regexp_new
@@ -111,7 +111,7 @@ module Frozone
             object_dup object_public_send
             basic_object___send__ basic_object_method_missing
             kernel_catch kernel_throw kernel_puts kernel_print
-            kernel_rand kernel_integer kernel_float kernel_raise
+            kernel_rand kernel_integer kernel_float kernel_raise kernel_exit
             process_clock_gettime
             fiber_storage_get fiber_storage_set
             file_expand_path file_dirname file_basename file_split
