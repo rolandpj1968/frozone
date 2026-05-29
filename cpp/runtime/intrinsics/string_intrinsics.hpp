@@ -4,40 +4,11 @@
 #ifndef FROZONE_STRING_INTRINSICS_HPP
 #define FROZONE_STRING_INTRINSICS_HPP
 
-inline BasicObject* intrinsic_string_index(BasicObject* self_, BasicObject* sub, BasicObject* offset) {
-  auto* _s = static_cast<String*>(self_);
-  std::int64_t _hsize = static_cast<std::int64_t>(_s->bytes.size());
-  std::int64_t _off = 0;
-  if (offset != intern("__unset__") && offset != nil_instance()) {
-    _off = static_cast<Integer*>(offset)->raw_;
-  }
-  if (_off < 0) _off = std::max<std::int64_t>(0, _hsize + _off);
-  if (_off > _hsize) return nil_instance();
-  if (sub->m_class() == reinterpret_cast<BasicObject*>(&Regexp_CLASS)) {
-    auto* _md = regexp_match_helper(sub, _s, _off);
-    if (!_md) return nil_instance();
-    return new Integer(_md->captures_[0].first);
-  }
-  if (sub->m_class() != reinterpret_cast<BasicObject*>(&String_CLASS)) {
-    std::fprintf(stderr, "[frozone-box-first] string_index: non-String/Regexp sub not yet supported\n");
-    std::abort();
-  }
-  auto* _sub = static_cast<String*>(sub);
-  std::int64_t _nsize = static_cast<std::int64_t>(_sub->bytes.size());
-  if (_nsize == 0) return new Integer(_off);
-  if (_off + _nsize > _hsize) return nil_instance();
-  for (std::int64_t _i = _off; _i + _nsize <= _hsize; _i++) {
-    if (std::memcmp(&_s->bytes[_i], _sub->bytes.data(), _nsize) == 0) {
-      return new Integer(_i);
-    }
-  }
-  return nil_instance();
-}
-
-// Map a character index to a byte offset honouring the string's
-// encoding. For BINARY, character index == byte index. For UTF-8, walk
-// codepoints (a continuation byte matches 10xxxxxx). char_idx is
-// clamped to [0, length]; char_idx == length returns bytes.size().
+// --- character <-> byte offset mapping (UTF-8 aware) -------------------
+// Map a character index to a byte offset honouring the string's encoding.
+// For BINARY, char index == byte index. For UTF-8, walk codepoints (a
+// continuation byte matches 10xxxxxx). char_idx is clamped to
+// [0, length]; char_idx == length returns bytes.size().
 inline std::size_t str_char_to_byte(const String* s, std::int64_t char_idx) {
   std::int64_t n = static_cast<std::int64_t>(s->bytes.size());
   if (char_idx <= 0) return 0;
@@ -50,6 +21,55 @@ inline std::size_t str_char_to_byte(const String* s, std::int64_t char_idx) {
     ci++;
   }
   return bo;
+}
+
+// Inverse: byte offset -> character index (count of codepoint starts in
+// [0, byte_off)). For BINARY, byte index == char index.
+inline std::int64_t str_byte_to_char(const String* s, std::size_t byte_off) {
+  if (s->enc == String::BINARY) return static_cast<std::int64_t>(byte_off);
+  std::int64_t ci = 0;
+  std::size_t n = std::min(byte_off, s->bytes.size());
+  for (std::size_t b = 0; b < n; b++) {
+    if ((s->bytes[b] & 0xC0) != 0x80) ci++;
+  }
+  return ci;
+}
+
+inline BasicObject* intrinsic_string_index(BasicObject* self_, BasicObject* sub, BasicObject* offset) {
+  auto* _s = static_cast<String*>(self_);
+  // `offset` and the result are CHARACTER positions (MRI). The search
+  // itself is byte-level; convert char<->byte for multibyte. Pure-ASCII
+  // and BINARY keep the fast byte path (1 byte == 1 char).
+  bool _bytewise = (_s->enc == String::BINARY) || !_s->has_non_ascii();
+  std::int64_t _hsize = static_cast<std::int64_t>(_s->bytes.size());
+  std::int64_t _clen = _bytewise ? _hsize : _s->length();
+  std::int64_t _off = 0;
+  if (offset != intern("__unset__") && offset != nil_instance()) {
+    _off = static_cast<Integer*>(offset)->raw_;
+  }
+  if (_off < 0) _off = std::max<std::int64_t>(0, _clen + _off);
+  if (_off > _clen) return nil_instance();
+  std::int64_t _boff = _bytewise ? _off : static_cast<std::int64_t>(str_char_to_byte(_s, _off));
+  if (sub->m_class() == reinterpret_cast<BasicObject*>(&Regexp_CLASS)) {
+    auto* _md = regexp_match_helper(sub, _s, _boff);
+    if (!_md) return nil_instance();
+    std::int64_t _bm = _md->captures_[0].first;
+    return new Integer(_bytewise ? _bm : str_byte_to_char(_s, static_cast<std::size_t>(_bm)));
+  }
+  if (sub->m_class() != reinterpret_cast<BasicObject*>(&String_CLASS)) {
+    std::fprintf(stderr, "[frozone-box-first] string_index: non-String/Regexp sub not yet supported\n");
+    std::abort();
+  }
+  auto* _sub = static_cast<String*>(sub);
+  std::int64_t _nsize = static_cast<std::int64_t>(_sub->bytes.size());
+  if (_nsize == 0) return new Integer(_off);
+  if (_boff + _nsize > _hsize) return nil_instance();
+  for (std::int64_t _i = _boff; _i + _nsize <= _hsize; _i++) {
+    if (std::memcmp(&_s->bytes[_i], _sub->bytes.data(), _nsize) == 0) {
+      return new Integer(_bytewise ? _i : str_byte_to_char(_s, static_cast<std::size_t>(_i)));
+    }
+  }
+  return nil_instance();
 }
 
 // `String#[](idx, len = :__unset__)` — substring extraction.
@@ -321,26 +341,38 @@ inline BasicObject* intrinsic_string_chars(BasicObject* self_) {
 // bytes. Mirrors cpp_string_literal: \n, \r, \t, \\, \", \NNN.
 inline BasicObject* intrinsic_string_inspect(BasicObject* self_) {
   auto* _s = static_cast<String*>(self_);
+  bool _utf8 = (_s->enc != String::BINARY);
+  const auto& _B = _s->bytes;
+  std::size_t _n = _B.size();
   std::string _buf;
-  _buf.reserve(_s->bytes.size() + 2);
+  _buf.reserve(_n + 2);
   _buf.push_back('"');
-  for (auto _b : _s->bytes) {
+  for (std::size_t _i = 0; _i < _n; ) {
+    std::uint8_t _b = _B[_i];
     switch (_b) {
-      case 0x22: _buf += "\\\""; break;
-      case 0x5C: _buf += "\\\\"; break;
-      case 0x0A: _buf += "\\n";  break;
-      case 0x0D: _buf += "\\r";  break;
-      case 0x09: _buf += "\\t";  break;
-      case 0x00: _buf += "\\0";  break;
-      default:
-        if (_b >= 0x20 && _b <= 0x7E) {
-          _buf.push_back(static_cast<char>(_b));
-        } else {
-          char _tmp[5];
-          std::snprintf(_tmp, sizeof(_tmp), "\\%03o", _b);
-          _buf += _tmp;
-        }
+      case 0x22: _buf += "\\\""; _i++; continue;
+      case 0x5C: _buf += "\\\\"; _i++; continue;
+      case 0x0A: _buf += "\\n";  _i++; continue;
+      case 0x0D: _buf += "\\r";  _i++; continue;
+      case 0x09: _buf += "\\t";  _i++; continue;
+      case 0x00: _buf += "\\0";  _i++; continue;
     }
+    if (_b >= 0x20 && _b <= 0x7E) { _buf.push_back(static_cast<char>(_b)); _i++; continue; }
+    // For UTF-8, emit a valid multibyte sequence as the literal character
+    // (MRI prints printable non-ASCII verbatim). Fall through to escaping
+    // for invalid bytes and for BINARY strings.
+    if (_utf8 && _b >= 0xC2 && _b <= 0xF4) {
+      int _len = (_b < 0xE0) ? 2 : (_b < 0xF0) ? 3 : 4;
+      if (_i + static_cast<std::size_t>(_len) <= _n) {
+        bool _ok = true;
+        for (int _k = 1; _k < _len; _k++) if ((_B[_i + _k] & 0xC0) != 0x80) { _ok = false; break; }
+        if (_ok) { for (int _k = 0; _k < _len; _k++) _buf.push_back(static_cast<char>(_B[_i + _k])); _i += _len; continue; }
+      }
+    }
+    char _tmp[5];
+    std::snprintf(_tmp, sizeof(_tmp), "\\%03o", _b);
+    _buf += _tmp;
+    _i++;
   }
   _buf.push_back('"');
   return new String(_buf.data(), _buf.size());
@@ -688,10 +720,26 @@ inline BasicObject* intrinsic_string_oct(BasicObject* self_) {
 }
 
 inline BasicObject* intrinsic_string_rindex(BasicObject* self_, BasicObject* sub, BasicObject* offset) {
-  // Reuse byterindex semantics; rindex is essentially the same for
-  // ASCII and BINARY, and "good enough" for UTF-8 in practice
-  // (codepoint vs byte position divergence is the soundness gap).
-  return intrinsic_string_byterindex(self_, sub, offset);
+  auto* _s = static_cast<String*>(self_);
+  // byterindex works in byte positions; for BINARY/pure-ASCII that equals
+  // character positions. For multibyte, translate the char `offset` to a
+  // byte offset for the search and the byte result back to a char index.
+  if ((_s->enc == String::BINARY) || !_s->has_non_ascii()) {
+    return intrinsic_string_byterindex(self_, sub, offset);
+  }
+  BasicObject* _boff = offset;
+  if (offset != intern("__unset__") && offset != nil_instance()) {
+    std::int64_t _o = static_cast<Integer*>(offset)->raw_;
+    std::int64_t _clen = _s->length();
+    if (_o < 0) _o += _clen;
+    if (_o < 0) return nil_instance();
+    if (_o > _clen) _o = _clen;
+    _boff = new Integer(static_cast<std::int64_t>(str_char_to_byte(_s, _o)));
+  }
+  BasicObject* _r = intrinsic_string_byterindex(self_, sub, _boff);
+  if (_r == nil_instance()) return _r;
+  std::int64_t _bm = static_cast<Integer*>(_r)->raw_;
+  return new Integer(str_byte_to_char(_s, static_cast<std::size_t>(_bm)));
 }
 
 inline BasicObject* intrinsic_string_each_line(BasicObject* self_, BasicObject* sep, BasicObject* /*limit*/) {
