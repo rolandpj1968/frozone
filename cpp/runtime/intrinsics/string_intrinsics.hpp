@@ -34,14 +34,31 @@ inline BasicObject* intrinsic_string_index(BasicObject* self_, BasicObject* sub,
   return nil_instance();
 }
 
-// `String#[](idx, len = :__unset__)` — substring extraction. Integer
-// idx only for now (Range/Regexp idx unsupported). Negative idx
-// counts from end. Without len, single byte (as 1-char String). With
-// len, len bytes from idx (clamped to remaining). Returns nil if idx
-// out of range.
+// Map a character index to a byte offset honouring the string's
+// encoding. For BINARY, character index == byte index. For UTF-8, walk
+// codepoints (a continuation byte matches 10xxxxxx). char_idx is
+// clamped to [0, length]; char_idx == length returns bytes.size().
+inline std::size_t str_char_to_byte(const String* s, std::int64_t char_idx) {
+  std::int64_t n = static_cast<std::int64_t>(s->bytes.size());
+  if (char_idx <= 0) return 0;
+  if (s->enc == String::BINARY) return static_cast<std::size_t>(char_idx > n ? n : char_idx);
+  std::size_t bo = 0;
+  std::int64_t ci = 0;
+  while (bo < s->bytes.size() && ci < char_idx) {
+    bo++;
+    while (bo < s->bytes.size() && (s->bytes[bo] & 0xC0) == 0x80) bo++;
+    ci++;
+  }
+  return bo;
+}
+
+// `String#[](idx, len = :__unset__)` — substring extraction.
+// Character-indexed for UTF-8 (byte-indexed for BINARY), matching MRI.
+// Integer/Range/Regexp/String idx supported. Negative idx counts from
+// end. Without len, a single character; with len, len characters from
+// idx (clamped). Returns nil if idx out of range.
 inline BasicObject* intrinsic_string_slice(BasicObject* self_, BasicObject* idx, BasicObject* len) {
   auto* _s = static_cast<String*>(self_);
-  std::int64_t _size = static_cast<std::int64_t>(_s->bytes.size());
   // Regexp idx: return the matched substring (or capture group via len).
   if (auto* _re = dynamic_cast<Regexp*>(idx)) {
     OnigRegion* _region = onig_region_new();
@@ -74,16 +91,19 @@ inline BasicObject* intrinsic_string_slice(BasicObject* self_, BasicObject* idx,
       auto* _i = dynamic_cast<Integer*>(v);
       return _i ? _i->raw_ : dflt;
     };
+    std::int64_t _clen = _s->length();
     std::int64_t _b = to_int(_rng->begin_, 0);
-    std::int64_t _e = to_int(_rng->end_, _size);
-    if (_b < 0) _b += _size;
-    if (_e < 0) _e += _size;
-    if (_b < 0 || _b > _size) return nil_instance();
+    std::int64_t _e = to_int(_rng->end_, _clen);
+    if (_b < 0) _b += _clen;
+    if (_e < 0) _e += _clen;
+    if (_b < 0 || _b > _clen) return nil_instance();
     if (!_rng->exclude_end_) _e += 1;
-    if (_e > _size) _e = _size;
+    if (_e > _clen) _e = _clen;
     if (_e < _b) _e = _b;
+    std::size_t _bb = str_char_to_byte(_s, _b);
+    std::size_t _eb = str_char_to_byte(_s, _e);
     auto* _r2 = new String();
-    _r2->bytes.assign(_s->bytes.begin() + _b, _s->bytes.begin() + _e);
+    _r2->bytes.assign(_s->bytes.begin() + _bb, _s->bytes.begin() + _eb);
     _r2->enc = _s->enc;
     return _r2;
   }
@@ -103,22 +123,27 @@ inline BasicObject* intrinsic_string_slice(BasicObject* self_, BasicObject* idx,
     std::abort();
   }
   std::int64_t _ix = static_cast<Integer*>(idx)->raw_;
-  if (_ix < 0) _ix += _size;
-  if (_ix < 0 || _ix > _size) return nil_instance();
+  std::int64_t _clen = _s->length();
+  if (_ix < 0) _ix += _clen;
+  if (_ix < 0 || _ix > _clen) return nil_instance();
   if (len == intern("__unset__")) {
-    if (_ix == _size) return nil_instance();
+    if (_ix == _clen) return nil_instance();
+    std::size_t _bs = str_char_to_byte(_s, _ix);
+    std::size_t _be = str_char_to_byte(_s, _ix + 1);
     auto* _r = new String();
-    _r->bytes.push_back(_s->bytes[_ix]);
+    _r->bytes.assign(_s->bytes.begin() + _bs, _s->bytes.begin() + _be);
+    _r->enc = _s->enc;
     return _r;
   }
   std::int64_t _ln = static_cast<Integer*>(len)->raw_;
   if (_ln < 0) return nil_instance();
-  std::int64_t _avail = std::min(_ln, _size - _ix);
+  std::int64_t _end_char = _ix + _ln;
+  if (_end_char > _clen) _end_char = _clen;
+  std::size_t _bs = str_char_to_byte(_s, _ix);
+  std::size_t _be = str_char_to_byte(_s, _end_char);
   auto* _r = new String();
-  _r->bytes.reserve(_avail);
-  for (std::int64_t _k = 0; _k < _avail; _k++) {
-    _r->bytes.push_back(_s->bytes[_ix + _k]);
-  }
+  _r->bytes.assign(_s->bytes.begin() + _bs, _s->bytes.begin() + _be);
+  _r->enc = _s->enc;
   return _r;
 }
 

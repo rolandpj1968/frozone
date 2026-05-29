@@ -868,6 +868,15 @@ module Frozone
                 params: [],
                 body: <<~CPP.chomp,
                   std::int64_t sz = static_cast<std::int64_t>(bytes.size());
+                  // The byte-indexed fast path below is only valid when one
+                  // byte == one character (BINARY encoding, or pure-ASCII
+                  // content). For genuine multibyte UTF-8, delegate to the
+                  // character-aware generic slice so indices count codepoints,
+                  // not bytes (MRI semantics). Keeps the hot ASCII path fast.
+                  if (enc != BINARY && has_non_ascii()) {
+                    BasicObject* len = (args->data.size() >= 2) ? args->data[1] : intern("__unset__");
+                    return intrinsic_string_slice(this, args->data[0], len);
+                  }
                   // 2-arg form: s[start, len] → substring of `len` bytes
                   // starting at `start`. core/4.0/ helpers like Buffer#[]
                   // forward to this (used heavily by blurhash).
