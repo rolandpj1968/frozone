@@ -135,11 +135,17 @@ module Frozone
           elsif msg.include?("circular argument reference")
             # Ruby 3.4+: circular arg defaults are valid (yield nil). Patch source and retry.
             patch_circular_arg_ref(src, raise_syntax_errors)
-          elsif raise_syntax_errors && !suppress_wq_error?(msg)
-            raise FrozoneException.make(:SyntaxError, normalize_syntax_error_message(msg))
-          else
-            Intrinsics.dbg_write(self, "[FROZONE_WQ_SWALLOW] #{buf.name}: #{e.class.name}: #{msg[0, 200]}")
+          elsif suppress_wq_error?(msg)
+            # A construct that was a SyntaxError before Ruby 3.4 but is valid
+            # now, with no dedicated recovery above: legitimately ignore.
+            Intrinsics.dbg_write(self, "[FROZONE_WQ_SUPPRESS] #{buf.name}: #{e.class.name}: #{msg[0, 200]}")
             nil
+          else
+            # Genuine, unrecoverable syntax error. Do NOT swallow it into a nil
+            # AST even when raise_syntax_errors is false: that yields an empty
+            # program which exits 0, indistinguishable from success (it masked
+            # the Hash and String#[] bugs this whole time). Fail loudly.
+            raise FrozoneException.make(:SyntaxError, normalize_syntax_error_message(msg))
           end
         end
       end
