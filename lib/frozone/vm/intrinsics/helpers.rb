@@ -14,6 +14,15 @@ module Frozone
       class << self
         def frozone_class_name(obj) = obj.is_a?(ObjectObject) ? (obj.class_object&.name || "Object") : obj.class.name
 
+        # True when the surrounding Ruby body is being walked by an
+        # interpreter (MRI Frozone, or Frozone² — the Frozone interpreter
+        # hosted on a Frozone interpreter); lowered to false_instance()
+        # by box-first when the body itself is native machine code. Use
+        # to gate logic whose correctness depends on whether enclosing
+        # collections (e.g. HashObject#@elements) are MRI host objects
+        # that need bridging vs runtime native objects that don't.
+        def interpreted?(_context) = FTRUE
+
         # -----------------------------------------------------------------------
         # Implicit coercion helpers — mirror MRI's rb_check_convert_type (try)
         # and rb_convert_type (coerce).
