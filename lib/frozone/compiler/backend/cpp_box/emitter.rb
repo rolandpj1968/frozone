@@ -1435,6 +1435,34 @@ module Frozone
             @strict_emit = prev
           end
 
+          # Vm wrapper classes (Vm::StringObject, Vm::FloatObject,
+          # Vm::IntegerObject) box a runtime primitive in `iv_raw`.
+          # Native Hash's Hasher/KeyEq use the C++ vtable hooks
+          # `m_hash_value` / `op_eq_q` to bucket and match keys; without
+          # these overrides, two wrappers with content-equal `iv_raw`
+          # but different identities hash to different buckets and
+          # compare unequal — Hash["a" => 1]["a"] returns nil.
+          # Delegate both hooks to `iv_raw` so wrapper-keyed Hashes
+          # behave identically to primitive-keyed ones at runtime.
+          def value_eq_wrapper_members(cls_name)
+            [
+              "std::size_t m_hash_value() const override { return iv_raw ? iv_raw->m_hash_value() : 0; }",
+              "BasicObject* op_eq_q(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
+              "  if (args->data.empty()) return false_instance();",
+              "  if (this == args->data[0]) return true_instance();",
+              "  auto* o = dynamic_cast<#{cls_name}*>(args->data[0]);",
+              "  if (!o || !iv_raw || !o->iv_raw) return false_instance();",
+              "  return iv_raw->op_eq_q(new Array({o->iv_raw}));",
+              "}",
+            ]
+          end
+
+          VALUE_EQ_WRAPPER_CLASSES = %i[
+            Frozone_Vm_StringObject
+            Frozone_Vm_FloatObject
+            Frozone_Vm_IntegerObject
+          ].freeze
+
           def build_user_class_def(name, cls)
             # `Struct.new(:foo, :bar)` subclasses store their accessors
             # as define_method-generated Procs over closure variables —
@@ -1468,7 +1496,10 @@ module Frozone
               parent: parent_name_for(cls),
               is_module: is_module,
               ivars: ivars.map { |iv| "BasicObject* iv_#{iv} = nil_instance();" },
-              members: [%(const char* ruby_class_name() const override { return "#{name}"; })],
+              members: [
+                %(const char* ruby_class_name() const override { return "#{name}"; }),
+                *(VALUE_EQ_WRAPPER_CLASSES.include?(name) ? value_eq_wrapper_members(name.to_s) : []),
+              ],
               # No special ctor — `initialize` becomes a regular
               # `m_initialize` override; eigenclass auto-emits `m_new`
               # that does `new X(); m_initialize(...); return obj;`.
