@@ -1616,9 +1616,10 @@ module Frozone
               ivars: ivars.map { |iv| "BasicObject* iv_#{iv} = nil_instance();" },
               members: [
                 %(const char* ruby_class_name() const override { return "#{name}"; }),
+                *(IDENTITY_HASH_VM_CLASSES.include?(name) ? identity_hash_members : []),
                 *(VALUE_EQ_WRAPPER_CLASSES.include?(name) ? value_eq_wrapper_members(name.to_s) : []),
                 *(name == OBJECTOBJECT_RUNTIME_DISPATCH ? runtime_dispatch_hash_members(name.to_s) : []),
-                *(!VALUE_EQ_WRAPPER_CLASSES.include?(name) && name != OBJECTOBJECT_RUNTIME_DISPATCH && class_defines_method?(cls, :hash) ? user_hash_delegate_members(name.to_s) : []),
+                *(!IDENTITY_HASH_VM_CLASSES.include?(name) && !VALUE_EQ_WRAPPER_CLASSES.include?(name) && name != OBJECTOBJECT_RUNTIME_DISPATCH && class_defines_method?(cls, :hash) ? user_hash_delegate_members(name.to_s) : []),
               ],
               # No special ctor — `initialize` becomes a regular
               # `m_initialize` override; eigenclass auto-emits `m_new`
