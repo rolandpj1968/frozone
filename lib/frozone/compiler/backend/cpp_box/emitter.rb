@@ -1481,6 +1481,100 @@ module Frozone
             ]
           end
 
+          # Self-host: user-defined guest classes (e.g. interpreter user code
+          # subclassing `Object`) live as runtime `Frozone_Vm_ClassObject`s;
+          # their `hash` / `eql?` bodies sit in the class_object method
+          # table, not in any C++ vtable. When such an instance flows into
+          # the native Hash as a key, Hasher would otherwise use the
+          # identity default. Override `m_hash_value` on the universal
+          # guest base `Frozone_Vm_ObjectObject` to dispatch `:hash`
+          # through the full Ruby protocol (m_dispatch handles ancestor
+          # walking, refinements, method_missing) and unbox the result.
+          # Specialized Vm wrapper subclasses (Vm::StringObject etc.)
+          # already override `m_hash_value` with a fast path that takes
+          # precedence; this override only fires for classes that don't.
+          OBJECTOBJECT_RUNTIME_DISPATCH = :Frozone_Vm_ObjectObject
+
+          # Vm singleton/interned classes — identity hash is canonical
+          # because there's at most one instance per value. Override
+          # `m_hash_value` to identity so they don't pay the dispatch
+          # cost from OBJECTOBJECT_RUNTIME_DISPATCH on every Hash key
+          # lookup (Symbol-keyed Hashes are the hot path in the
+          # interpreter — kwargs, instance variables, locals).
+          IDENTITY_HASH_VM_CLASSES = %i[
+            Frozone_Vm_SymbolObject
+            Frozone_Vm_NilObject
+            Frozone_Vm_TrueObject
+            Frozone_Vm_FalseObject
+          ].freeze
+
+          def identity_hash_members
+            ["std::size_t m_hash_value() const override { return reinterpret_cast<std::size_t>(this); }"]
+          end
+
+          def runtime_dispatch_hash_members(cls_name)
+            # Header-inline-safe: use g_fiber_storage() (returns Hash*,
+            # always complete) rather than `&Fiber_CLASS` (Fiber_eigenclass
+            # is forward-declared at this point). The dispatched method
+            # body needs a real Vm Context — m_invoke / inner dispatches
+            # crash with `nil.frame` if context is nil.
+            [
+              "std::size_t m_hash_value() const override {",
+              "  auto* _self = const_cast<#{cls_name}*>(this);",
+              "  if (!_self->iv_class_object) return reinterpret_cast<std::size_t>(_self);",
+              "  // Probe method table before dispatching — many built-in classes",
+              "  // (Class, BasicObject, the Vm internals) have hash only at the",
+              "  // C++ vtable layer. Dispatching :hash there would fall through",
+              "  // to method_missing and BUG. Identity is the right default.",
+              "  BasicObject* _m = _self->m_lookup_instance_method(new Array({intern(\"hash\")}));",
+              "  if (!_m || _m == nil_instance() || _m == k_Frozone_Vm_ModuleObject_UNDEF_SENTINEL()) {",
+              "    return reinterpret_cast<std::size_t>(_self);",
+              "  }",
+              "  BasicObject* _ctx = g_fiber_storage()->op_aref(new Array({intern(\"context\")}));",
+              "  if (!_ctx || _ctx == nil_instance()) return reinterpret_cast<std::size_t>(_self);",
+              "  BasicObject* _r = _self->m_dispatch(",
+              "    new Array({_ctx, intern(\"hash\"), &EMPTY_ARGS, static_cast<BasicObject*>(&EMPTY_KWARGS), nil_instance()}),",
+              "    &EMPTY_KWARGS, nil_instance());",
+              "  // Re-dispatch m_hash_value on the result: Vm::IntegerObject (the",
+              "  // typical return) overrides m_hash_value to delegate to iv_raw",
+              "  // (runtime Integer, value-based hash). Avoids dynamic_cast to",
+              "  // forward-declared Vm types in this inline body.",
+              "  return _r ? _r->m_hash_value() : reinterpret_cast<std::size_t>(_self);",
+              "}",
+              # KeyEq on native Hash calls `a->op_eq_q(&tmp_with_b)` via the C++
+              # vtable. For guest user instances, op_eq_q inherits BasicObject's
+              # identity default — user-defined `def ==` lives in the class_object
+              # method table and isn't reflected in the vtable. Dispatch `:==` so
+              # the user's equality wins. Vm::True/False/NilObject are fused
+              # with the runtime singletons (#63/#64), so `truthy()` covers
+              # both sides without needing those Vm classes complete here.
+              "BasicObject* op_eq_q(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
+              "  if (args->data.empty()) return false_instance();",
+              "  BasicObject* _other = args->data[0];",
+              "  if (this == _other) return true_instance();",
+              "  auto* _self = const_cast<#{cls_name}*>(this);",
+              "  if (!_self->iv_class_object) return false_instance();",
+              "  // Probe the class_object method table first. Many built-in classes",
+              "  // (BasicObject, Class itself) don't define `==` as a Ruby method —",
+              "  // it only exists at the C++ vtable layer. Dispatching `:==` there",
+              "  // would fall through to method_missing and BUG. Identity check has",
+              "  // already returned true if pointers match; otherwise default to",
+              "  // false unless a Ruby `==` is registered.",
+              "  BasicObject* _m = _self->m_lookup_instance_method(new Array({intern(\"==\")}));",
+              "  if (!_m || _m == nil_instance() || _m == k_Frozone_Vm_ModuleObject_UNDEF_SENTINEL()) {",
+              "    return false_instance();",
+              "  }",
+              "  BasicObject* _ctx = g_fiber_storage()->op_aref(new Array({intern(\"context\")}));",
+              "  if (!_ctx || _ctx == nil_instance()) return false_instance();",
+              "  Array* _outer = new Array({_other});",
+              "  BasicObject* _r = _self->m_dispatch(",
+              "    new Array({_ctx, intern(\"==\"), static_cast<BasicObject*>(_outer), static_cast<BasicObject*>(&EMPTY_KWARGS), nil_instance()}),",
+              "    &EMPTY_KWARGS, nil_instance());",
+              "  return truthy(_r) ? true_instance() : false_instance();",
+              "}",
+            ]
+          end
+
           def class_defines_method?(cls, name)
             direct_methods(cls).key?(name)
           rescue StandardError
@@ -1523,7 +1617,8 @@ module Frozone
               members: [
                 %(const char* ruby_class_name() const override { return "#{name}"; }),
                 *(VALUE_EQ_WRAPPER_CLASSES.include?(name) ? value_eq_wrapper_members(name.to_s) : []),
-                *(!VALUE_EQ_WRAPPER_CLASSES.include?(name) && class_defines_method?(cls, :hash) ? user_hash_delegate_members(name.to_s) : []),
+                *(name == OBJECTOBJECT_RUNTIME_DISPATCH ? runtime_dispatch_hash_members(name.to_s) : []),
+                *(!VALUE_EQ_WRAPPER_CLASSES.include?(name) && name != OBJECTOBJECT_RUNTIME_DISPATCH && class_defines_method?(cls, :hash) ? user_hash_delegate_members(name.to_s) : []),
               ],
               # No special ctor — `initialize` becomes a regular
               # `m_initialize` override; eigenclass auto-emits `m_new`
