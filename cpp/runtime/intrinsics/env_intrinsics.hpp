@@ -103,7 +103,7 @@ inline BasicObject* intrinsic_env_to_hash() {
     if (!eq) continue;
     BasicObject* k = env_detail::string_of(*e, static_cast<std::size_t>(eq - *e));
     BasicObject* v = env_detail::string_of(eq + 1);
-    h->data[k] = v;
+    h->put(k, v);
   }
   return h;
 }

@@ -1463,6 +1463,30 @@ module Frozone
             Frozone_Vm_IntegerObject
           ].freeze
 
+          # For user classes that define `hash` directly in Ruby, emit an
+          # `m_hash_value` override that dispatches the Ruby method and
+          # unboxes the Integer result. Without it, native Hash's Hasher
+          # uses BasicObject's identity default — two value-equal instances
+          # (with matching `def hash` / `def ==`) hash to different buckets
+          # and look up as distinct keys. KeyEq already routes through the
+          # Ruby `==` (op_eq_q vtable slot) so user-defined `==` works once
+          # the keys land in the same bucket.
+          def user_hash_delegate_members(cls_name)
+            [
+              "std::size_t m_hash_value() const override {",
+              "  BasicObject* _h = const_cast<#{cls_name}*>(this)->m_hash();",
+              "  if (auto* _i = dynamic_cast<Integer*>(_h)) return static_cast<std::size_t>(_i->raw_);",
+              "  return reinterpret_cast<std::size_t>(this);",
+              "}",
+            ]
+          end
+
+          def class_defines_method?(cls, name)
+            direct_methods(cls).key?(name)
+          rescue StandardError
+            false
+          end
+
           def build_user_class_def(name, cls)
             # `Struct.new(:foo, :bar)` subclasses store their accessors
             # as define_method-generated Procs over closure variables —
@@ -1499,6 +1523,7 @@ module Frozone
               members: [
                 %(const char* ruby_class_name() const override { return "#{name}"; }),
                 *(VALUE_EQ_WRAPPER_CLASSES.include?(name) ? value_eq_wrapper_members(name.to_s) : []),
+                *(!VALUE_EQ_WRAPPER_CLASSES.include?(name) && class_defines_method?(cls, :hash) ? user_hash_delegate_members(name.to_s) : []),
               ],
               # No special ctor — `initialize` becomes a regular
               # `m_initialize` override; eigenclass auto-emits `m_new`
@@ -2034,7 +2059,7 @@ module Frozone
               spec[:universal_entry] = {
                 params: ["Array* args", "Hash* kwargs", "BasicObject* /*block*/"],
                 body: <<~CPP,
-                  if (!kwargs->data.empty()) { Array* _ext = new Array(); _ext->data = args->data; Hash* _h = new Hash(); _h->data = kwargs->data; _ext->data.push_back(static_cast<BasicObject*>(_h)); args = _ext; }
+                  if (!kwargs->data.empty()) { Array* _ext = new Array(); _ext->data = args->data; Hash* _h = new Hash(); _h->copy_kvps_from(*kwargs); _ext->data.push_back(static_cast<BasicObject*>(_h)); args = _ext; }
                   #{check_call}
                   switch (args->data.size()) {
                   #{switch_lines}

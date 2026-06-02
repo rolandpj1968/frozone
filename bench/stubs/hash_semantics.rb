@@ -8,6 +8,21 @@
 # offending case directly. No rescue, no exception paths — keep this focused
 # on Hash insert/lookup/iter/eq semantics for Integer, String, Symbol, Float.
 
+# Custom-key classes for the user-class portion of the probe. Hoisted to
+# the top so the box-first closed-world validator sees them at load time.
+class IdentityKey
+  attr_reader :name
+  def initialize(name) = @name = name
+end
+
+class ValueKey
+  attr_reader :name
+  def initialize(name) = @name = name
+  def hash = @name.hash
+  def eql?(other) = other.is_a?(ValueKey) && @name == other.name
+  def ==(other) = eql?(other)
+end
+
 # --- empty hash ---
 h = {}
 puts "empty size #{h.size}"
@@ -198,5 +213,64 @@ puts "fetch present #{h.fetch(:a)}"
 puts "fetch default #{h.fetch(:miss, :fallback)}"
 
 # Hash.new(default) deferred — hash_new in box-first IMPLEMENT_QUEUE (#140).
+
+# --- delete preserves order of remaining entries ---
+h = {}
+h[:a] = 1
+h[:b] = 2
+h[:c] = 3
+h[:d] = 4
+h.delete(:b)
+puts "after delete :b, keys #{h.keys.inspect}"   # [:a, :c, :d]
+puts "after delete :b, values #{h.values.inspect}"
+
+# --- update keeps original insertion slot ---
+h = {}
+h[:x] = 1
+h[:y] = 2
+h[:z] = 3
+h[:x] = 99   # update — should stay in slot 0
+puts "update-in-place keys #{h.keys.inspect}"     # [:x, :y, :z]
+puts "update-in-place x val #{h[:x]}"             # 99
+
+# --- delete + re-insert moves to end ---
+h = {}
+h[:p] = 1
+h[:q] = 2
+h[:r] = 3
+h.delete(:p)
+h[:p] = 99   # re-inserted — should go to end
+puts "delete-reinsert keys #{h.keys.inspect}"     # [:q, :r, :p]
+
+# --- delete-heavy then iterate (exercises compaction path) ---
+h = {}
+20.times { |i| h["k#{i}".to_sym] = i }
+[0, 2, 4, 6, 8, 10, 12, 14, 16, 18].each { |i| h.delete("k#{i}".to_sym) }
+puts "post-bulk-delete size #{h.size}"            # 10
+puts "post-bulk-delete keys #{h.keys.inspect}"    # [:k1, :k3, :k5, :k7, :k9, :k11, :k13, :k15, :k17, :k19]
+
+# --- Custom class WITHOUT hash/eql? — should be identity-keyed ---
+ia = IdentityKey.new("x")
+ib = IdentityKey.new("x")
+h = {}
+h[ia] = 1
+h[ib] = 2
+puts "identity-key distinct size #{h.size}"      # 2
+puts "identity-key lookup ia #{h[ia]}"           # 1
+puts "identity-key lookup ib #{h[ib]}"           # 2
+puts "identity-key same-instance lookup #{h[ia]}"  # 1
+
+# --- Custom class WITH hash/eql? — should be value-keyed ---
+va = ValueKey.new("x")
+vb = ValueKey.new("x")
+puts "value-key distinct == #{va == vb}"         # true
+puts "value-key distinct equal? #{va.equal?(vb)}" # false
+puts "value-key hashes equal #{va.hash == vb.hash}" # true
+h = {}
+h[va] = 1
+h[vb] = 2
+puts "value-key distinct size #{h.size}"         # 1 — same slot under MRI
+puts "value-key lookup va #{h[va]}"              # 2
+puts "value-key lookup vb #{h[vb]}"              # 2
 
 puts "DONE"

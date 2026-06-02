@@ -136,7 +136,7 @@ inline BasicObject* intrinsic_fiber_storage_get(BasicObject* /*self_*/, BasicObj
 
 // `Fiber[:k] = v` — write to process-global storage Hash.
 inline BasicObject* intrinsic_fiber_storage_set(BasicObject* /*self_*/, BasicObject* key, BasicObject* val) {
-  g_fiber_storage()->data[key] = val;
+  g_fiber_storage()->put(key, val);
   return val;
 }
 #endif  // FROZONE_KERNEL_INTRINSICS_HPP

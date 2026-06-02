@@ -9,25 +9,29 @@
 
 // `Hash#each { |k, v| ... }` — iterate, calling block with [k, v]
 // Array. Returns self. The 2-element Array argument enables `|k, v|`
-// destructuring at the block-arg unpacking site.
+// destructuring at the block-arg unpacking site. Walks the side
+// insertion-order vector so the block receives entries in MRI
+// insertion-order; tombstoned (nullptr) slots are skipped.
 inline BasicObject* intrinsic_hash_each(BasicObject* self_, BasicObject* block) {
   auto* _h = static_cast<Hash*>(self_);
   auto* _b = static_cast<Proc*>(block);
-  for (auto& _kv : _h->data) {
-    _b->m_call(new Array({_kv.first, _kv.second}));
+  for (BasicObject* _k : _h->insertion_order) {
+    if (!_k) continue;
+    auto _it = _h->data.find(_k);
+    if (_it == _h->data.end()) continue;
+    _b->m_call(new Array({_k, _it->second}));
   }
   return _h;
 }
 
 // `Hash#delete(key)` — remove and return value, or nil if key absent.
 // Does NOT call the default proc on miss (matches MRI Hash#delete).
+// erase_key tombstones the insertion_order slot and triggers a compact
+// pass if the waste ratio exceeds half.
 inline BasicObject* intrinsic_hash_delete(BasicObject* self_, BasicObject* key) {
   auto* _h = static_cast<Hash*>(self_);
-  auto _it = _h->data.find(key);
-  if (_it == _h->data.end()) return nil_instance();
-  BasicObject* _v = _it->second;
-  _h->data.erase(_it);
-  return _v;
+  BasicObject* _v = _h->erase_key(key);
+  return _v ? _v : nil_instance();
 }
 
 // `Hash#compare_by_identity` (setter) — switch to pointer-identity
@@ -40,6 +44,7 @@ inline BasicObject* intrinsic_hash_compare_by_identity(BasicObject* self_) {
   auto* _h = static_cast<Hash*>(self_);
   _h->compare_by_identity_ = true;
   _h->data.rehash(0);
+  _h->order_idx.rehash(0);
   return _h;
 }
 
@@ -56,6 +61,7 @@ inline BasicObject* intrinsic_hash_reset_compare_by_identity(BasicObject* self_)
   if (_h->compare_by_identity_) {
     _h->compare_by_identity_ = false;
     _h->data.rehash(0);
+    _h->order_idx.rehash(0);
   }
   return _h;
 }

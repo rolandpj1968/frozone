@@ -671,7 +671,7 @@ module Frozone
             # Mixed or multi: build a fresh Hash, populate with literal
             # pairs, then copy each splat source's entries on top.
             splat_pushes = kw_splat_nodes.map do |s|
-              "for (auto& _kv : static_cast<Hash*>(#{from_expr(s, locals)})->data) _h->data[_kv.first] = _kv.second;"
+              "_h->copy_kvps_from(*static_cast<Hash*>(#{from_expr(s, locals)}));"
             end.join(' ')
             "([&]() -> Hash* { Hash* _h = new Hash({#{entries.join(', ')}}); #{splat_pushes} return _h; }())"
           end

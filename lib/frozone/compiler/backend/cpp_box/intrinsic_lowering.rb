@@ -417,12 +417,12 @@ module Frozone
               "([&]() -> BasicObject* { auto* _h = static_cast<Hash*>(#{self_}); auto _it = _h->data.find(#{k}); return (_it == _h->data.end()) ? nil_instance() : _it->second; }())"
             },
             hash_index_write: ->(self_, k, v) {
-              "(static_cast<Hash*>(#{self_})->data[#{k}] = #{v})"
+              "([&]() -> BasicObject* { auto* _h = static_cast<Hash*>(#{self_}); BasicObject* _v = #{v}; _h->put(#{k}, _v); return _v; }())"
             },
             hash_size: ->(self_) {
-              "(new Integer(static_cast<int64_t>(static_cast<Hash*>(#{self_})->data.size())))"
+              "(new Integer(static_cast<int64_t>(static_cast<Hash*>(#{self_})->live)))"
             },
-            hash_clear: ->(self_) { "(static_cast<Hash*>(#{self_})->data.clear(), #{self_})" },
+            hash_clear: ->(self_) { "(static_cast<Hash*>(#{self_})->clear_kvps(), #{self_})" },
 
 
             # Object protocol stubs — most return nil/false/empty/self
