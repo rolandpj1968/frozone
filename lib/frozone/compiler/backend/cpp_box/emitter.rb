@@ -20,6 +20,7 @@ require_relative 'class_emitter'
 require_relative 'method_emitter'
 require_relative 'expr_emitter'
 require_relative 'method_shape_survey'
+require_relative 'visibility_survey'
 require_relative '../../module_flattening'
 require_relative '../../reachability'
 
@@ -155,6 +156,8 @@ module Frozone
             @stub_file = stub_file
             @user_constants = collect_user_constants
             @user_classes = collect_all_classes
+            @visibility_survey = VisibilitySurvey.compute(@user_classes)
+            $stderr.puts VisibilitySurvey.format_summary(@visibility_survey)
             @cpp = Cpp.new(user_classes: @user_classes, user_constants: @user_constants)
             @cpp.emit = self
             # Load-phase object-graph snapshot: discover all reachable
