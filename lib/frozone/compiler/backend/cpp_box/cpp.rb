@@ -415,12 +415,21 @@ module Frozone
           # or no survey available).
           def recv_with_visibility_check(recv_node, locals)
             recv_str = from_expr(recv_node, locals)
+            # `self.foo` syntax is the only relaxation in 4.x: explicit
+            # receiver as the literal `self` token is allowed for
+            # non-public targets. Every other explicit-recv form is
+            # checked, even ones that happen to evaluate to self at
+            # runtime (MRI's check is syntactic, not value-equality).
             return recv_str if recv_node.is_a?(Ast::SelfLiteral)
             pattern = emit&.visibility_survey&.per_name&.[](@vis_check_name)
             case pattern
             when :p2
-              # All-private: explicit-other allowed only when `recv == self`.
-              %|([&]() -> BasicObject* { auto* _r = #{recv_str}; if (_r != this) raise_private_call(_r, #{cpp_string_literal(@vis_check_name.to_s)}); return _r; }())|
+              # All-private: any non-`self`-literal explicit receiver
+              # raises NoMethodError unconditionally — no runtime test
+              # needed. The IIFE evaluates recv (preserving side
+              # effects, matching MRI's "evaluate receiver first then
+              # raise" order) and raises before the call would dispatch.
+              %|([&]() -> BasicObject* { auto* _r = #{recv_str}; raise_private_call(_r, #{cpp_string_literal(@vis_check_name.to_s)}); }())|
             when :p3
               # All-protected: caller's self must kind_of? receiver's class.
               %|([&]() -> BasicObject* { auto* _r = #{recv_str}; if (!truthy(this->mm_kind_of_q(new Array({_r->m_class()})))) raise_protected_call(_r, #{cpp_string_literal(@vis_check_name.to_s)}); return _r; }())|

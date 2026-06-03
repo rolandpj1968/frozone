@@ -118,14 +118,22 @@ For each combination of pattern × flavor:
 | pattern | implicit | explicit-self | explicit-other |
 |---------|----------|---------------|----------------|
 | P1 public  | call | call | call |
-| P2 private | call | call | `if (recv == cs) call(); else raise_private;` |
+| P2 private | call | call | `raise_private_call;` (unconditional) |
 | P3 protected | call | call | `if (cs->mm_kind_of_q(recv->m_class())) call(); else raise_protected;` |
 | P4 mixed   | call | call | universal-slot path (see below) |
 
-Where `cs` is `current_self_local` — the C++ local binding for `self`
-in the enclosing emitted method body. Both operands of the runtime
-check are call-site locals; no caller-self threading through method
-bodies.
+MRI's check for explicit-other on private methods is **syntactic**,
+not runtime: only the literal `self.method` form is relaxed in 4.x;
+every other explicit-recv form raises, including ones that happen to
+evaluate to self at runtime. So P2 explicit-other emits
+`raise_private_call` unconditionally — no `recv == self` test.
+Receiver is still evaluated (preserving side effects) before the
+raise, matching MRI's order.
+
+P3 explicit-other still needs the runtime `kind_of?` test because the
+receiver's class is runtime-determined. `cs` is `current_self_local`
+— the C++ local binding for `self` in the enclosing emitted method
+body. No caller-self threading through method bodies.
 
 For statically-resolvable receivers (NA-eligible, or known-receiver-
 type at the call site), the resolved target's visibility is known at
