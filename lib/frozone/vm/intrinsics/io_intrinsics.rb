@@ -59,18 +59,10 @@ module Frozone
           env_hash = nil
           if fhash?(opts_obj) && !opts_obj.raw.empty?
             opts_obj.raw.each do |k, v|
-              key = case k
-                    when SymbolObject then k.raw
-                    when KeyWrapper then (k.key.is_a?(SymbolObject) ? k.key.raw : k.key.to_s.to_sym)
-                    else k.to_s.to_sym
-                    end
+              key = k.is_a?(SymbolObject) ? k.raw : k.to_s.to_sym
               if key == :env && fhash?(v)
                 env_hash = v.raw.each_with_object({}) do |(ek, ev), h|
-                  str_k = case ek
-                           when StringObject then ek.raw
-                           when KeyWrapper then (ek.key.is_a?(StringObject) ? ek.key.raw : ek.key.to_s)
-                           else ek.to_s
-                           end
+                  str_k = ek.is_a?(StringObject) ? ek.raw : ek.to_s
                   str_v = fnil?(ev) ? nil : (fstr?(ev) ? ev.raw : ev.to_s)
                   h[str_k] = str_v
                 end
@@ -107,7 +99,6 @@ module Frozone
                   raw_k = case ek
                           when StringObject then ek.raw
                           when SymbolObject then ek.raw
-                          when KeyWrapper   then (ek.key.is_a?(StringObject) ? ek.key.raw : (ek.key.is_a?(SymbolObject) ? ek.key.raw : ek.key.to_s))
                           else ek.to_s
                           end
                   raw_v = case ev

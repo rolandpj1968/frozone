@@ -3,15 +3,29 @@ require_relative 'globals'
 require_relative 'proc_object'
 require_relative 'hoisted_constant_sentinel'
 
-require_relative 'parser'
-# vm.rb#parse defaults to WqParser when no --parser flag is given, so vm.rb
-# must ensure both frontends are loaded — not just the Prism one above.
-# (Previously only frozone.rb pre-loaded wq_parser, so any embedder that
-# required vm.rb directly — e.g. the rspec harness's vm_loader — hit an
-# uninitialized-constant on the default parse path.) Load-phase require,
-# so box-first BUILD_FILES capture is unaffected. No cycle: wq_parser pulls
-# only parser/ruby40 + ../ast.
+# Parser frontend choice.
+#
+# MRI Frozone: both Parser (Prism wrapper) and WqParser (Parser::Ruby40
+# wrapper) load; vm.rb#parse picks via --parser flag, default Prism.
+#
+# Box-first compile (FROZONE_BOX_FIRST=1): Prism is a C extension and
+# doesn't compile through frozone-on-frozone AOT. Skip parser.rb
+# (Prism wrapper) entirely and alias Parser → WqParser so source code
+# that references Parser (eval intrinsics, vm.rb#parse case branch)
+# resolves to WqParser at AOT walk time. Parser class body is never
+# captured in the closed world; no dead `require 'prism'` /
+# `Prism.parse(...)` stubs in the gen. Mirrors what frozone.rb's
+# runtime `--parser=wq` does for interpreted mode.
 require_relative 'wq_parser'
+if ENV['FROZONE_BOX_FIRST']
+  module Frozone
+    module Vm
+      Parser = WqParser
+    end
+  end
+else
+  require_relative 'parser'
+end
 
 require_relative 'context'
 require_relative 'frame'
@@ -431,29 +445,11 @@ module Frozone
       private
 
       def parse(script, dump_ast = false, filepath: nil, raise_syntax_errors: false)
-        # frozone.rb's `--parser=wq` swap (`Vm.send(:remove_const,
-        # :Parser); Vm::Parser = WqParser`) is runtime metaprog that
-        # closed-world AOT can't honor. Pick the class here based on
-        # @options[:parser] instead. Both Parser (Prism wrapper) and
-        # WqParser are loaded by frozone.rb's require_relative chain
-        # before parse() is ever called, so unconditional reference
-        # is safe — no defined?() guard needed (box-first doesn't
-        # lower defined?(const) yet).
-        # Parser selection. Tricky because we have THREE failure modes:
-        # 1. Interpreter mode (MRI host): user picks via --parser flag.
-        #    Default :prism. Both work.
-        # 2. Box-first compiled: Prism is a C extension and doesn't
-        #    compile. WqParser must be used regardless of flag.
-        # 3. Runtime detection of "are we compiled?" requires a sentinel.
-        #    Use ENV: box-first compile pipeline sets FROZONE_BOX_FIRST=1,
-        #    but the compiled binary doesn't preserve that. Cleaner:
-        #    detect by trying Prism and falling back. Even cleaner:
-        #    check whether Vm::Parser's Prism dependency is reachable —
-        #    but that's hard to query.
-        # For now: respect @options[:parser] if set (string-compare to
-        # sidestep box-first's Symbol== bug). When unset, default to
-        # WqParser — that's the only one viable in compiled mode, and
-        # interpreted mode users who want Prism can still pass --parser=prism.
+        # Parser selection. In box-first compiled mode `Parser` is
+        # aliased to `WqParser` at vm.rb load (see top-of-file ENV
+        # guard), so both case branches resolve to WqParser and Prism
+        # never enters the closed world. In MRI mode `Parser` is the
+        # Prism wrapper; users opt into WqParser via --parser=wq.
         parser_str = @options && @options[:parser]&.to_s
         parser_class =
           case parser_str
