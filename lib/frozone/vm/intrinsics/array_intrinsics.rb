@@ -3,6 +3,58 @@
 module Frozone
   module Vm
     module Intrinsics
+      # Proxy wrapping a Frozone ObjectObject so MRI's Array#pack can call
+      # to_str / to_s / to_int / to_f on it via Frozone dispatch. Module-
+      # level so box-first codegen resolves the constant from eigenclass-
+      # method bodies (sibling of HashFormatProxy/FormatProxy refactor in
+      # string_intrinsics.rb).
+      class PackProxy
+        attr_reader :frozone_obj
+
+        def initialize(frozone_obj, context)
+          @obj = frozone_obj
+          @ctx = context
+        end
+
+        def frozone_class_name = @obj.class_object&.name.to_s
+
+        def to_str
+          result = @obj.dispatch(@ctx, :to_str, [], {})
+          return result.raw if Intrinsics.fstr?(result)
+
+          raise ::TypeError, "no implicit conversion of #{frozone_class_name} into String"
+        rescue FrozoneException
+          raise ::TypeError, "no implicit conversion of #{frozone_class_name} into String"
+        end
+
+        def to_s
+          result = @obj.dispatch(@ctx, :to_s, [], {})
+          return result.raw if Intrinsics.fstr?(result)
+
+          frozone_class_name
+        rescue FrozoneException
+          frozone_class_name
+        end
+
+        def to_int
+          result = @obj.dispatch(@ctx, :to_int, [], {})
+          return result.raw if Intrinsics.fint?(result)
+
+          raise ::TypeError, "no implicit conversion of #{frozone_class_name} into Integer"
+        rescue FrozoneException
+          raise ::TypeError, "no implicit conversion of #{frozone_class_name} into Integer"
+        end
+
+        def to_f
+          result = @obj.dispatch(@ctx, :to_f, [], {})
+          return result.raw if Intrinsics.ffloat?(result)
+
+          raise ::TypeError, "can't convert #{frozone_class_name} into Float"
+        rescue FrozoneException
+          raise ::TypeError, "can't convert #{frozone_class_name} into Float"
+        end
+      end
+
       class << self
         # Array
         def array_length(_, v) = n2f_int(v.length)
@@ -154,54 +206,6 @@ module Frozone
           v
         end
 
-        # Proxy wrapping a Frozone ObjectObject so MRI's Array#pack can call
-        # to_str / to_s / to_int / to_f on it via Frozone dispatch.
-        class PackProxy
-          attr_reader :frozone_obj
-
-          def initialize(frozone_obj, context)
-            @obj = frozone_obj
-            @ctx = context
-          end
-
-          def frozone_class_name = @obj.class_object&.name.to_s
-
-          def to_str
-            result = @obj.dispatch(@ctx, :to_str, [], {})
-            return result.raw if Intrinsics.fstr?(result)
-
-            raise ::TypeError, "no implicit conversion of #{frozone_class_name} into String"
-          rescue FrozoneException
-            raise ::TypeError, "no implicit conversion of #{frozone_class_name} into String"
-          end
-
-          def to_s
-            result = @obj.dispatch(@ctx, :to_s, [], {})
-            return result.raw if Intrinsics.fstr?(result)
-
-            frozone_class_name
-          rescue FrozoneException
-            frozone_class_name
-          end
-
-          def to_int
-            result = @obj.dispatch(@ctx, :to_int, [], {})
-            return result.raw if Intrinsics.fint?(result)
-
-            raise ::TypeError, "no implicit conversion of #{frozone_class_name} into Integer"
-          rescue FrozoneException
-            raise ::TypeError, "no implicit conversion of #{frozone_class_name} into Integer"
-          end
-
-          def to_f
-            result = @obj.dispatch(@ctx, :to_f, [], {})
-            return result.raw if Intrinsics.ffloat?(result)
-
-            raise ::TypeError, "can't convert #{frozone_class_name} into Float"
-          rescue FrozoneException
-            raise ::TypeError, "can't convert #{frozone_class_name} into Float"
-          end
-        end
 
         def pack_coerce_fmt(context, fmt_obj)
           case fmt_obj

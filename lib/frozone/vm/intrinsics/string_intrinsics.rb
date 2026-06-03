@@ -6,6 +6,114 @@ module Frozone
       # Global dedup table: maps raw MRI string → frozen StringObject
       STRING_DEDUP_TABLE = {}
 
+      # Proxy for Hash args to support named format references %{name},
+      # %<name>s in `Intrinsics.string_format`. Inherits from Hash so MRI's
+      # % operator treats it as a hash type directly. Module-level so
+      # box-first codegen can resolve the constant from the eigenclass-
+      # method bodies that reference it. Unreachable in box-first runtime
+      # (the `Intrinsics.interpreted?` guard skips the proxy path).
+      class HashFormatProxy < Hash
+        attr_reader :frozone_vm_hash
+
+        def initialize(h, vm_hash = FNIL)
+          @frozone_vm_hash = vm_hash
+          super()
+          update(h)
+        end
+      end
+
+      # Proxy class for Frozone ObjectObjects in sprintf. Module-level
+      # for the same codegen-resolution reason as HashFormatProxy above.
+      class FormatProxy
+        def initialize(vm_obj, context)
+          @vm_obj = vm_obj
+          @context = context
+        end
+
+        def to_s
+          r = @vm_obj.dispatch(@context, :to_s, [], {})
+          Intrinsics.fstr?(r) ? r.raw : @vm_obj.to_s
+        rescue Frozone::Vm::FrozoneException => e
+          # Let NoMethodError propagate (e.g. BasicObject without to_s)
+          raise if e.vm_object.is_a?(ObjectObject) && e.vm_object.class_object&.name == :NoMethodError
+          @vm_obj.to_s
+        end
+
+        def inspect
+          r = @vm_obj.dispatch(@context, :inspect, [], {}) rescue nil
+          Intrinsics.fstr?(r) ? r.raw : @vm_obj.to_s
+        end
+
+        # to_ary is dispatched through Frozone for mock support
+        # Returns nil (not array), array, or non-array (so MRI raises TypeError)
+        def to_ary
+          r = @vm_obj.dispatch(@context, :to_ary, [], {})
+          return nil if Intrinsics.fnil?(r)
+          if Intrinsics.farray?(r)
+            r.raw.map { |a| Intrinsics.fobj?(a) ? a.raw : a }
+          else
+            # Return non-array value so MRI raises TypeError
+            Intrinsics.fobj?(r) ? r.raw : r.to_s
+          end
+        rescue Frozone::Vm::FrozoneException
+          nil
+        end
+
+        def to_int
+          r = @vm_obj.dispatch(@context, :to_int, [], {})
+          raise TypeError, "can't convert #{@vm_obj.class_object&.name} into Integer" unless Intrinsics.fint?(r)
+          r.raw
+        rescue Frozone::Vm::FrozoneException => e
+          vm_obj = e.vm_object
+          if vm_obj.is_a?(ObjectObject) && vm_obj.class_object&.name == :NoMethodError
+            raise TypeError, "no implicit conversion of #{@vm_obj.class_object&.name} into Integer"
+          end
+          raise TypeError, e.message
+        end
+
+        def to_i
+          r = @vm_obj.dispatch(@context, :to_i, [], {})
+          Intrinsics.fint?(r) ? r.raw : 0
+        rescue Frozone::Vm::FrozoneException => e
+          vm_obj = e.vm_object
+          if vm_obj.is_a?(ObjectObject) && vm_obj.class_object&.name == :NoMethodError
+            raise TypeError, "no implicit conversion of #{@vm_obj.class_object&.name} into Integer"
+          end
+          raise TypeError, e.message
+        end
+
+        def to_f
+          r = @vm_obj.dispatch(@context, :to_f, [], {})
+          raise TypeError, "can't convert #{@vm_obj.class_object&.name} into Float" unless Intrinsics.ffloat?(r)
+          r.raw
+        rescue Frozone::Vm::FrozoneException => e
+          vm_obj = e.vm_object
+          if vm_obj.is_a?(ObjectObject) && vm_obj.class_object&.name == :NoMethodError
+            raise TypeError, "no implicit conversion of #{@vm_obj.class_object&.name} into Float"
+          end
+          raise TypeError, e.message
+        end
+
+        # to_str is called by %c format (not by %s which uses to_s)
+        def to_str
+          r = @vm_obj.dispatch(@context, :to_str, [], {})
+          return r.raw if Intrinsics.fstr?(r)
+          return nil if Intrinsics.fnil?(r)
+          # Non-String returned: raise TypeError so MRI propagates correct message
+          raise TypeError, "can't convert #{@vm_obj.class_object&.name} into String (#{@vm_obj.class_object&.name}#to_str gives #{r.class_object&.name})"
+        rescue Frozone::Vm::FrozoneException
+          nil
+        end
+
+        def respond_to_missing?(name, include_private = false)
+          # Don't advertise to_ary via respond_to? (it may still be called directly by MRI)
+          return false if name == :to_ary
+          true
+        end
+
+        def method_missing(name, *args) = Intrinsics.fobj?(@vm_obj) ? @vm_obj.raw.send(name, *args) : super
+      end
+
       class << self
         # `:__unset__` is the sentinel used as a default value for
         # optional positional params in core/4.0/ Ruby code (e.g.
@@ -755,7 +863,14 @@ module Frozone
             # Set receiver to the original Frozone HashObject (not the MRI proxy)
             frozone_receiver = if fhash?(args)
                                  args
-                               elsif e.respond_to?(:receiver) && e.receiver.is_a?(HashFormatProxy)
+                               elsif Intrinsics.interpreted?(self) &&
+                                     e.respond_to?(:receiver) && e.receiver.is_a?(HashFormatProxy)
+                                 # box-first/self-host: HashFormatProxy isn't
+                                 # codegen-resolvable from here (#155 sibling);
+                                 # `args` is the FrozoneException's @receiver
+                                 # path above (fhash?). For the rare format-
+                                 # error coming from a plain MRI hash receiver,
+                                 # report it without wrapping.
                                  e.receiver.frozone_vm_hash
                                end
             exc.set_ivar(:@receiver, frozone_receiver) if frozone_receiver
@@ -787,6 +902,14 @@ module Frozone
               mri_val = frozone_to_format_proxy(context, v)
               h[mri_key] = mri_val
             end
+            # box-first/self-host: skip HashFormatProxy (#155 sibling) — the
+            # class definition is in `class << self` and the codegen doesn't
+            # resolve it cleanly from this method body. The default-proc /
+            # default-value propagation below also needs MRI host Hash behaviour
+            # (default_proc setter, MRI block dispatch) that box-first doesn't
+            # implement. Returning a plain host Hash is sufficient for the
+            # common %s / %d / non-default cases mspec exercises.
+            return h unless Intrinsics.interpreted?(self)
             proxy = HashFormatProxy.new(h, arg)
             # Propagate Frozone hash default so %{missing} works with Hash.new(default)
             if arg.default_block && !fnil?(arg.default_block)
@@ -810,108 +933,7 @@ module Frozone
 
         public
 
-        # Proxy class for Frozone ObjectObjects in sprintf
-        class FormatProxy
-          def initialize(vm_obj, context)
-            @vm_obj = vm_obj
-            @context = context
-          end
 
-          def to_s
-            r = @vm_obj.dispatch(@context, :to_s, [], {})
-            Intrinsics.fstr?(r) ? r.raw : @vm_obj.to_s
-          rescue Frozone::Vm::FrozoneException => e
-            # Let NoMethodError propagate (e.g. BasicObject without to_s)
-            raise if e.vm_object.is_a?(ObjectObject) && e.vm_object.class_object&.name == :NoMethodError
-            @vm_obj.to_s
-          end
-
-          def inspect
-            r = @vm_obj.dispatch(@context, :inspect, [], {}) rescue nil
-            Intrinsics.fstr?(r) ? r.raw : @vm_obj.to_s
-          end
-
-          # to_ary is dispatched through Frozone for mock support
-          # Returns nil (not array), array, or non-array (so MRI raises TypeError)
-          def to_ary
-            r = @vm_obj.dispatch(@context, :to_ary, [], {})
-            return nil if Intrinsics.fnil?(r)
-            if Intrinsics.farray?(r)
-              r.raw.map { |a| Intrinsics.fobj?(a) ? a.raw : a }
-            else
-              # Return non-array value so MRI raises TypeError
-              Intrinsics.fobj?(r) ? r.raw : r.to_s
-            end
-          rescue Frozone::Vm::FrozoneException
-            nil
-          end
-
-          def to_int
-            r = @vm_obj.dispatch(@context, :to_int, [], {})
-            raise TypeError, "can't convert #{@vm_obj.class_object&.name} into Integer" unless Intrinsics.fint?(r)
-            r.raw
-          rescue Frozone::Vm::FrozoneException => e
-            vm_obj = e.vm_object
-            if vm_obj.is_a?(ObjectObject) && vm_obj.class_object&.name == :NoMethodError
-              raise TypeError, "no implicit conversion of #{@vm_obj.class_object&.name} into Integer"
-            end
-            raise TypeError, e.message
-          end
-
-          def to_i
-            r = @vm_obj.dispatch(@context, :to_i, [], {})
-            Intrinsics.fint?(r) ? r.raw : 0
-          rescue Frozone::Vm::FrozoneException => e
-            vm_obj = e.vm_object
-            if vm_obj.is_a?(ObjectObject) && vm_obj.class_object&.name == :NoMethodError
-              raise TypeError, "no implicit conversion of #{@vm_obj.class_object&.name} into Integer"
-            end
-            raise TypeError, e.message
-          end
-
-          def to_f
-            r = @vm_obj.dispatch(@context, :to_f, [], {})
-            raise TypeError, "can't convert #{@vm_obj.class_object&.name} into Float" unless Intrinsics.ffloat?(r)
-            r.raw
-          rescue Frozone::Vm::FrozoneException => e
-            vm_obj = e.vm_object
-            if vm_obj.is_a?(ObjectObject) && vm_obj.class_object&.name == :NoMethodError
-              raise TypeError, "no implicit conversion of #{@vm_obj.class_object&.name} into Float"
-            end
-            raise TypeError, e.message
-          end
-
-          # to_str is called by %c format (not by %s which uses to_s)
-          def to_str
-            r = @vm_obj.dispatch(@context, :to_str, [], {})
-            return r.raw if Intrinsics.fstr?(r)
-            return nil if Intrinsics.fnil?(r)
-            # Non-String returned: raise TypeError so MRI propagates correct message
-            raise TypeError, "can't convert #{@vm_obj.class_object&.name} into String (#{@vm_obj.class_object&.name}#to_str gives #{r.class_object&.name})"
-          rescue Frozone::Vm::FrozoneException
-            nil
-          end
-
-          def respond_to_missing?(name, include_private = false)
-            # Don't advertise to_ary via respond_to? (it may still be called directly by MRI)
-            return false if name == :to_ary
-            true
-          end
-
-          def method_missing(name, *args) = Intrinsics.fobj?(@vm_obj) ? @vm_obj.raw.send(name, *args) : super
-        end
-
-        # Proxy for Hash args to support named format references %{name}, %<name>s
-        # Inherits from Hash so MRI's % operator treats it as a hash type directly.
-        class HashFormatProxy < ::Hash
-          attr_reader :frozone_vm_hash
-
-          def initialize(h, vm_hash = FNIL)
-            @frozone_vm_hash = vm_hash
-            super()
-            update(h)
-          end
-        end
 
         def string_encode(context, v, enc = FNIL, src_enc = FNIL, opts = FNIL)
           # Coerce options hash if it's a VM object
