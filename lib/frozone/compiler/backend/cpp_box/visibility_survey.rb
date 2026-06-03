@@ -26,17 +26,27 @@ module Frozone
             end
           end
 
-          # Walk every reachable class's methods_table and extract
-          # visibility per (class, name). Aggregate per-name into one
-          # of the four patterns.
+          # Walk every reachable class's methods_table — both the
+          # instance-method table and the singleton (eigenclass)
+          # methods table — and extract visibility per (class, name).
+          # Aggregate per-name into one of the four patterns.
           #
           # `all_classes` is the hash returned by emitter#collect_all_classes
-          # (flat_name → ModuleObject/ClassObject).
+          # (flat_name → ModuleObject/ClassObject). Each class's eigenclass
+          # is reached via singleton_class — its methods_table holds class
+          # methods (`def self.foo`, post-hoc `private_class_method :foo`
+          # declarations, etc.).
+          #
+          # Instance and class methods sharing a name are tracked under
+          # the SAME name key: e.g. `Kernel#open` (private instance) and
+          # `File.open` (public class) together classify `open` as P4
+          # mixed, which is the correct call-site treatment (universal
+          # slot decides at runtime based on receiver type).
           def self.compute(all_classes)
             per_class = {}            # flat_class_name => { method_name => :public|:private|:protected }
             per_name_vises = {}       # method_name => Set of visibilities seen
 
-            all_classes.each do |flat, cls|
+            visit = lambda do |flat, cls|
               vis_map = {}
               (cls.methods_table || {}).each do |name, m|
                 # Skip undef-sentinels (raw Symbols) and anything without a
@@ -49,6 +59,18 @@ module Frozone
                 (per_name_vises[name] ||= Set.new) << vis
               end
               per_class[flat] = vis_map unless vis_map.empty?
+            end
+
+            all_classes.each do |flat, cls|
+              visit.call(flat, cls)
+              # Eigenclass (class-method table). Lazy: singleton_class
+              # auto-creates on first read. We materialise it here only
+              # for classes that have one, which is virtually all of
+              # them in practice. The eigenclass's flat name is suffixed
+              # _eigenclass for uniqueness in per_class.
+              if cls.respond_to?(:singleton_class) && (ec = cls.singleton_class)
+                visit.call(:"#{flat}_eigenclass", ec)
+              end
             end
 
             per_name = {}

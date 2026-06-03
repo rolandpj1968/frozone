@@ -395,6 +395,47 @@ module Frozone
             name = node.name
             arg_nodes = node.arg_nodes || []
 
+            # Stash for from_expr_recv below. Cleared at top of method
+            # so a nested call can install its own pattern; we restore
+            # afterwards to support call-in-arg nesting.
+            prev_vis_name = @vis_check_name
+            @vis_check_name = name
+            begin
+              from_method_call_inner(node, recv, name, arg_nodes, locals)
+            ensure
+              @vis_check_name = prev_vis_name
+            end
+          end
+
+          # Receiver-fetch hook: for explicit-other calls to P2 (all-
+          # private) or P3 (all-protected) method names, wrap the
+          # receiver expression with the appropriate runtime check.
+          # Used by from_method_call_inner; pure pass-through when no
+          # check is needed (implicit recv, explicit self, P1/P4 names,
+          # or no survey available).
+          def recv_with_visibility_check(recv_node, locals)
+            recv_str = from_expr(recv_node, locals)
+            return recv_str if recv_node.is_a?(Ast::SelfLiteral)
+            pattern = emit&.visibility_survey&.per_name&.[](@vis_check_name)
+            case pattern
+            when :p2
+              # All-private: explicit-other allowed only when `recv == self`.
+              %|([&]() -> BasicObject* { auto* _r = #{recv_str}; if (_r != this) raise_private_call(_r, #{cpp_string_literal(@vis_check_name.to_s)}); return _r; }())|
+            when :p3
+              # All-protected: caller's self must kind_of? receiver's class.
+              %|([&]() -> BasicObject* { auto* _r = #{recv_str}; if (!truthy(this->mm_kind_of_q(new Array({_r->m_class()})))) raise_protected_call(_r, #{cpp_string_literal(@vis_check_name.to_s)}); return _r; }())|
+            else
+              recv_str
+            end
+          end
+
+          # Original from_method_call body, lifted into a helper so the
+          # outer wrapper can install @vis_check_name. The body delegates
+          # receiver fetches to recv_with_visibility_check when wrapping
+          # is potentially needed; bare from_expr otherwise (e.g. for
+          # `recv.is_a?(Klass)` short-circuit which is just a typeid test).
+          def from_method_call_inner(node, recv, name, arg_nodes, locals)
+
             # `raise` is a statement-like keyword in Ruby that we lower
             # to a C++ `throw` wrapped in a lambda (so it composes in
             # expression position too).
@@ -507,7 +548,7 @@ module Frozone
                 recv_str = from_expr(recv, locals)
                 return "([&]() -> BasicObject* { auto* _r = #{recv_str}; return (_r == nil_instance()) ? nil_instance() : _r->#{Cpp.method_name(name)}(#{all_csv}); }())"
               elsif recv
-                return "#{from_expr(recv, locals)}->#{Cpp.method_name(name)}(#{all_csv})"
+                return "#{recv_with_visibility_check(recv, locals)}->#{Cpp.method_name(name)}(#{all_csv})"
               else
                 return "this->#{Cpp.method_name(name)}(#{all_csv})"
               end
@@ -529,7 +570,7 @@ module Frozone
                 recv_str = from_expr(recv, locals)
                 return "([&]() -> BasicObject* { auto* _r = #{recv_str}; return (_r == nil_instance()) ? nil_instance() : _r->#{Cpp.method_name(name)}(#{pos_csv}); }())"
               elsif recv
-                return "#{from_expr(recv, locals)}->#{Cpp.method_name(name)}(#{pos_csv})"
+                return "#{recv_with_visibility_check(recv, locals)}->#{Cpp.method_name(name)}(#{pos_csv})"
               else
                 return "this->#{Cpp.method_name(name)}(#{pos_csv})"
               end
@@ -584,10 +625,10 @@ module Frozone
               end
               call_csv = (pos_refs + pos_pad_refs + kw_refs).join(', ')
               if recv && node.safe_nav
-                recv_str = from_expr(recv, locals)
+                recv_str = from_expr(recv, locals)  # safe_nav: visibility check deferred — would need to fold into the nil short-circuit IIFE
                 return "([&]() -> BasicObject* { auto* _r = #{recv_str}; if (_r == nil_instance()) return nil_instance(); #{decls} return _r->#{Cpp.method_name(name)}(#{call_csv}); }())"
               elsif recv
-                recv_str = from_expr(recv, locals)
+                recv_str = recv_with_visibility_check(recv, locals)
                 return "([&]() -> BasicObject* { auto* _r = #{recv_str}; #{decls} return _r->#{Cpp.method_name(name)}(#{call_csv}); }())"
               else
                 return "([&]() -> BasicObject* { #{decls} return this->#{Cpp.method_name(name)}(#{call_csv}); }())"
@@ -602,11 +643,11 @@ module Frozone
             # the per-name trampoline that routes into the right
             # per-arity overload. No parallel TRAMPOLINE_VT.
             if (na_sig || mu_family || kw_sig) && recv
-              recv_str = from_expr(recv, locals)
               if node.safe_nav
+                recv_str = from_expr(recv, locals)  # safe_nav: visibility check deferred — would need to fold into the nil short-circuit IIFE
                 return "([&]() -> BasicObject* { auto* _r = #{recv_str}; return (_r == nil_instance()) ? nil_instance() : _r->#{Cpp.method_name(name)}(#{args_array}, #{kwargs_arg}, #{block_arg}); }())"
               else
-                return "#{recv_str}->#{Cpp.method_name(name)}(#{args_array}, #{kwargs_arg}, #{block_arg})"
+                return "#{recv_with_visibility_check(recv, locals)}->#{Cpp.method_name(name)}(#{args_array}, #{kwargs_arg}, #{block_arg})"
               end
             elsif (na_sig || mu_family || kw_sig) && !recv
               return "this->#{Cpp.method_name(name)}(#{args_array}, #{kwargs_arg}, #{block_arg})"
@@ -619,11 +660,12 @@ module Frozone
                   # is nil_instance(); MRI semantics short-circuit on
                   # nil only (NOT on false). Compute the receiver once
                   # via IIFE to avoid double-evaluation of side effects.
+                  # safe_nav skips visibility check (Stage 2b).
                   recv_str = from_expr(recv, locals)
                   call_tail_str = "->#{Cpp.method_name(name)}#{call_tail(args_array, kwargs_arg, block_arg)}"
                   "([&]() -> BasicObject* { auto* _r = #{recv_str}; return (_r == nil_instance()) ? nil_instance() : _r#{call_tail_str}; }())"
                 else
-                  "#{from_expr(recv, locals)}->#{Cpp.method_name(name)}#{call_tail(args_array, kwargs_arg, block_arg)}"
+                  "#{recv_with_visibility_check(recv, locals)}->#{Cpp.method_name(name)}#{call_tail(args_array, kwargs_arg, block_arg)}"
                 end
               elsif name == :puts
                 # ruby_puts returns void; Ruby's puts returns nil — comma

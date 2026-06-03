@@ -29,7 +29,7 @@ module Frozone
     module Backend
       module CppBox
         class Emitter
-          attr_reader :cpp, :top_level_scope, :user_classes, :user_constants, :natural_arity_names, :multi_arity_table, :kw_unset_table, :leaf_dispatch_table
+          attr_reader :cpp, :top_level_scope, :user_classes, :user_constants, :natural_arity_names, :multi_arity_table, :kw_unset_table, :leaf_dispatch_table, :visibility_survey
           # When true, emission errors inside method bodies re-raise
           # under FROZONE_BOX_HARD_FAIL=1 instead of graceful-skipping.
           # Toggled true while emitting user-class bodies + the

@@ -1710,6 +1710,52 @@ module Frozone
             body: %(throw_argument_error_fmt("unknown keyword: :%s", name);),
           )
 
+          # Visibility check failures. Emitted at call sites for
+          # explicit-other calls to all-private (P2) / all-protected
+          # (P3) method names when the runtime check fails — i.e. the
+          # receiver isn't `self` for private, or `current_self` isn't
+          # in the receiver's class hierarchy for protected. See
+          # docs/box-first-visibility.md.
+          RAISE_PRIVATE_CALL_FN = KernelFn.new(
+            name: "raise_private_call",
+            signature: "[[noreturn]] void raise_private_call(BasicObject* recv, const char* name)",
+            body: <<~CPP.chomp,
+              std::size_t nlen = std::strlen(name);
+              const char* cn = recv ? recv->ruby_class_name() : "nil";
+              std::size_t clen = std::strlen(cn);
+              static const char prefix[] = "private method '";
+              static const char mid[] = "' called for an instance of ";
+              String* msg = new String();
+              msg->bytes.reserve(sizeof(prefix) - 1 + nlen + sizeof(mid) - 1 + clen);
+              msg->bytes.insert(msg->bytes.end(), prefix, prefix + sizeof(prefix) - 1);
+              msg->bytes.insert(msg->bytes.end(), name, name + nlen);
+              msg->bytes.insert(msg->bytes.end(), mid, mid + sizeof(mid) - 1);
+              msg->bytes.insert(msg->bytes.end(), cn, cn + clen);
+              throw static_cast<Exception*>((&NoMethodError_CLASS)->m_new(
+                new Array({static_cast<BasicObject*>(msg)})));
+            CPP
+          )
+
+          RAISE_PROTECTED_CALL_FN = KernelFn.new(
+            name: "raise_protected_call",
+            signature: "[[noreturn]] void raise_protected_call(BasicObject* recv, const char* name)",
+            body: <<~CPP.chomp,
+              std::size_t nlen = std::strlen(name);
+              const char* cn = recv ? recv->ruby_class_name() : "nil";
+              std::size_t clen = std::strlen(cn);
+              static const char prefix[] = "protected method '";
+              static const char mid[] = "' called for an instance of ";
+              String* msg = new String();
+              msg->bytes.reserve(sizeof(prefix) - 1 + nlen + sizeof(mid) - 1 + clen);
+              msg->bytes.insert(msg->bytes.end(), prefix, prefix + sizeof(prefix) - 1);
+              msg->bytes.insert(msg->bytes.end(), name, name + nlen);
+              msg->bytes.insert(msg->bytes.end(), mid, mid + sizeof(mid) - 1);
+              msg->bytes.insert(msg->bytes.end(), cn, cn + clen);
+              throw static_cast<Exception*>((&NoMethodError_CLASS)->m_new(
+                new Array({static_cast<BasicObject*>(msg)})));
+            CPP
+          )
+
           # Typed Ruby-error raisers for use from intrinsics headers (which
           # only see forward-declared error eigenclasses). Defined here in
           # the universe TU where the error classes are complete, like
@@ -2346,6 +2392,7 @@ module Frozone
             THROW_ARGUMENT_ERROR_FMT_FN, RAISE_ARITY_FN,
             RAISE_ARITY_FIXED_FN, RAISE_ARITY_RANGE_FN, RAISE_ARITY_MIN_FN,
             RAISE_MISSING_KW_FN, RAISE_UNKNOWN_KW_FN,
+            RAISE_PRIVATE_CALL_FN, RAISE_PROTECTED_CALL_FN,
             THROW_INDEX_ERROR_FN, THROW_TYPE_ERROR_FN, THROW_RANGE_ERROR_FN,
             MM_DISPATCH_FN, CM_DISPATCH_FN,
             INIT_ONIGMO_FN, MATCH_DATA_GLOBAL, REGEXP_MATCH_FN, MATCH_DATA_CAP_FN,
