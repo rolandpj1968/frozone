@@ -25,10 +25,86 @@ carry across the closed world:
 - **P1 — all public.** Default. Nothing extra anywhere.
 - **P2 — all private.** Pure call-site decision.
 - **P3 — all protected.** Pure call-site decision.
-- **P4 — mixed across classes.** The only complicated case. Empirically
-  rare in clean code (in Frozone itself: zero P4 names, exactly two P3
-  names — `Set#__do_flatten__` and `Enumerator#_lazy_eval` — and ~100
-  P2 names). Common in Rails targets.
+- **P4 — mixed across classes.** Originally claimed empirically rare;
+  the survey says otherwise (see below).
+
+## Empirical observations (Frozone self-compile, 2026-06-03)
+
+The Stage 1 survey shows reality differs significantly from the
+source-grep estimates:
+
+```
+P1=1829 public, P2=353 private, P3=52 protected, P4=48 mixed
+```
+
+P4 is non-trivial and the universal-slot caller_self machinery is
+**mandatory**, not a contingency.
+
+But the apparent diversity of P4 collapses once you look at *distinct
+method bodies* per name. Three patterns explain almost all P4:
+
+### Pattern 1 — Kernel-shadowing (≈20 names, dominant)
+
+```
+puts:  private=51 public=1
+  private: Kernel + 50 Kernel-including classes
+  public: IO
+```
+
+The 51 private entries all point to the *same* Kernel method body (private
+as defined). The single public entry is a *separate* method body on IO
+(or Binding / Fiber / Thread for similar names). Two distinct bodies per
+name, flattened across many tables.
+
+Names matching this pattern: `puts, print, printf, putc, gets, readline,
+readlines, loop, select, eval, exit, local_variables, set_trace_func,
+singleton_method_added, method_missing, warn, abort, load, raise`.
+
+This isn't a Ruby quirk — it's the standard interaction between Kernel
+(private-by-default convenience) and explicit IO-like classes that define
+their own public version.
+
+### Pattern 2 — FileUtils-style (≈10 names)
+
+```
+chmod, chown, copy, copy_file, link, remove_file, ...
+  private: FileUtils
+  public: FileUtils_Entry_ (or Dir / File / IO)
+```
+
+Two distinct method bodies per name, each with a single fixed visibility.
+
+### Pattern 3 — Frozone-internal accidental (≈10 names)
+
+```
+evaluate:   private=1 public=77
+  private: Frozone_Vm_Vm
+  public:  every AST node
+populate_kw_params, populate_params: 1 private + 1 public
+marshal_dump, marshal_load:          private on Rational/Complex,
+                                     public on our Vm wrappers
+```
+
+These are accidental name collisions in our own code. Could be cleaned
+up by renaming (e.g. `Vm#evaluate` → `Vm#run_ast`) to avoid the P4
+classification entirely. TI would also collapse these — once receivers
+are statically typed, the universal-slot fallback isn't needed.
+
+### Codegen implication
+
+The infrastructure scales with **distinct method bodies**, not
+(class, name) pairs. Each P4 name has typically 2–3 distinct bodies,
+each with a single fixed visibility known at compile time. At a call
+site:
+
+- **Known receiver type** → resolve via Ruby's method lookup → find
+  the body → know its visibility → emit the appropriate check.
+- **Unknown receiver type** (universal slot) → can't statically
+  resolve → need the 4th-arg `caller_self` because the body that
+  runs at runtime could be any of the 2–3 candidates.
+
+So 48 P4 names ≠ 48 special cases — most reduce to the same handful
+of patterns, handled by one rule.
 
 ## Call-site codegen rules
 
@@ -55,7 +131,7 @@ For statically-resolvable receivers (NA-eligible, or known-receiver-
 type at the call site), the resolved target's visibility is known at
 compile time and we pick the appropriate row directly.
 
-## Universal-slot path (P4 only)
+## Universal-slot path (P4)
 
 When the receiver type is unknown at the call site (universal slot
 dispatch), the target method's visibility isn't statically known.
@@ -73,6 +149,10 @@ name-based dispatch, exception-based control flow, full args/kwargs/
 block boxing — one extra register vanishes in the noise. (a) keeps
 the check colocated with the body's own visibility metadata, which
 is where conceptual ownership lives.
+
+The survey shows this path is required — 48 P4 names exist in
+Frozone's self-compile closed world, dominated by the Kernel-shadow
+pattern. Stage 3 is mandatory, not contingent.
 
 Universal-slot ABI:
 
@@ -222,17 +302,25 @@ list items.
 - Verify Frozone self-compile and integration spec stays green.
 - Run new `visibility_test.rb`.
 
-### Stage 3 — P4 universal-slot caller_self thread (gated)
+### Stage 3 — P4 universal-slot caller_self thread (mandatory)
 
-- Survey: any P4 names in the closed world?
-- If yes:
-  - Extend universal-slot VT signature with `BasicObject* caller_self
-    = nil_instance()` 4th arg.
-  - Every call site at universal-slot dispatch passes
-    `current_self_local`.
-  - Non-public method bodies on P4 names emit a prologue that consults
-    `caller_self`.
-- If no: skip Stage 3 entirely (zero cost for Frozone self-compile).
+Stage 1 survey confirmed 48 P4 names in Frozone self-compile, so this
+stage is required.
+
+- Extend universal-slot VT signature with `BasicObject* caller_self =
+  nil_instance()` 4th arg.
+- Every call site at universal-slot dispatch passes
+  `current_self_local`.
+- Non-public method bodies on P4 names emit a prologue that consults
+  `caller_self` and compares against the body's known visibility.
+- Public method bodies ignore the new arg (one wasted register, no
+  branch).
+
+The optimisation path is *renaming our own P4 collisions*. About 10
+of the 48 P4 names (`evaluate`, `populate_params`, etc.) are
+accidental name clashes in Frozone-internal code. Renaming them to
+something distinct (`Vm#evaluate` → `Vm#run_ast`, etc.) would drop
+them from P4 entirely. TI would also dissolve them once available.
 
 ### Stage 4 — Reflective dispatch wiring
 

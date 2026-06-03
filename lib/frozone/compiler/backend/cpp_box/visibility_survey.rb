@@ -96,6 +96,20 @@ module Frozone
             unless result.p4_names.empty?
               lines << "[box-first] visibility P4 (mixed) names: #{result.p4_names.sort.join(', ')}"
             end
+            if ENV['FROZONE_VISIBILITY_DETAIL'] == '1'
+              lines << "[box-first] visibility P4 per-class detail:"
+              result.p4_names.sort.each do |name|
+                with = result.per_class.each_with_object([]) { |(c, vm), a| a << [c, vm[name]] if vm.key?(name) }
+                by_vis = with.group_by { |_, v| v }
+                breakdown = by_vis.map { |v, l| "#{v}=#{l.size}" }.sort.join(' ')
+                lines << "  #{name.to_s.ljust(28)} #{breakdown}"
+                by_vis.each do |vis, list|
+                  sample = list.take(4).map { |c, _| c }.join(', ')
+                  more = list.size > 4 ? ", +#{list.size - 4}" : ''
+                  lines << "    #{vis}: #{sample}#{more}"
+                end
+              end
+            end
             lines.join("\n")
           end
         end
