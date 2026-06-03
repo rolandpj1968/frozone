@@ -683,31 +683,61 @@ module Frozone
           ofs = (fstr?(ofs_obj) && !fnil?(ofs_obj)) ? ofs_obj.raw : nil
           ors = (fstr?(ors_obj) && !fnil?(ors_obj)) ? ors_obj.raw : nil
           items = args.raw
+          # Box-first bootstrap path mirrors io_write — native is nil
+          # on the IOObjects vm.rb installs at startup; route writes
+          # through @stream_tag.
+          tag = (native.nil? && receiver.is_a?(IOObject)) ? receiver.stream_tag : nil
+          emit = ->(s) {
+            if tag
+              case tag
+              when :stdout then Intrinsics.io_raw_write_stdout(self, s)
+              when :stderr then Intrinsics.io_raw_write_stderr(self, s)
+              else raise FrozoneException.make(:IOError, 'closed stream')
+              end
+            else
+              native.write(s)
+            end
+          }
           if items.empty?
             # No args: print $_ (last line read)
             last_line = GLOBALS[:"$_"] || NilObject::NIL
             last_line = NilObject::NIL if fnil?(last_line) || last_line.nil?
             s = last_line.dispatch(context, :to_s, [], {})
-            native.write(fstr?(s) ? s.raw : "")
+            emit.call(fstr?(s) ? s.raw : "")
           else
             first = true
             items.each do |a|
-              native.write(ofs) if ofs && !first
+              emit.call(ofs) if ofs && !first
               first = false
               s = a.dispatch(context, :to_s, [], {})
-              native.write(fstr?(s) ? s.raw : "")
+              emit.call(fstr?(s) ? s.raw : "")
             end
           end
-          native.write(ors) if ors
+          emit.call(ors) if ors
           FNIL
         end
 
         def io_puts(context, receiver, args)
           native = native_io_for(receiver)
+          tag = (native.nil? && receiver.is_a?(IOObject)) ? receiver.stream_tag : nil
+          emit_line = ->(s) {
+            if tag
+              str = "#{s}\n"
+              case tag
+              when :stdout then Intrinsics.io_raw_write_stdout(self, str)
+              when :stderr then Intrinsics.io_raw_write_stderr(self, str)
+              else raise FrozoneException.make(:IOError, 'closed stream')
+              end
+            elsif s.nil?
+              native.puts
+            else
+              native.puts(s)
+            end
+          }
           if args.raw.empty?
-            native.puts
+            emit_line.call(nil)
           else
-            args.raw.each { |a| native.puts(a.dispatch(context, :to_s, [], {}).raw) }
+            args.raw.each { |a| emit_line.call(a.dispatch(context, :to_s, [], {}).raw) }
           end
           FNIL
         end

@@ -59,6 +59,13 @@ module Frozone
         # as a load sentinel — it's defined in the first file load_core
         # would otherwise process. See docs/aot-runtime-redundant-setup.md.
         load_core unless Core::MODULE_CLASS.lookup_method(:undef_method)
+        # `init_globals` must run on every boot — it materialises
+        # GLOBALS[:"$stdout"]/STDOUT/$LOAD_PATH/$PROGRAM_NAME from the
+        # actual runtime (Process.pid, host streams, etc.). Snapshotting
+        # those in box-first would freeze process-bound state, so it's
+        # outside `load_core` (which is guarded by the AOT-runtime
+        # sentinel to avoid re-parsing every core/4.0/ file).
+        init_globals
 
         ruby_version = StringObject.new('4.0.1')
         ruby_platform = StringObject.new(RUBY_PLATFORM)
@@ -283,7 +290,6 @@ module Frozone
         evaluate_file("#{core_path}/env.rb")
         evaluate_file("#{core_path}/rubygems.rb")
         evaluate_file("#{core_path}/marshal.rb")
-        init_globals
       end
 
       # Attach 'main' proxy singleton methods for private/public/protected → Object
@@ -339,9 +345,17 @@ module Frozone
         GLOBALS[:"$DEBUG"] = FalseObject::FALSE
         GLOBALS[:"$!"] = NilObject::NIL
         io_class = Core.io_class
-        GLOBALS[:"$stdout"] = IOObject.new($stdout, io_class, stream_tag: :stdout)
-        GLOBALS[:"$stderr"] = IOObject.new($stderr, io_class, stream_tag: :stderr)
-        GLOBALS[:"$stdin"]  = IOObject.new($stdin,  io_class, stream_tag: :stdin)
+        # IOObject.new(native, io_class, kwargs) works under MRI Frozone but
+        # under box-first Vm::IOObject is fused with the runtime IO class
+        # (#125), so `.new` dispatches IO#initialize(fd, mode, **opts) which
+        # rejects nil fd with TypeError. bootstrap_stream goes through
+        # allocate + ivar set, bypassing the fused initialize. Under MRI
+        # Frozone the natives are real host IOs; under self-host they're
+        # nil and io_print/io_write fall back to @stream_tag routing
+        # through io_raw_write_stdout / _stderr.
+        GLOBALS[:"$stdout"] = IOObject.bootstrap_stream($stdout, :stdout, io_class)
+        GLOBALS[:"$stderr"] = IOObject.bootstrap_stream($stderr, :stderr, io_class)
+        GLOBALS[:"$stdin"]  = IOObject.bootstrap_stream($stdin,  :stdin,  io_class)
         GLOBALS[:"$>"] = GLOBALS[:"$stdout"]
         GLOBALS[:"$<"] = GLOBALS[:"$stdin"]
         GLOBALS[:"$0"] = StringObject.new($PROGRAM_NAME.to_s)

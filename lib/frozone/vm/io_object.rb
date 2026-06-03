@@ -15,6 +15,32 @@ module Frozone
         @stream_tag = stream_tag
       end
 
+      # Bootstrap constructor for $stdout/$stderr/$stdin — bypasses
+      # `IOObject.new`, which under box-first fusion would dispatch
+      # `IO#initialize(fd, ...)` and reject the (nil, io_class, kwargs)
+      # shape with TypeError. Allocates a bare instance and sets the
+      # state the io intrinsics need (class_object + @native_io +
+      # @stream_tag). Used only at vm.rb startup.
+      def self.bootstrap_stream(native, tag, io_class = nil)
+        obj = allocate
+        obj.send(:__bootstrap_init__, native, tag, io_class)
+        obj
+      end
+
+      private
+
+      def __bootstrap_init__(native, tag, io_class)
+        @class_object = io_class || Core::OBJECT_CLASS
+        @native_io = native
+        @stream_tag = tag
+        @explicit_encoding = false
+        @frozen_object = false
+        @instance_variables_hash = nil
+        @eigenclass = nil
+      end
+
+      public
+
       def native_io = @native_io
       def native_io=(io); @native_io = io; end
       def stream_tag = @stream_tag
