@@ -860,7 +860,7 @@ module Frozone
           # Build caller location string if no file given
           file ||= (context.call_site ? "(eval at #{context.call_site})" : "(eval)")
           line ||= 1
-          parser = Parser.new(code, filepath: file, line: line)
+          parser = EVAL_PARSER_CLASS.new(code, filepath: file, line: line)
           ast = parser.ast
           # Evaluate in a frame where self = receiver (the module/class)
           # Reset current_visibility to :public for the eval context (like class body)
@@ -1913,7 +1913,7 @@ module Frozone
           eval_filepath = fname || (context.call_site ? "(eval at #{context.call_site})" : "(eval)")
           # Get caller's locals so eval code can access/modify them
           caller_local_names = caller_frame.local_names
-          parser = Parser.new(code, filepath: eval_filepath, line: lnum, outer_locals: caller_local_names)
+          parser = EVAL_PARSER_CLASS.new(code, filepath: eval_filepath, line: lnum, outer_locals: caller_local_names)
           ast = parser.ast
           # Seed the eval frame with the caller's current local variable values so that
           # reads in the eval see the caller's values, and after the eval we write them back.

@@ -970,7 +970,7 @@ module Frozone
           # Compute anonymous parameter forwarding flags from the binding method's params
           # so that eval("foo(*)") works inside def bar(*); ... end
           eval_forwarding = compute_eval_forwarding(binding_frame)
-          parser = Parser.new(code, outer_locals: outer_locals, encoding: code_enc, filepath: eval_filepath, line: eval_lineno, forwarding: eval_forwarding)
+          parser = EVAL_PARSER_CLASS.new(code, outer_locals: outer_locals, encoding: code_enc, filepath: eval_filepath, line: eval_lineno, forwarding: eval_forwarding)
           begin
             ast = parser.ast(raise_syntax_errors: true)
           rescue FrozoneException => e

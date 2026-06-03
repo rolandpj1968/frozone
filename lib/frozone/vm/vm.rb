@@ -3,28 +3,27 @@ require_relative 'globals'
 require_relative 'proc_object'
 require_relative 'hoisted_constant_sentinel'
 
-# Parser frontend choice.
-#
-# MRI Frozone: both Parser (Prism wrapper) and WqParser (Parser::Ruby40
-# wrapper) load; vm.rb#parse picks via --parser flag, default Prism.
-#
-# Box-first compile (FROZONE_BOX_FIRST=1): Prism is a C extension and
-# doesn't compile through frozone-on-frozone AOT. Skip parser.rb
-# (Prism wrapper) entirely and alias Parser → WqParser so source code
-# that references Parser (eval intrinsics, vm.rb#parse case branch)
-# resolves to WqParser at AOT walk time. Parser class body is never
-# captured in the closed world; no dead `require 'prism'` /
-# `Prism.parse(...)` stubs in the gen. Mirrors what frozone.rb's
-# runtime `--parser=wq` does for interpreted mode.
+require_relative 'parser'
 require_relative 'wq_parser'
-if ENV['FROZONE_BOX_FIRST']
-  module Frozone
-    module Vm
-      Parser = WqParser
-    end
+
+# Parser class used by runtime eval paths (Kernel#eval, class_eval,
+# instance_eval). Equals `Parser` (Prism wrapper) on MRI Frozone, and
+# `WqParser` under box-first AOT compile (Prism is a C extension and
+# doesn't compile through frozone-on-frozone). Set once at vm.rb load
+# from the build-pipeline env signal — user-visible code at the eval
+# sites just references this constant.
+#
+# We deliberately do NOT rebind `Parser` itself: keeping `Parser` the
+# constant bound to the Prism-wrapper class keeps `Parser` reachable
+# in the closed-world walk, which in turn keeps `pattern_match.rb`'s
+# `Pattern::*` / `PatternMatch` / `MatchPredicate` / `MatchRequired`
+# class hierarchy reachable (they're only reached transitively through
+# `Parser`'s body). The Prism stubs that ride along in Parser's body
+# are dead — eval paths never instantiate Parser directly.
+module Frozone
+  module Vm
+    EVAL_PARSER_CLASS = ENV['FROZONE_BOX_FIRST'] ? WqParser : Parser
   end
-else
-  require_relative 'parser'
 end
 
 require_relative 'context'

@@ -773,7 +773,11 @@ FROZONE_HEADER_STAMP  = File.join(FROZONE_BOX_GEN_DIR, '.headers.fingerprint')
 FROZONE_OPT_STAMP     = File.join(FROZONE_BOX_GEN_DIR, '.opt')
 
 def frozone_box_opt
-  ENV.fetch('OPT', 'O2')
+  # -O0 default for dev iteration. Box-first prioritises semantic
+  # correctness over runtime perf, so the C++ optimiser's main cost
+  # (~18s/TU at -O2 on these large emitted bodies) isn't worth
+  # paying on every rebuild. Override with OPT=O2 for a ship build.
+  ENV.fetch('OPT', 'O0')
 end
 
 def frozone_box_jobs
