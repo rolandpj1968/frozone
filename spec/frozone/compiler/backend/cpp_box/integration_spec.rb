@@ -42,7 +42,7 @@ UNIFIED_STUBS = %w[
   class_method_test fib float_test getivar hash_test iow_test
   kw_test kw_unset_test leaf_dispatch_test multi_arity_test
   nqueens_small random_test splat_test string_test super_test
-  ternary_test
+  ternary_test visibility_test
 ].freeze
 
 # Cache: env_extras (sorted-array form) → { stub_name => stdout-section }.
@@ -320,6 +320,17 @@ RSpec.describe 'box-first end-to-end' do
       '15',                                           # Walker.walk(5)
       '311', '322',                                   # default-via-method
     ])
+  end
+
+  it 'honors method visibility (P2 private + P3 protected) at compile-time call sites' do
+    # Authentic codegen verification: priv_helper is closed-world-private
+    # (P2) and prot_helper is closed-world-protected (P3), so cpp.rb's
+    # recv_with_visibility_check fires raise_private_call /
+    # raise_protected_call at every explicit-other site. The test
+    # script's own rescue clauses catch the NoMethodErrors and prints
+    # "visibility_test: OK" only if every check fired (or didn't fire)
+    # exactly per MRI semantics.
+    expect(unified_stub_out('visibility_test', env_extras: env_extras).strip).to eq('visibility_test: OK')
   end
 
   it 'seeds Random correctly and reproduces MT19937 sequence' do
