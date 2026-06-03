@@ -656,7 +656,17 @@ module Frozone
               "m_clear" => { params: [], body: "data.clear(); return this;" },
               "m_pop" => { params: [], body: "if (data.empty()) return nil_instance(); BasicObject* v = data.back(); data.pop_back(); return v;" },
               "m_shift" => { params: [], body: "if (data.empty()) return nil_instance(); BasicObject* v = data.front(); data.erase(data.begin()); return v;" },
-              "m_unshift" => { params: ["BasicObject* v"], body: "data.insert(data.begin(), v); return this;" },
+              "m_unshift" => {
+                # Variadic — `a.unshift(x, y, z)` prepends in original
+                # order so `[1].unshift(2,3) == [2,3,1]`. Zero-arg call
+                # is a valid no-op returning self.
+                params: [],
+                body: <<~CPP.chomp,
+                  if (args->data.empty()) return this;
+                  data.insert(data.begin(), args->data.begin(), args->data.end());
+                  return this;
+                CPP
+              },
               "m_replace" => {
                 params: ["BasicObject* other"],
                 body: "auto* o = static_cast<Array*>(other); data = o->data; return this;",
