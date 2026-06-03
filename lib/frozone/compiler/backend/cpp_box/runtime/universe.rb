@@ -2076,7 +2076,45 @@ module Frozone
                 out->bytes.insert(out->bytes.end(), hay + i, hay + hay_n);
                 return out;
               }
-              std::fprintf(stderr, "[box-first] String#gsub Regexp pattern not supported yet\\n");
+              // Regexp pattern + String replacement. First-cut: plain
+              // substitution (no back-references like \\1, \\&). Block form
+              // and \\<n> escapes deferred until a caller exercises them.
+              if (auto* re = dynamic_cast<Regexp*>(pat)) {
+                if (!repl || repl == nil_instance() || block != nullptr) {
+                  std::fprintf(stderr, "[box-first] String#gsub Regexp block-form not supported yet\\n");
+                  std::abort();
+                }
+                auto* srepl = static_cast<String*>(repl);
+                if (!re->compiled_) return self;
+                String* out = new String();
+                out->bytes.reserve(self->bytes.size());
+                const UChar* s = self->bytes.data();
+                std::size_t n = self->bytes.size();
+                const UChar* end = s + n;
+                OnigRegion* region = onig_region_new();
+                int64_t pos = 0;
+                while (pos <= (int64_t)n) {
+                  const UChar* start = s + pos;
+                  int r = onig_search(re->compiled_, s, end, start, end, region, ONIG_OPTION_NONE);
+                  if (r < 0) break;
+                  int64_t mb = region->beg[0];
+                  int64_t me = region->end[0];
+                  // Pre-match: bytes from `pos` to `mb`.
+                  out->bytes.insert(out->bytes.end(), s + pos, s + mb);
+                  // Replacement (literal, no \\<n> expansion).
+                  out->bytes.insert(out->bytes.end(), srepl->bytes.begin(), srepl->bytes.end());
+                  // Zero-length match: step 1 byte to avoid infinite loop.
+                  pos = (me == mb) ? me + 1 : me;
+                }
+                // Tail.
+                if (pos < (int64_t)n) {
+                  out->bytes.insert(out->bytes.end(), s + pos, s + n);
+                }
+                onig_region_free(region, 1);
+                return out;
+              }
+              std::fprintf(stderr, "[box-first] String#gsub unsupported pattern type: %s\\n",
+                           pat ? pat->ruby_class_name() : "(null)");
               std::abort();
             CPP
           )

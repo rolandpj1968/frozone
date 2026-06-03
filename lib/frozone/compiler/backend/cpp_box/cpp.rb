@@ -350,6 +350,9 @@ module Frozone
             when Ast::IndexOperatorWrite then from_index_op_write(node, locals)
             when Ast::IndexOrWrite then from_index_or_write(node, locals)
             when Ast::IndexAndWrite then from_index_and_write(node, locals)
+            when Ast::CallOrWrite then from_call_or_write(node, locals)
+            when Ast::CallAndWrite then from_call_and_write(node, locals)
+            when Ast::CallOperatorWrite then from_call_operator_write(node, locals)
             when Ast::And then from_and(node, locals)
             when Ast::Or then from_or(node, locals)
             when Ast::If then from_if(node, locals)
@@ -762,7 +765,16 @@ module Frozone
           end
 
           def from_intrinsic_call(node, locals)
-            args = node.param_nodes.map { |p| from_expr(p, locals) }
+            # `Intrinsics.foo(self, *args)` — splat at the intrinsic call
+            # site is common in core/4.0/ wrappers like
+            # `def count(*args) = Intrinsics.string_count_raw(self, *__str_args__(*args))`.
+            # Lower the splat by passing the inner expression (which
+            # yields an Array) directly. The C++ intrinsic must accept
+            # Array* (or BasicObject*) at that position — i.e. the
+            # variadic Ruby signature becomes a single Array param in C++.
+            args = node.param_nodes.map do |p|
+              p.is_a?(Ast::SplatArg) ? from_expr(p.value_node, locals) : from_expr(p, locals)
+            end
             IntrinsicLowering.lower(node.name, *args)
           end
 
@@ -855,6 +867,56 @@ module Frozone
             new_t = "__iaw_new_#{tag}__"
             idx_array = "(new Array({#{idx_strs.join(", ")}}))"
             "([&]() -> BasicObject* { auto* #{recv_t} = #{recv_str}; auto* #{cur_t} = #{recv_t}->op_aref(#{idx_array}); if (!truthy(#{cur_t})) return #{cur_t}; auto* #{new_t} = #{val_str}; #{recv_t}->op_aset(new Array({#{idx_strs.join(", ")}, #{new_t}})); return #{new_t}; }())"
+          end
+
+          # `recv.b ||= val` — read recv.b once; return it if truthy;
+          # otherwise assign recv.b = val and return val. Receiver evaluated
+          # once. safe_nav: `recv&.b ||= val` short-circuits to nil if recv
+          # is nil. The read is a no-arg method dispatch (default Array+kwargs+
+          # block defaulting), the write is a 1-arg setter via NA or universal.
+          def from_call_or_write(node, locals)
+            from_call_short_circuit_write(node, locals, condition: "truthy")
+          end
+
+          # `recv.b &&= val` — read; return it if falsy; else write.
+          def from_call_and_write(node, locals)
+            from_call_short_circuit_write(node, locals, condition: "!truthy")
+          end
+
+          # Shared lowering for `||=` and `&&=` on method-call lvalues.
+          # `condition` is the C++ predicate that triggers "short-circuit
+          # to current": `truthy` for ||=, `!truthy` for &&=.
+          def from_call_short_circuit_write(node, locals, condition:)
+            recv_str = node.receiver_node ? from_expr(node.receiver_node, locals) : "this"
+            val_str = from_expr(node.value_node, locals)
+            read_cpp = Cpp.method_name(node.read_name)
+            write_cpp = Cpp.method_name(node.write_name)
+            tag = next_tmp_id
+            recv_t = "__csw_recv_#{tag}__"
+            cur_t = "__csw_cur_#{tag}__"
+            new_t = "__csw_new_#{tag}__"
+            safe_guard = node.safe_nav ? "if (#{recv_t} == nil_instance()) return nil_instance(); " : ""
+            write_args = na_or_wrap_args(node.write_name, [new_t], wrap_parens: false)
+            "([&]() -> BasicObject* { auto* #{recv_t} = #{recv_str}; #{safe_guard}auto* #{cur_t} = #{recv_t}->#{read_cpp}(); if (#{condition}(#{cur_t})) return #{cur_t}; auto* #{new_t} = #{val_str}; #{recv_t}->#{write_cpp}(#{write_args}); return #{new_t}; }())"
+          end
+
+          # `recv.b += val` (and -=/*=/etc.) — read once, compute
+          # `current op val`, write back, return new value. The operator
+          # dispatches as a method call on `current` (e.g. op_plus).
+          def from_call_operator_write(node, locals)
+            recv_str = node.receiver_node ? from_expr(node.receiver_node, locals) : "this"
+            val_str = from_expr(node.value_node, locals)
+            read_cpp = Cpp.method_name(node.read_name)
+            write_cpp = Cpp.method_name(node.write_name)
+            op_cpp = Cpp.method_name(node.operator)
+            tag = next_tmp_id
+            recv_t = "__cop_recv_#{tag}__"
+            cur_t = "__cop_cur_#{tag}__"
+            new_t = "__cop_new_#{tag}__"
+            safe_guard = node.safe_nav ? "if (#{recv_t} == nil_instance()) return nil_instance(); " : ""
+            op_args = na_or_wrap_args(node.operator, [val_str], wrap_parens: false)
+            write_args = na_or_wrap_args(node.write_name, [new_t], wrap_parens: false)
+            "([&]() -> BasicObject* { auto* #{recv_t} = #{recv_str}; #{safe_guard}auto* #{cur_t} = #{recv_t}->#{read_cpp}(); auto* #{new_t} = #{cur_t}->#{op_cpp}(#{op_args}); #{recv_t}->#{write_cpp}(#{write_args}); return #{new_t}; }())"
           end
 
           # Ruby's `&&` returns the last truthy value or the first falsy.

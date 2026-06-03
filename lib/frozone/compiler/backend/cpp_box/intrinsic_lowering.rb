@@ -70,7 +70,7 @@ module Frozone
           IMPLEMENT_QUEUE = Set.new(%i[
             fiber_storage_hash fiber_storage_hash_set
             string_append_as_bytes string_append_bytes string_bytesplice
-            string_capitalize_opts string_count_raw string_delete_raw
+            string_capitalize_opts string_delete_raw
             string_downcase_opts string_squeeze_raw
             string_swapcase_opts string_upcase_opts
             array_clone array_index_write array_initialize array_pack
@@ -95,7 +95,7 @@ module Frozone
             string_index string_slice string_split string_chars
             string_inspect string_hash string_to_sym string_to_i_base
             string_format string_replace string_store string_initialize string_tr_raw
-            string_match string_match_pos
+            string_match string_match_pos string_count_raw
             symbol_to_s symbol_inspect
             regexp_escape regexp_inspect regexp_to_s regexp_new
             regexp_match_index regexp_match regexp_last_match

@@ -4,7 +4,7 @@ module Frozone
   module Ast
     # a.b ||= val — evaluates receiver once, returns new value (not setter result)
     class CallOrWrite < Node
-      attr_reader :value_node
+      attr_reader :read_name, :write_name, :receiver_node, :value_node, :safe_nav
       def initialize(read_name, write_name, receiver_node, value_node, safe_nav: false)
         @read_name = read_name
         @write_name = write_name
@@ -29,6 +29,7 @@ module Frozone
 
     # a.b &&= val — evaluates receiver once, returns new value (not setter result)
     class CallAndWrite < Node
+      attr_reader :read_name, :write_name, :receiver_node, :value_node, :safe_nav
       def initialize(read_name, write_name, receiver_node, value_node, safe_nav: false)
         @read_name = read_name
         @write_name = write_name
@@ -53,6 +54,7 @@ module Frozone
 
     # a.b += val — evaluates receiver once, returns new value (not setter result)
     class CallOperatorWrite < Node
+      attr_reader :read_name, :write_name, :operator, :receiver_node, :value_node, :safe_nav
       def initialize(read_name, write_name, operator, receiver_node, value_node, safe_nav: false)
         @read_name = read_name
         @write_name = write_name

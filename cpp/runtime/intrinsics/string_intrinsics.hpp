@@ -535,6 +535,33 @@ inline BasicObject* intrinsic_string_hash(BasicObject* self_) {
   return new Integer(static_cast<std::int64_t>(_h));
 }
 
+// `String#count(*selectors)` — count bytes in self that match the
+// intersection of byte-sets derived from each selector argument.
+// `args_obj` is the Array produced by `__str_args__(*args)` at the
+// call site (each element coerced to a String via `__coerce_to_str__`).
+// First-cut byte-level semantics — does not handle Ruby's `^foo`
+// negation, `a-z` ranges, or `\\` escapes; covers the common ASCII
+// case mspec init paths exercise. Grow per concrete spec failure.
+inline BasicObject* intrinsic_string_count_raw(BasicObject* self_, BasicObject* args_obj) {
+  auto* _s = static_cast<String*>(self_);
+  auto* _args = static_cast<Array*>(args_obj);
+  if (_args->data.empty()) return new Integer(0);
+  bool _set[256] = {false};
+  for (std::size_t _i = 0; _i < _args->data.size(); ++_i) {
+    auto* _arg = static_cast<String*>(_args->data[_i]);
+    if (_i == 0) {
+      for (auto _b : _arg->bytes) _set[_b] = true;
+    } else {
+      bool _next[256] = {false};
+      for (auto _b : _arg->bytes) if (_set[_b]) _next[_b] = true;
+      for (int _j = 0; _j < 256; ++_j) _set[_j] = _next[_j];
+    }
+  }
+  std::int64_t _count = 0;
+  for (auto _b : _s->bytes) if (_set[_b]) ++_count;
+  return new Integer(_count);
+}
+
 // ---- Array ---------------------------------------------------------
 
 // `Array#to_s` / `Array#inspect` — `[a, b, c]` form. Calls m_inspect

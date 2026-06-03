@@ -847,6 +847,18 @@ module Frozone
                 else
                   mark_wide.call(node.name)
                 end
+              end
+              # `recv.x ||=/&&=/+= val` invokes both x and x= on recv. Both
+              # need wide-vtable slots, since the receiver type isn't
+              # statically known here (it's the recv expression). The
+              # operator (for op=) dispatches on the current value, which is
+              # also a wide call.
+              if node.is_a?(Ast::CallOrWrite) || node.is_a?(Ast::CallAndWrite) || node.is_a?(Ast::CallOperatorWrite)
+                mark_wide.call(node.read_name)
+                mark_wide.call(node.write_name)
+                mark_wide.call(node.operator) if node.is_a?(Ast::CallOperatorWrite)
+              end
+              if node.is_a?(Ast::MethodCall) || node.is_a?(Ast::AttributeWrite)
                 # Receiver-aware send widening. When we see
                 # `Const.send(name_expr)` and `Const` resolves to a
                 # known class, mark every eigenclass method of that
