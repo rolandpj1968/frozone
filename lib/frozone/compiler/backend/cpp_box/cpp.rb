@@ -408,20 +408,22 @@ module Frozone
             end
           end
 
-          # Stage 3: P4 (mixed-visibility) call sites transport the
-          # caller's `self` via the thread_local `g_caller_self` so the
-          # callee's prologue can apply the visibility check at runtime
-          # (P4 means we can't decide statically because the body that
-          # runs depends on receiver type). Sets nullptr for the
-          # "privileged" forms (implicit recv, explicit-self) and
-          # `this` for explicit-other. The body's prologue treats
-          # nullptr as "no check needed."
+          # Stage 3 + Stage 4: every call site for a non-public name
+          # transports the caller's `self` via the thread_local
+          # `g_caller_self` so the callee body's prologue (Stage 3 added
+          # by emit_visibility_prologue) can apply the runtime check.
           #
-          # No-op for P1/P2/P3 names — those were already handled
-          # at the call site by recv_with_visibility_check (Stage 2).
+          #   nullptr  → privileged form (implicit recv, explicit-self).
+          #              Allows entry to private / protected bodies.
+          #   `this`   → explicit-other dispatch. Private body raises;
+          #              protected body applies kind_of? against `this`.
+          #
+          # P1 (all-public) names skip this — no body prologue cares.
+          # public_send dispatch sets PUBLIC_SEND_SENTINEL at the
+          # intrinsic level (cpp/runtime/intrinsics/object_intrinsics.hpp).
           def wrap_p4_caller_self_set(call_expr, recv_node:)
             pattern = emit&.visibility_survey&.per_name&.[](@vis_check_name)
-            return call_expr unless pattern == :p4
+            return call_expr if pattern.nil? || pattern == :p1
             cs_value = (recv_node.nil? || recv_node.is_a?(Ast::SelfLiteral)) ? 'nullptr' : 'this'
             "(g_caller_self = #{cs_value}, #{call_expr})"
           end

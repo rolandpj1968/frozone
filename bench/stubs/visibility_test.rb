@@ -204,4 +204,31 @@ rescue NoMethodError => e
   raise "PostHocPriv_v wrong: #{e.message}" unless e.message.include?("private method")
 end
 
+# --- Stage 4: reflective dispatch (send / public_send) ---
+# send bypasses visibility, public_send respects it.
+p_for_send = Priv_v.new
+raise "send to private failed" unless p_for_send.send(:priv_helper) == :priv
+raise "__send__ to private failed" unless p_for_send.__send__(:priv_helper) == :priv
+
+begin
+  p_for_send.public_send(:priv_helper)
+  raise "public_send to private should have raised"
+rescue NoMethodError => e
+  raise "public_send wrong: #{e.message}" unless e.message.include?("private method")
+end
+
+# send to protected
+pr_for_send = Prot_v.new
+raise "send to protected failed" unless pr_for_send.send(:prot_helper) == :prot
+
+begin
+  pr_for_send.public_send(:prot_helper)
+  raise "public_send to protected should have raised"
+rescue NoMethodError => e
+  raise "public_send to protected wrong: #{e.message}" unless e.message.include?("protected method")
+end
+
+# public_send to a public method succeeds
+raise "public_send to public failed" unless Pub_v.new.public_send(:m) == :pub
+
 puts "visibility_test: OK"

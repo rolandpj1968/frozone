@@ -30,8 +30,10 @@ inline BasicObject* intrinsic_object_dup(BasicObject* self_) {
   return self_;
 }
 
-// `Object#public_send(name, *args, **kwargs, &block)` — reuses m_send
-// (public/private distinction not enforced in box-first today).
+// `Object#public_send(name, *args, **kwargs, &block)` — dispatches via
+// m_send + sets the PUBLIC_SEND_SENTINEL marker so non-public method
+// bodies raise NoMethodError per MRI semantics. The body's prologue
+// (emit_visibility_prologue) handles the actual rejection.
 inline BasicObject* intrinsic_object_public_send(BasicObject* self_, BasicObject* name,
                                                  BasicObject* args, BasicObject* kwargs,
                                                  BasicObject* block) {
@@ -39,11 +41,13 @@ inline BasicObject* intrinsic_object_public_send(BasicObject* self_, BasicObject
   auto* _full = new Array();
   _full->data.push_back(name);
   for (auto* _e : _a->data) _full->data.push_back(_e);
+  g_caller_self = PUBLIC_SEND_SENTINEL;
   return self_->m_send(_full, dynamic_cast<Hash*>(kwargs), dynamic_cast<Proc*>(block));
 }
 
-// `BasicObject#__send__(name, *args, **kwargs, &block)` — same as
-// Object#send (universal protocol doesn't gate by visibility today).
+// `BasicObject#__send__(name, *args, **kwargs, &block)` — bypasses
+// visibility per MRI semantics. Sets g_caller_self to nullptr so the
+// callee body's prologue (if any) treats the dispatch as privileged.
 inline BasicObject* intrinsic_basic_object___send__(BasicObject* self_, BasicObject* name,
                                                     BasicObject* args, BasicObject* kwargs,
                                                     BasicObject* block) {
@@ -51,6 +55,7 @@ inline BasicObject* intrinsic_basic_object___send__(BasicObject* self_, BasicObj
   auto* _full = new Array();
   _full->data.push_back(name);
   for (auto* _e : _a->data) _full->data.push_back(_e);
+  g_caller_self = nullptr;
   return self_->m_send(_full, dynamic_cast<Hash*>(kwargs), dynamic_cast<Proc*>(block));
 }
 

@@ -237,6 +237,15 @@ inline std::uint64_t next_frame_id() {
 // cheaper than threading a 4th arg through every method's VT slot.
 namespace Ruby {
 inline thread_local BasicObject* g_caller_self = nullptr;
+
+// Sentinel for `public_send` dispatch (Stage 4). Distinct from nullptr
+// (which signals the "privileged" call shapes — implicit-recv,
+// explicit-self, __send__). Used at sentinel comparison only; never
+// dereferenced. The address-of a static object guarantees uniqueness
+// without invoking reinterpret_cast UB.
+inline char _public_send_sentinel_storage = 0;
+inline BasicObject* const PUBLIC_SEND_SENTINEL =
+    reinterpret_cast<BasicObject*>(&_public_send_sentinel_storage);
 }
 
 #endif  // FROZONE_BOX_FIRST_HPP

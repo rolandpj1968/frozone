@@ -536,21 +536,63 @@ module Frozone
           # Same prologue is needed on every slot kind (universal /
           # NA / multi-arity / kw-unset) because any of them can be
           # the live entry point depending on the matching call site.
-          # Compute the visibility prologue text for a method on a P4
-          # (mixed-visibility) name with non-public visibility. Called
-          # by build_override and its NA/MA/KU siblings to prepend the
-          # check to the body string at build time. Returns "" when no
-          # prologue is needed (public, P1/P2/P3, or survey missing).
+          # Compute the visibility prologue text for a method with
+          # non-public visibility. The body's prologue is the backstop
+          # for cases the call-site can't decide statically:
+          #   - universal-slot dispatch on unknown-type receivers
+          #   - public_send / __send__ reflective dispatch
+          #   - method() / Method#call after a Method object capture
+          #
+          # Three values g_caller_self can carry at body entry:
+          #   - nullptr → privileged form (implicit recv, explicit-self,
+          #     or __send__). Allow.
+          #   - PUBLIC_SEND_SENTINEL → public_send dispatch. Treat the
+          #     method as if called with an explicit-other receiver
+          #     that fails the visibility test — both private and
+          #     protected raise unconditionally.
+          #   - any other pointer → explicit-other dispatch with that
+          #     pointer as the caller's `self`. Private raises; protected
+          #     applies the kind_of? check.
+          #
+          # Returns "" for public defs (and when the survey isn't
+          # available — defensive only).
           def self.visibility_prologue_text(survey, name, visibility)
             return "" unless survey
-            return "" if visibility.nil? || visibility == :public
+            return "" if visibility.nil?
             pattern = survey.per_name[name.to_sym]
-            return "" unless pattern == :p4
+            return "" if pattern.nil?
+            # EVERY body snapshots g_caller_self and clears it, so any
+            # internal C++ runtime call (e.g. raise_private_call → m_new
+            # → m_initialize) sees the "privileged" nullptr state. Ruby
+            # call sites that need a non-null caller_self set it via
+            # wrap_p4_caller_self_set. Without the unconditional clear,
+            # user-level calls into public methods that internally call
+            # private methods (e.g. Class.new → initialize) propagate
+            # the user-level wrap value into the internal call's prologue
+            # and trigger a false-positive raise.
+            #
+            # For public defs we skip the prologue entirely (visibility
+            # is never relevant for them). For non-public defs we
+            # snapshot, clear, then check. The check happens AFTER the
+            # clear so even the raise_X helper's own internal calls
+            # don't re-trigger the prologue (the raise creates
+            # NoMethodError which calls m_initialize — privately —
+            # which would otherwise infinite-loop).
             case visibility
             when :private
-              %|if (g_caller_self != nullptr) raise_private_call(this, #{name.to_s.inspect});\n|
+              # Private bodies raise on ANY non-nullptr g_caller_self —
+              # explicit-other (Stage 2/3 wrap) AND public_send sentinel
+              # both fail. nullptr (privileged) passes.
+              "{ auto* _cs = g_caller_self; g_caller_self = nullptr; if (_cs != nullptr) raise_private_call(this, #{name.to_s.inspect}); }\n"
             when :protected
-              %|if (g_caller_self != nullptr && !truthy(g_caller_self->mm_kind_of_q(new Array({this->m_class()})))) raise_protected_call(this, #{name.to_s.inspect});\n|
+              # Protected bodies: public_send → raise; explicit-other →
+              # kind_of? check; nullptr → allow.
+              "{ auto* _cs = g_caller_self; g_caller_self = nullptr; if (_cs == PUBLIC_SEND_SENTINEL || (_cs != nullptr && !truthy(_cs->mm_kind_of_q(new Array({this->m_class()}))))) raise_protected_call(this, #{name.to_s.inspect}); }\n"
+            when :public
+              # Public bodies still need to clear so internal C++ calls
+              # to private methods see the privileged state. Bare store
+              # — no snapshot needed because public defs don't read.
+              "g_caller_self = nullptr;\n"
             else
               ""
             end

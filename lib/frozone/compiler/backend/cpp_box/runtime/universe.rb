@@ -1483,8 +1483,15 @@ module Frozone
             overrides = user_overrides.dup
             overrides["m_new"] ||= {
               params: [],
+              # Stage 4 visibility: clear g_caller_self before calling
+              # m_initialize so the (private) initialize body sees the
+              # "privileged" state. Without this, `Foo.new` called via
+              # an explicit-other wrap (g_caller_self = caller's this)
+              # would leak that pointer into m_initialize's prologue and
+              # trigger a false-positive private-method raise.
               body: <<~CPP.chomp,
                 #{klass.name}* obj = new #{klass.name}();
+                g_caller_self = nullptr;
                 obj->m_initialize(args, kwargs, block);
                 return obj;
               CPP
