@@ -2292,9 +2292,16 @@ module Frozone
                 # resulting code is much easier to read in gdb / when
                 # diagnosing.
                 indented_body = body.each_line.map { |l| "  #{l}" }.join
+                # Stage 3 visibility prologue: for P4 (mixed-vis) names
+                # with non-public bodies, check `g_caller_self` at entry
+                # so the universal-slot dispatch can decide private/
+                # protected at runtime per the receiver's class.
+                vis_prologue = MethodEmitter.visibility_prologue_text(
+                  @visibility_survey, storage_name || method.name, method.visibility
+                )
                 {
                   params: [],
-                  body: "std::uint64_t __frame_id__ = next_frame_id();\ntry {\n#{indented_body}  return nil_instance();\n} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }\n",
+                  body: "#{vis_prologue}std::uint64_t __frame_id__ = next_frame_id();\ntry {\n#{indented_body}  return nil_instance();\n} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }\n",
                 }
               end
             end

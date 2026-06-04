@@ -526,6 +526,36 @@ module Frozone
             LambdaEmitter.collect_captured_locals(method.body, own)
           end
 
+          # Stage 3 visibility prologue: for P4 (mixed-visibility)
+          # method names whose def-body is non-public, consult the
+          # call-site-set thread_local `g_caller_self` and apply the
+          # appropriate visibility check. Emit a no-op for public defs,
+          # P1/P2/P3 names (Stage 2 handled them at the call site), or
+          # when the survey isn't available.
+          #
+          # Same prologue is needed on every slot kind (universal /
+          # NA / multi-arity / kw-unset) because any of them can be
+          # the live entry point depending on the matching call site.
+          # Compute the visibility prologue text for a method on a P4
+          # (mixed-visibility) name with non-public visibility. Called
+          # by build_override and its NA/MA/KU siblings to prepend the
+          # check to the body string at build time. Returns "" when no
+          # prologue is needed (public, P1/P2/P3, or survey missing).
+          def self.visibility_prologue_text(survey, name, visibility)
+            return "" unless survey
+            return "" if visibility.nil? || visibility == :public
+            pattern = survey.per_name[name.to_sym]
+            return "" unless pattern == :p4
+            case visibility
+            when :private
+              %|if (g_caller_self != nullptr) raise_private_call(this, #{name.to_s.inspect});\n|
+            when :protected
+              %|if (g_caller_self != nullptr && !truthy(g_caller_self->mm_kind_of_q(new Array({this->m_class()})))) raise_protected_call(this, #{name.to_s.inspect});\n|
+            else
+              ""
+            end
+          end
+
           # Item 9 — body-walk elision. Returns true if the method body
           # contains anything that could throw ReturnException at the
           # method's frame (i.e. needs the __frame_id__ + try/catch wrap):

@@ -76,6 +76,37 @@ class ProtSubcaller_v < Prot_v
   end
 end
 
+# P4 mixed-visibility (Stage 3 target): mixed_helper is private in
+# MixedHost_v and public in MixedPub_v. The survey classifies it as
+# P4, so Stage 2 skips the call-site check and Stage 3's
+# g_caller_self thread_local + body prologue resolves at runtime
+# per the receiver's class.
+class MixedHost_v
+  def call_implicit
+    mixed_helper                  # OK: implicit → privileged
+  end
+
+  def call_explicit_self
+    self.mixed_helper              # OK: explicit-self → privileged (4.x)
+  end
+
+  def call_explicit_other(other)
+    other.mixed_helper             # body decides at runtime per recv's class
+  end
+
+  private
+  def mixed_helper
+    :mixed_priv
+  end
+end
+
+class MixedPub_v
+  # PUBLIC mixed_helper makes the name P4 across the closed world.
+  def mixed_helper
+    :mixed_pub
+  end
+end
+
 # --- Implicit / explicit-self: always succeed ---
 raise "Pub_v public failed" unless Pub_v.new.m == :pub
 raise "Priv_v implicit failed" unless Priv_v.new.call_implicit == :priv
@@ -113,5 +144,25 @@ raise "Prot_v sibling failed" unless pr1.call_explicit_other(pr2) == :prot
 # Subclass caller on parent receiver: ProtSubcaller_v.is_a?(Prot_v) → passes
 sub = ProtSubcaller_v.new
 raise "Prot_v subclass-caller failed" unless sub.sibling_call(pr1) == :prot
+
+# --- P4 mixed-visibility (Stage 3) ---
+# Implicit / explicit-self on the private side — allowed
+raise "MixedHost_v implicit failed" unless MixedHost_v.new.call_implicit == :mixed_priv
+raise "MixedHost_v explicit-self failed" unless MixedHost_v.new.call_explicit_self == :mixed_priv
+
+# Explicit-other dispatching to MixedHost_v (private body) — body prologue raises
+begin
+  MixedHost_v.new.call_explicit_other(MixedHost_v.new)
+  raise "MixedHost_v explicit-other private should have raised"
+rescue NoMethodError => e
+  raise "MixedHost_v P4 wrong msg: #{e.message}" unless e.message.include?("private method")
+  raise "MixedHost_v P4 wrong name: #{e.message}" unless e.message.include?("mixed_helper")
+end
+
+# Explicit-other dispatching to MixedPub_v (public body) — body has no prologue, returns value
+raise "MixedPub_v explicit-other public failed" unless MixedHost_v.new.call_explicit_other(MixedPub_v.new) == :mixed_pub
+
+# Direct call on the public class works regardless
+raise "MixedPub_v direct failed" unless MixedPub_v.new.mixed_helper == :mixed_pub
 
 puts "visibility_test: OK"

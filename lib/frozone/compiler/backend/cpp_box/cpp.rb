@@ -401,10 +401,29 @@ module Frozone
             prev_vis_name = @vis_check_name
             @vis_check_name = name
             begin
-              from_method_call_inner(node, recv, name, arg_nodes, locals)
+              call_expr = from_method_call_inner(node, recv, name, arg_nodes, locals)
+              wrap_p4_caller_self_set(call_expr, recv_node: recv)
             ensure
               @vis_check_name = prev_vis_name
             end
+          end
+
+          # Stage 3: P4 (mixed-visibility) call sites transport the
+          # caller's `self` via the thread_local `g_caller_self` so the
+          # callee's prologue can apply the visibility check at runtime
+          # (P4 means we can't decide statically because the body that
+          # runs depends on receiver type). Sets nullptr for the
+          # "privileged" forms (implicit recv, explicit-self) and
+          # `this` for explicit-other. The body's prologue treats
+          # nullptr as "no check needed."
+          #
+          # No-op for P1/P2/P3 names — those were already handled
+          # at the call site by recv_with_visibility_check (Stage 2).
+          def wrap_p4_caller_self_set(call_expr, recv_node:)
+            pattern = emit&.visibility_survey&.per_name&.[](@vis_check_name)
+            return call_expr unless pattern == :p4
+            cs_value = (recv_node.nil? || recv_node.is_a?(Ast::SelfLiteral)) ? 'nullptr' : 'this'
+            "(g_caller_self = #{cs_value}, #{call_expr})"
           end
 
           # Receiver-fetch hook: for explicit-other calls to P2 (all-

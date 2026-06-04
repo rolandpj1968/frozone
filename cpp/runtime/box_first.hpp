@@ -217,4 +217,26 @@ inline std::uint64_t next_frame_id() {
   return ++counter;
 }
 
+// Visibility-check caller transport for P4 (mixed-visibility) method
+// names. See docs/box-first-visibility.md Stage 3.
+//
+// At each call site for a P4 name, the caller writes this thread_local
+// before the dispatch: `nullptr` for implicit-recv / explicit-self
+// (the "privileged" forms — no visibility check needed), or the
+// caller's `this` pointer for explicit-other (the body must consult
+// it to decide private/protected raises). P1/P2/P3 call sites don't
+// touch this — they're statically decided at the call site (Stage 2).
+//
+// Non-public method bodies on P4 names read it in their prologue:
+//   - private:   `if (g_caller_self) raise_private_call(...)`
+//                (MRI's syntactic rule: explicit-other always raises)
+//   - protected: `if (g_caller_self && !g_caller_self->mm_kind_of_q(this->m_class())) raise_protected_call(...)`
+//
+// Public defs on P4 names just ignore it. One store at the call site
+// (~125 P4 names in Frozone's closed world × usage frequency) is much
+// cheaper than threading a 4th arg through every method's VT slot.
+namespace Ruby {
+inline thread_local BasicObject* g_caller_self = nullptr;
+}
+
 #endif  // FROZONE_BOX_FIRST_HPP
