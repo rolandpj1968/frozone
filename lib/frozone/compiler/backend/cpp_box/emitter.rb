@@ -2065,6 +2065,9 @@ module Frozone
               end
             end
             indented_body = body.each_line.map { |l| "  #{l}" }.join
+            vis_prologue = MethodEmitter.visibility_prologue_text(
+              @visibility_survey, method.name, method.visibility
+            )
             # spec[:params] carries only the positional slot decls;
             # write_override_def appends `_kw_<name>` decls from the
             # NaturalAritySig directly (so the spec stays the same
@@ -2072,7 +2075,7 @@ module Frozone
             # via decl_local_line handle the kw mapping).
             {
               params: required.each_with_index.map { |_, i| "BasicObject* _arg#{i}" },
-              body: "std::uint64_t __frame_id__ = next_frame_id();\ntry {\n#{indented_body}  return nil_instance();\n} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }\n",
+              body: "#{vis_prologue}std::uint64_t __frame_id__ = next_frame_id();\ntry {\n#{indented_body}  return nil_instance();\n} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }\n",
             }
           end
 
@@ -2139,9 +2142,12 @@ module Frozone
                 end
               end
               indented = body.each_line.map { |l| "  #{l}" }.join
+              ma_vis_prologue = MethodEmitter.visibility_prologue_text(
+                @visibility_survey, storage_name || method.name, method.visibility
+              )
               {
                 params: (0...k).map { |i| "BasicObject* _arg#{i}" },
-                body: "std::uint64_t __frame_id__ = next_frame_id();\ntry {\n#{indented}  return nil_instance();\n} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }\n",
+                body: "#{ma_vis_prologue}std::uint64_t __frame_id__ = next_frame_id();\ntry {\n#{indented}  return nil_instance();\n} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }\n",
               }
             end
             spec = { multi_arity: entries }
@@ -2236,9 +2242,12 @@ module Frozone
             slot_params = (0...sig.arity_req).map { |i| "BasicObject* _arg#{i}" } +
                           (0...sig.opt).map { |i| "BasicObject* _arg#{sig.arity_req + i}" } +
                           sig.all_kw_names.map { |kn| "BasicObject* _kw_#{kn}" }
+            ku_vis_prologue = MethodEmitter.visibility_prologue_text(
+              @visibility_survey, method.name, method.visibility
+            )
             {
               params: slot_params,
-              body: "std::uint64_t __frame_id__ = next_frame_id();\ntry {\n#{indented_body}  return nil_instance();\n} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }\n",
+              body: "#{ku_vis_prologue}std::uint64_t __frame_id__ = next_frame_id();\ntry {\n#{indented_body}  return nil_instance();\n} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }\n",
               kw_unset: true,
             }
           end
