@@ -107,6 +107,21 @@ class MixedPub_v
   end
 end
 
+# Stage 5 — attr_accessor and post-hoc visibility setters. The
+# interpreter applies the right visibility to the generated methods
+# (attr_*) and to post-hoc declarations (private :foo / public :foo);
+# the survey reads from methods_table where those decisions live, so
+# Stage 2 + 3 codegen automatically honors them.
+class AttrPriv_v
+  attr_accessor :priv_attr   # would be public, but...
+  private :priv_attr, :priv_attr=
+end
+
+class PostHocPriv_v
+  def post_hoc_priv; :phpriv; end
+  private :post_hoc_priv
+end
+
 # --- Implicit / explicit-self: always succeed ---
 raise "Pub_v public failed" unless Pub_v.new.m == :pub
 raise "Priv_v implicit failed" unless Priv_v.new.call_implicit == :priv
@@ -164,5 +179,29 @@ raise "MixedPub_v explicit-other public failed" unless MixedHost_v.new.call_expl
 
 # Direct call on the public class works regardless
 raise "MixedPub_v direct failed" unless MixedPub_v.new.mixed_helper == :mixed_pub
+
+# --- Stage 5: attr_accessor under private ---
+# AttrPriv_v.new.priv_attr (reader, explicit-other → raise)
+begin
+  AttrPriv_v.new.priv_attr
+  raise "AttrPriv_v.priv_attr (explicit-other) should have raised"
+rescue NoMethodError => e
+  raise "AttrPriv_v wrong: #{e.message}" unless e.message.include?("private method")
+end
+# AttrPriv_v.new.priv_attr= (writer, explicit-other → raise)
+begin
+  AttrPriv_v.new.priv_attr = 1
+  raise "AttrPriv_v.priv_attr= (explicit-other) should have raised"
+rescue NoMethodError => e
+  raise "AttrPriv_v= wrong: #{e.message}" unless e.message.include?("private method")
+end
+
+# --- Stage 5: post-hoc private setter ---
+begin
+  PostHocPriv_v.new.post_hoc_priv
+  raise "PostHocPriv_v explicit-other should have raised"
+rescue NoMethodError => e
+  raise "PostHocPriv_v wrong: #{e.message}" unless e.message.include?("private method")
+end
 
 puts "visibility_test: OK"

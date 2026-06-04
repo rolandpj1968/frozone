@@ -882,10 +882,30 @@ module Frozone
           # arg_nodes=[k, v]). Emit as a vtable call to op_aset via
           # the universal protocol. Arg shape via na_or_wrap_args.
           def from_attribute_write(node, locals)
-            recv_s = node.receiver_node ? from_expr(node.receiver_node, locals) : "this"
-            args = (node.arg_nodes || []).map { |a| from_expr(a, locals) }
-            cpp_name = Cpp.method_name(node.name)
-            "#{recv_s}->#{cpp_name}(#{na_or_wrap_args(node.name, args, wrap_parens: true)})"
+            # Visibility (#116 Stages 2/3): setter `obj.attr=` is a method
+            # call to `:attr=` with the value as the single positional arg.
+            # Apply the same visibility plumbing as from_method_call:
+            # explicit-other receivers get recv_with_visibility_check
+            # (Stage 2 emits P2 raise / P3 kind_of? check), and P4 calls
+            # are wrapped with g_caller_self transport (Stage 3).
+            prev_vis_name = @vis_check_name
+            @vis_check_name = node.name
+            begin
+              recv_node = node.receiver_node
+              recv_s = if recv_node.nil?
+                "this"
+              elsif recv_node.is_a?(Ast::SelfLiteral)
+                from_expr(recv_node, locals)
+              else
+                recv_with_visibility_check(recv_node, locals)
+              end
+              args = (node.arg_nodes || []).map { |a| from_expr(a, locals) }
+              cpp_name = Cpp.method_name(node.name)
+              call_expr = "#{recv_s}->#{cpp_name}(#{na_or_wrap_args(node.name, args, wrap_parens: true)})"
+              wrap_p4_caller_self_set(call_expr, recv_node: recv_node)
+            ensure
+              @vis_check_name = prev_vis_name
+            end
           end
 
           # `arr[i] op= val` → `arr[i] = arr[i] op val`. Receiver and

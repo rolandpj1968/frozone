@@ -118,6 +118,14 @@ module Frozone
             unless result.p4_names.empty?
               lines << "[box-first] visibility P4 (mixed) names: #{result.p4_names.sort.join(', ')}"
             end
+            if (filt = ENV['FROZONE_VISIBILITY_FILTER'])
+              names = filt.split(',').map { |n| n.strip.to_sym }
+              names.each do |name|
+                pattern = result.per_name[name]
+                cw = result.per_class.each_with_object([]) { |(c, vm), a| a << [c, vm[name]] if vm.key?(name) }
+                lines << "  #{name.to_s.ljust(20)} pattern=#{pattern.inspect.ljust(8)} #{cw.inspect}"
+              end
+            end
             if ENV['FROZONE_VISIBILITY_DETAIL'] == '1'
               lines << "[box-first] visibility P4 per-class detail:"
               result.p4_names.sort.each do |name|
