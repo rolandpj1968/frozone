@@ -21,7 +21,7 @@ RSpec.describe "Intrinsic stub-by-default + IMPLEMENT_QUEUE" do
   end
 
   it "HOLDS IMPLEMENT_QUEUE members as a skip (raises, not stubbed)" do
-    %i[array_pack object_clone kernel_exit fiber_storage_hash float_to_r].each do |held|
+    %i[array_pack object_clone fiber_storage_hash float_to_r].each do |held|
       expect { lower(held, "a") }
         .to raise_error(Frozone::Compiler::Backend::CppBox::Cpp::EmissionError, /held for implementation/)
     end
@@ -34,6 +34,6 @@ RSpec.describe "Intrinsic stub-by-default + IMPLEMENT_QUEUE" do
   it "real lowerings still win over the default stub (integer__mul_ fixed)" do
     expect(lower(:integer__mul_, "a", "b"))
       .to eq("(new Integer(static_cast<Integer*>(a)->raw_ * static_cast<Integer*>(b)->raw_))")
-    expect(lower(:hash_clear, "h")).to eq("(static_cast<Hash*>(h)->data.clear(), h)")
+    expect(lower(:hash_clear, "h")).to eq("(static_cast<Hash*>(h)->clear_kvps(), h)")
   end
 end

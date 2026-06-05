@@ -41,22 +41,22 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
   let(:locals) { Set.new }
 
   describe ".method_name" do
-    it "maps Ruby operators to m_* via OP_NAMES" do
-      expect(described_class.method_name(:+)).to eq("m_plus")
-      expect(described_class.method_name(:-)).to eq("m_minus")
-      expect(described_class.method_name(:<)).to eq("m_lt")
-      expect(described_class.method_name(:==)).to eq("m_eq_q")
-      expect(described_class.method_name(:[])).to eq("m_aref")
-      expect(described_class.method_name(:[]=)).to eq("m_aset")
-      expect(described_class.method_name(:"-@")).to eq("m_neg")
-      expect(described_class.method_name(:"<=>")).to eq("m_spaceship")
+    it "maps Ruby operators to op_* via OP_NAMES" do
+      expect(described_class.method_name(:+)).to eq("op_plus")
+      expect(described_class.method_name(:-)).to eq("op_minus")
+      expect(described_class.method_name(:<)).to eq("op_lt")
+      expect(described_class.method_name(:==)).to eq("op_eq_q")
+      expect(described_class.method_name(:[])).to eq("op_aref")
+      expect(described_class.method_name(:[]=)).to eq("op_aset")
+      expect(described_class.method_name(:"-@")).to eq("op_neg")
+      expect(described_class.method_name(:"<=>")).to eq("op_spaceship")
     end
 
-    it "mangles ? / ! / = suffixes" do
-      expect(described_class.method_name(:nil?)).to eq("m_nil_q")
-      expect(described_class.method_name(:empty?)).to eq("m_empty_q")
-      expect(described_class.method_name(:compact!)).to eq("m_compact_b")
-      expect(described_class.method_name(:foo=)).to eq("m_foo_set")
+    it "mangles ? / ! / = suffixes with mm_ prefix" do
+      expect(described_class.method_name(:nil?)).to eq("mm_nil_q")
+      expect(described_class.method_name(:empty?)).to eq("mm_empty_q")
+      expect(described_class.method_name(:compact!)).to eq("mm_compact_bang")
+      expect(described_class.method_name(:foo=)).to eq("mm_foo_eq")
     end
 
     it "passes plain identifiers through with m_ prefix" do
@@ -153,9 +153,9 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
     # `m_X(Array* args = &EMPTY_ARGS, Hash* kwargs = nullptr, Proc*
     # block = nullptr)`, so trailing defaults are taken from the
     # signature rather than spelled at call sites.
-    it "binary operator dispatches via m_<op> (defaults elided)" do
+    it "binary operator dispatches via op_<op> (defaults elided)" do
       expect(cpp.from_expr(call(:<, lvr(:n), [int(2)]), locals))
-        .to eq("l_n->m_lt((new Array({(&_f_i_2)})))")
+        .to eq("l_n->op_lt((new Array({(&_f_i_2)})))")
     end
 
     it "puts (no receiver) emits ruby_puts wrapped to return nil_instance" do
@@ -302,19 +302,23 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
   end
 
   describe "#from_expr — splat in call args" do
-    it "single SplatArg passes the value as args (cast to Array*)" do
+    it "single SplatArg passes the value via splat_to_array (to_a coercion)" do
       arr = lvr(:arr)
       splat = A::SplatArg.new(arr)
       node = A::MethodCall.new(:collect, nil, [splat], [], nil)
       expect(cpp.from_expr(node, locals))
-        .to eq("this->m_collect(static_cast<Array*>(l_arr))")
+        .to eq("this->m_collect(splat_to_array(l_arr))")
     end
 
-    it "mixed positional + splat raises EmissionError (deferred)" do
+    it "mixed positional + splat flattens into a fresh Array via lambda" do
       arr = lvr(:arr)
       node = A::MethodCall.new(:foo, nil, [int(1), A::SplatArg.new(arr), int(5)], [], nil)
-      expect { cpp.from_expr(node, locals) }
-        .to raise_error(C::EmissionError, /mixed positional \+ splat/)
+      result = cpp.from_expr(node, locals)
+      expect(result).to include("this->m_foo(")
+      expect(result).to include("Array* _r = new Array()")
+      expect(result).to include("_r->data.push_back((&_f_i_1))")
+      expect(result).to include("for (auto* _e : splat_to_array(l_arr)->data) _r->data.push_back(_e)")
+      expect(result).to include("_r->data.push_back((&_f_i_5))")
     end
   end
 
@@ -384,37 +388,53 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
   end
 
   describe "#from_expr — If (ternary in expression position)" do
-    it "ternary `cond ? a : b` emits C++ ternary" do
+    # Arms get `static_cast<BasicObject*>(...)` wrappers so the C++
+    # ternary's type-deduction picks a common type when the two arms
+    # are distinct pointer types (Integer* vs Nil*, etc.).
+    it "ternary `cond ? a : b` emits C++ ternary with BasicObject* casts" do
       cond = lvr(:c)
       a = int(1)
       b = int(2)
       node = A::If.new(cond, a, b)
-      expect(cpp.from_expr(node, locals)).to eq("(truthy(l_c) ? ((&_f_i_1)) : ((&_f_i_2)))")
+      expect(cpp.from_expr(node, locals))
+        .to eq("(truthy(l_c) ? static_cast<BasicObject*>((&_f_i_1)) : static_cast<BasicObject*>((&_f_i_2)))")
     end
 
     it "if without else defaults else to nil_instance" do
       cond = lvr(:c)
       a = int(1)
       node = A::If.new(cond, a, nil)
-      expect(cpp.from_expr(node, locals)).to eq("(truthy(l_c) ? ((&_f_i_1)) : (nil_instance()))")
+      expect(cpp.from_expr(node, locals))
+        .to eq("(truthy(l_c) ? static_cast<BasicObject*>((&_f_i_1)) : static_cast<BasicObject*>(nil_instance()))")
     end
 
     it "if without then defaults then to nil_instance" do
       cond = lvr(:c)
       b = int(2)
       node = A::If.new(cond, nil, b)
-      expect(cpp.from_expr(node, locals)).to eq("(truthy(l_c) ? (nil_instance()) : ((&_f_i_2)))")
+      expect(cpp.from_expr(node, locals))
+        .to eq("(truthy(l_c) ? static_cast<BasicObject*>(nil_instance()) : static_cast<BasicObject*>((&_f_i_2)))")
     end
   end
 
   describe "#from_expr — Case (lambda + early-return)" do
-    it "case-with-subject emits subject-binding lambda + m_case_eq dispatch" do
+    # Case lowering routes through LambdaEmitter, which needs the
+    # emitter wired up so body_as_block can reach back to cpp. Mirrors
+    # the block-bearing-call test's scaffold (#from_expr — block-bearing
+    # call), same pattern.
+    before do
+      emitter = Frozone::Compiler::Backend::CppBox::Emitter.new
+      emitter.instance_variable_set(:@cpp, cpp)
+      cpp.emit = emitter
+    end
+
+    it "case-with-subject emits subject-binding lambda + op_case_eq dispatch" do
       subj = lvr(:x)
       whens = [A::Case::When.new([int(1)], int(10)), A::Case::When.new([int(2)], int(20))]
       node = A::Case.new(subj, whens, int(0))
       result = cpp.from_expr(node, locals)
       expect(result).to include("auto* _subj = l_x")
-      expect(result).to include("(&_f_i_1)->m_case_eq(new Array({_subj}))")
+      expect(result).to include("(&_f_i_1)->op_case_eq(new Array({_subj}))")
       expect(result).to include("return (&_f_i_10)")
       expect(result).to include("return (&_f_i_0)")
     end
@@ -434,7 +454,7 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
       whens = [A::Case::When.new([int(1), int(2), int(3)], int(99))]
       node = A::Case.new(subj, whens, nil)
       result = cpp.from_expr(node, locals)
-      expect(result.scan(/m_case_eq/).size).to eq(3)
+      expect(result.scan(/op_case_eq/).size).to eq(3)
       expect(result).to include(" || ")
     end
   end
@@ -463,9 +483,9 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
   end
 
   describe "#from_expr — AttributeWrite (arr[k] = v)" do
-    it "emits m_aset vtable call (defaults elided)" do
+    it "emits op_aset vtable call (defaults elided)" do
       expect(cpp.from_expr(aw(:[]=, lvr(:a), [int(0), int(99)]), locals))
-        .to eq("l_a->m_aset((new Array({(&_f_i_0), (&_f_i_99)})))")
+        .to eq("l_a->op_aset((new Array({(&_f_i_0), (&_f_i_99)})))")
     end
   end
 
