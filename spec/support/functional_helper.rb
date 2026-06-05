@@ -60,8 +60,14 @@ end
 RSpec.configure do |config|
   config.include FunctionalTestHelpers
 
-  # Load the standard library once for the entire suite.
+  # Load the standard library + materialise global variables once for the
+  # whole suite. `load_core` populates classes + methods (matches MRI's
+  # implicit bootstrap); `init_globals` materialises $stdout/$stderr/
+  # $LOAD_PATH/$LOADED_FEATURES/etc (would otherwise only fire from #run,
+  # which the spec helper skips).
   config.before(:suite) do
-    Frozone::Vm::Vm.new.load_core
+    vm = Frozone::Vm::Vm.new
+    vm.load_core
+    vm.init_globals
   end
 end
