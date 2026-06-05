@@ -1042,8 +1042,16 @@ module Frozone
         end
 
         call_loc = @filepath && node.location ? "#{@filepath}:#{node.location.line}" : nil
+        # "Ambiguous" (could be local var OR method) — bare-word call:
+        # no receiver, no parens, no args, no block. method_missing for
+        # these raises NameError vs NoMethodError. Detected here so the
+        # dispatch path can flip Fiber[:mm_implicit_self]. Mirrors the
+        # Prism-side detection in parser.rb (#prism_method_call).
+        ambiguous = recv_node.nil? && raw_args.empty? && block_node.nil? &&
+                    node.location.respond_to?(:begin) && node.location.begin.nil?
         Ast::MethodCall.new(name, receiver_ast, arg_nodes, kw_args, block_node,
-                            kw_splat_nodes: kw_splats, safe_nav: safe_nav, source_location: call_loc)
+                            kw_splat_nodes: kw_splats, safe_nav: safe_nav,
+                            ambiguous: ambiguous, source_location: call_loc)
       end
 
       # -----------------------------------------------------------------------
