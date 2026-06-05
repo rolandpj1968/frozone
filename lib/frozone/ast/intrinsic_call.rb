@@ -26,6 +26,9 @@ module Frozone
       attr_reader :name, :param_nodes
 
       def initialize(name, param_nodes)
+        unless Vm::Intrinsics.respond_to?(name, true)
+          raise NameError, "no such intrinsic '#{name}' on Frozone::Vm::Intrinsics"
+        end
         @name = name
         @param_nodes = param_nodes
       end
