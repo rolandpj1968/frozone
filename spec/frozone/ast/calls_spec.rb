@@ -6,8 +6,14 @@ RSpec.describe Frozone::Ast::IntrinsicCall do
       expect { described_class.new(:integer__plus_, []) }.not_to raise_error
     end
 
-    it 'raises when method name does not exist in Intrinsics' do
-      expect { described_class.new(:nonexistent_intrinsic_zz, []) }.to raise_error(NameError)
+    # No early respond_to? validation on the name: AOT box-first
+    # init constructs IntrinsicCall nodes during snapshot deser BEFORE
+    # Vm::Intrinsics is fully populated, so a check here would reject
+    # real, soon-to-be-defined intrinsics. Unknown names surface at
+    # evaluate time via NoMethodError on Vm::Intrinsics.send.
+    it 'raises NoMethodError at evaluate time for an unknown intrinsic' do
+      node = described_class.new(:nonexistent_intrinsic_zz, [])
+      expect { node.evaluate(make_context) }.to raise_error(NoMethodError, /nonexistent_intrinsic_zz/)
     end
 
   end

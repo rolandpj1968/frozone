@@ -26,9 +26,12 @@ module Frozone
       attr_reader :name, :param_nodes
 
       def initialize(name, param_nodes)
-        unless Vm::Intrinsics.respond_to?(name, true)
-          raise NameError, "no such intrinsic '#{name}' on Frozone::Vm::Intrinsics"
-        end
+        # No name validation here: the AOT box-first init order constructs
+        # IntrinsicCall nodes during snapshot deserialization BEFORE the
+        # Vm::Intrinsics module is fully populated, so an early respond_to?
+        # check raises NameError on real, soon-to-be-defined intrinsics.
+        # Calls to unknown intrinsics surface at evaluate time via the send
+        # on line 41 (NoMethodError on Vm::Intrinsics).
         @name = name
         @param_nodes = param_nodes
       end
