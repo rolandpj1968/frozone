@@ -176,6 +176,13 @@ module Frozone
             @multi_arity_table = {}
             @kw_unset_table = {}
             @leaf_dispatch_table = {}
+            # FROZONE_ALL_OPTS=1 turns on every dispatch-perf knob (natural-args,
+            # leaf dispatch). For ad-hoc runs and benchmarks; CI keeps using
+            # the explicit 4-mode matrix in integration_spec.
+            if ENV['FROZONE_ALL_OPTS'] == '1'
+              ENV['FROZONE_NATURAL_ARGS'] ||= '1'
+              ENV['FROZONE_LEAF_DISPATCH'] ||= '1'
+            end
             if ENV['FROZONE_METHOD_SHAPES'] == '1' || ENV['FROZONE_NATURAL_ARGS'] == '1' || ENV['FROZONE_LEAF_DISPATCH'] == '1'
               agg = build_method_shape_survey
               MethodShapeSurvey.report(agg) if ENV['FROZONE_METHOD_SHAPES'] == '1'
