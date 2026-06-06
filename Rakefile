@@ -965,4 +965,29 @@ namespace :frozone do
     FileUtils.rm_f(FROZONE_OPT_STAMP)
     puts '[frozone:clean] removed .o files and binary'
   end
+
+  # 30-second tripwire — exercises the host op_eq_q lookup path,
+  # the snapshot init, the m_load_core sequence, and stdout. Several
+  # regression surfaces (NA-overload-resolution drift, kw_unset
+  # signature mismatches, leaf-dispatch + ProcN interactions) only
+  # surface here, not in integration_spec.
+  desc 'Self-host smoke: bin/frozone_box runs a one-line puts'
+  task :smoke do
+    abort "[frozone:smoke] not built — run `rake frozone:build` first" unless File.executable?(FROZONE_BOX_BIN)
+    require 'tmpdir'
+    Dir.mktmpdir do |d|
+      script = File.join(d, 'smoke.rb')
+      File.write(script, 'puts "frozone-smoke-ok"')
+      out = IO.popen([FROZONE_BOX_BIN, script], &:read)
+      status = $?.exitstatus
+      if status != 0 || out.chomp != 'frozone-smoke-ok'
+        $stderr.puts "[frozone:smoke] FAILED"
+        $stderr.puts "  exit:    #{status}"
+        $stderr.puts "  stdout:  #{out.inspect}"
+        $stderr.puts "  expected:#{'frozone-smoke-ok'.inspect}"
+        exit 1
+      end
+      puts '[frozone:smoke] OK'
+    end
+  end
 end
