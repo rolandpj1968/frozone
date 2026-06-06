@@ -29,7 +29,7 @@ module Frozone
     module Backend
       module CppBox
         class Emitter
-          attr_reader :cpp, :top_level_scope, :user_classes, :user_constants, :natural_arity_names, :multi_arity_table, :kw_unset_table, :leaf_dispatch_table, :visibility_survey
+          attr_reader :cpp, :top_level_scope, :user_classes, :user_constants, :natural_arity_names, :natural_arity_with_block_names, :multi_arity_table, :kw_unset_table, :leaf_dispatch_table, :visibility_survey
           # When true, emission errors inside method bodies re-raise
           # under FROZONE_BOX_HARD_FAIL=1 instead of graceful-skipping.
           # Toggled true while emitting user-class bodies + the
@@ -173,6 +173,7 @@ module Frozone
             @const_surface = collect_dynamic_constant_surface
             print_method_def_analysis if ENV['FROZONE_BOX_ANALYSIS'] == '1'
             @natural_arity_names = {}
+            @natural_arity_with_block_names = {}
             @multi_arity_table = {}
             @kw_unset_table = {}
             @leaf_dispatch_table = {}
@@ -187,16 +188,28 @@ module Frozone
               agg = build_method_shape_survey
               MethodShapeSurvey.report(agg) if ENV['FROZONE_METHOD_SHAPES'] == '1'
               if ENV['FROZONE_NATURAL_ARGS'] == '1'
-                exclude = compute_hand_coded_disqualified_names | (@internal_block_users || Set.new)
-                @natural_arity_names = MethodShapeSurvey.eligibility_table(agg, exclude: exclude)
-                @multi_arity_table = MethodShapeSurvey.multi_arity_table(agg, exclude: exclude)
-                @kw_unset_table = MethodShapeSurvey.kw_unset_table(agg, exclude: exclude)
+                # Eligibility table partitions on has_block: names with
+                # `&blk` params or that yield/block_given? carry
+                # has_block:true; those go to @natural_arity_with_block_names
+                # and are not consumed by codegen (no block slot in the
+                # NA decl yet — they still fall through to universal).
+                # multi_arity + kw_unset still exclude block-bearing
+                # names — their signatures have no block slot at all.
+                hand_coded = compute_hand_coded_disqualified_names
+                ibu = @internal_block_users || Set.new
+                full_table = MethodShapeSurvey.eligibility_table(
+                  agg, exclude: hand_coded, internal_block_users: ibu,
+                )
+                @natural_arity_names = full_table.reject { |_, s| s.has_block }
+                @natural_arity_with_block_names = full_table.select { |_, s| s.has_block }
+                @multi_arity_table = MethodShapeSurvey.multi_arity_table(agg, exclude: hand_coded | ibu)
+                @kw_unset_table = MethodShapeSurvey.kw_unset_table(agg, exclude: hand_coded | ibu)
                 override_collisions = prune_override_arity_collisions
                 multi_collisions = prune_multi_arity_override_collisions
                 kw_unset_collisions = prune_kw_unset_override_collisions
                 $stderr.puts "[box-first] natural-args: #{@natural_arity_names.size} eligible names " \
-                             "(excluded: #{compute_hand_coded_disqualified_names.size} hand-coded, " \
-                             "#{(@internal_block_users || Set.new).size} use internal yield/block_given?, " \
+                             "(+#{@natural_arity_with_block_names.size} has_block, not yet consumed; " \
+                             "excluded: #{hand_coded.size} hand-coded, " \
                              "#{override_collisions} cpp-name arity collisions); " \
                              "#{@multi_arity_table.size} multi-arity (defaults; -#{multi_collisions} override collisions); " \
                              "#{@kw_unset_table.size} kw-unset (-#{kw_unset_collisions} override collisions)"

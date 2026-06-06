@@ -75,6 +75,12 @@ module Frozone
             # are fine — they expand into multiple servable arities.
             def natural_eligible_pos? = !rest && !kw && !kwrest && !block_param
 
+            # Block-aware variant of natural_eligible_pos?: same shape
+            # constraints, but block_param IS allowed. The Proc* block
+            # slot is appended to the C++ signature; bodies can use
+            # &blk, yield, and block_given?.
+            def natural_eligible_pos_or_block? = !rest && !kw && !kwrest
+
             # Kw-bearing eligibility (kw_unset path): has at least one
             # kw param (required or optional). Pure positional + kw,
             # no rest / kwrest / block_param. Optional positionals
@@ -170,7 +176,13 @@ module Frozone
           # positional params at the end, in the declaration order
           # recorded here. Call-site lowering rewrites kw arguments
           # into the matching positional slots.
-          NaturalAritySig = Struct.new(:arity_req, :required_kw_names) do
+          #
+          # has_block: when true, the slot also carries a
+          # `Proc* block = nullptr` trailing parameter, and bodies
+          # may use yield / block_given? / &blk. Independent of
+          # required_kw_names — a name can be has_block AND have
+          # required kws.
+          NaturalAritySig = Struct.new(:arity_req, :required_kw_names, :has_block) do
             def total_slots = arity_req + required_kw_names.length
           end
 
@@ -220,16 +232,21 @@ module Frozone
             # Returns the DefShape for an eligible name, else nil.
             # Eligible iff the def-histogram has exactly one bin AND
             # that shape is pure simple-positional (no opt, rest, kw,
-            # kwrest, block_param). Block-bearing call sites disqualify
-            # the name regardless of def-shape — the natural-arity
-            # signature has no Block slot. Kw-bearing shapes flow
-            # through kw_unset_table instead.
+            # kwrest). block_param is admitted — the resulting slot
+            # carries a trailing Proc* block param. Block-bearing
+            # call sites are also admitted; they pass the block via
+            # the same slot. Kw-bearing shapes flow through
+            # kw_unset_table instead.
             def eligible_def_shape(name)
               shapes = @defs[name]
               return nil unless shapes.size == 1
               shape = shapes.keys.first
-              return nil unless shape.simple?
-              return nil if @calls[name].any? { |c, _| c.blk_pass || c.do_block }
+              # simple? requires !block_param; admit block_param as a
+              # separate eligibility under natural_eligible_pos_or_block?
+              # with opt.zero?. The has_block flag is computed by the
+              # caller (eligibility_table) from shape.block_param plus
+              # any internal_block_users membership.
+              return nil unless shape.opt.zero? && !shape.rest && !shape.kw && !shape.kwrest
               shape
             end
 
@@ -283,11 +300,19 @@ module Frozone
           # (raw `(Array*, Hash*, BasicObject*)` C++); the natural-
           # arity emission path can't co-exist with a universal-sig
           # body on the same VT slot.
-          def eligibility_table(agg, exclude: Set.new)
+          #
+          # `internal_block_users` is a Set[Symbol] of names whose
+          # bodies use yield / block_given?. Such names get
+          # `has_block: true` on their sig so the slot includes the
+          # Proc* block trailing param. Names with `block_param: true`
+          # in their def also get has_block:true automatically.
+          def eligibility_table(agg, exclude: Set.new, internal_block_users: Set.new)
             agg.all_names.each_with_object({}) do |name, h|
               next if exclude.include?(name)
               shape = agg.eligible_def_shape(name)
-              h[name] = NaturalAritySig.new(shape.arity_req, shape.required_kw_names.dup) if shape
+              next unless shape
+              has_block = shape.block_param || internal_block_users.include?(name)
+              h[name] = NaturalAritySig.new(shape.arity_req, shape.required_kw_names.dup, has_block)
             end
           end
 
