@@ -80,7 +80,8 @@ inline BasicObject* intrinsic_string_index(BasicObject* self_, BasicObject* sub,
 inline BasicObject* intrinsic_string_slice(BasicObject* self_, BasicObject* idx, BasicObject* len) {
   auto* _s = static_cast<String*>(self_);
   // Regexp idx: return the matched substring (or capture group via len).
-  if (auto* _re = dynamic_cast<Regexp*>(idx)) {
+  if (typeid(*idx) == typeid(Regexp)) {
+    auto* _re = static_cast<Regexp*>(idx);
     OnigRegion* _region = onig_region_new();
     const UChar* _p = _s->bytes.data();
     int _r = onig_search(_re->compiled_, _p, _p + _s->bytes.size(),
@@ -89,7 +90,7 @@ inline BasicObject* intrinsic_string_slice(BasicObject* self_, BasicObject* idx,
     if (_r < 0) { onig_region_free(_region, 1); return nil_instance(); }
     int _grp = 0;
     if (len && len != intern("__unset__") && len != nil_instance()) {
-      if (auto* _g = dynamic_cast<Integer*>(len)) _grp = static_cast<int>(_g->raw_);
+      if (typeid(*len) == typeid(Integer)) _grp = static_cast<int>(static_cast<Integer*>(len)->raw_);
     }
     if (_grp < 0 || _grp >= _region->num_regs ||
         _region->beg[_grp] < 0 || _region->end[_grp] < 0) {
@@ -105,11 +106,11 @@ inline BasicObject* intrinsic_string_slice(BasicObject* self_, BasicObject* idx,
   // Range idx: byte slice [begin, end) (or [begin, end] depending on
   // exclude_end_). Negative bounds count from end. Out-of-range begin
   // returns nil; out-of-range end clamps.
-  if (auto* _rng = dynamic_cast<Range*>(idx)) {
+  if (typeid(*idx) == typeid(Range)) {
+    auto* _rng = static_cast<Range*>(idx);
     auto to_int = [](BasicObject* v, std::int64_t dflt) -> std::int64_t {
       if (!v || v == nil_instance()) return dflt;
-      auto* _i = dynamic_cast<Integer*>(v);
-      return _i ? _i->raw_ : dflt;
+      return typeid(*v) == typeid(Integer) ? static_cast<Integer*>(v)->raw_ : dflt;
     };
     std::int64_t _clen = _s->length();
     std::int64_t _b = to_int(_rng->begin_, 0);
@@ -128,7 +129,8 @@ inline BasicObject* intrinsic_string_slice(BasicObject* self_, BasicObject* idx,
     return _r2;
   }
   // String idx: return idx if it's a substring of self, else nil.
-  if (auto* _ss = dynamic_cast<String*>(idx)) {
+  if (typeid(*idx) == typeid(String)) {
+    auto* _ss = static_cast<String*>(idx);
     auto _it = std::search(_s->bytes.begin(), _s->bytes.end(),
                            _ss->bytes.begin(), _ss->bytes.end());
     if (_it == _s->bytes.end() && !_ss->bytes.empty()) return nil_instance();
@@ -177,11 +179,11 @@ inline BasicObject* intrinsic_string_store(BasicObject* self_, BasicObject* idx,
   auto* _rest = static_cast<Array*>(rest_);
   std::size_t _rn = _rest->data.size();
   BasicObject* _repl = (_rn > 0) ? _rest->data[_rn - 1] : nil_instance();
-  auto* _rs = dynamic_cast<String*>(_repl);
-  if (!_rs) {
+  if (typeid(*_repl) != typeid(String)) {
     std::string _m = std::string("no implicit conversion of ") + _repl->ruby_class_name() + " into String";
     throw_type_error(_m.c_str());
   }
+  auto* _rs = static_cast<String*>(_repl);
   bool _bytewise = (_s->enc == String::BINARY) || !_s->has_non_ascii();
   std::int64_t _clen = _bytewise ? static_cast<std::int64_t>(_s->bytes.size()) : _s->length();
   // Resolve the replaced span. Substring idx yields byte positions
@@ -189,7 +191,8 @@ inline BasicObject* intrinsic_string_store(BasicObject* self_, BasicObject* idx,
   bool _by_bytes = false;
   std::size_t _bb0 = 0, _bb1 = 0;
   std::int64_t _c0 = 0, _c1 = 0;
-  if (auto* _ri = dynamic_cast<Integer*>(idx)) {
+  if (typeid(*idx) == typeid(Integer)) {
+    auto* _ri = static_cast<Integer*>(idx);
     std::int64_t _i = _ri->raw_;
     if (_i < 0) _i += _clen;
     if (_i < 0 || _i > _clen) {
@@ -198,18 +201,19 @@ inline BasicObject* intrinsic_string_store(BasicObject* self_, BasicObject* idx,
     }
     std::int64_t _len = 1;
     if (_rn >= 2) {
-      auto* _li = dynamic_cast<Integer*>(_rest->data[0]);
-      _len = _li ? _li->raw_ : 0;
+      BasicObject* _l0 = _rest->data[0];
+      _len = (typeid(*_l0) == typeid(Integer)) ? static_cast<Integer*>(_l0)->raw_ : 0;
       if (_len < 0) {
         char _b[64]; std::snprintf(_b, sizeof(_b), "negative length %lld", (long long)_len);
         throw_index_error(_b);
       }
     }
     _c0 = _i; _c1 = std::min<std::int64_t>(_i + _len, _clen);
-  } else if (auto* _rg = dynamic_cast<Range*>(idx)) {
+  } else if (typeid(*idx) == typeid(Range)) {
+    auto* _rg = static_cast<Range*>(idx);
     auto _toi = [](BasicObject* v, std::int64_t d) -> std::int64_t {
       if (!v || v == nil_instance()) return d;
-      auto* _ii = dynamic_cast<Integer*>(v); return _ii ? _ii->raw_ : d;
+      return typeid(*v) == typeid(Integer) ? static_cast<Integer*>(v)->raw_ : d;
     };
     std::int64_t _b = _toi(_rg->begin_, 0);
     std::int64_t _e = _toi(_rg->end_, _clen);
@@ -223,7 +227,8 @@ inline BasicObject* intrinsic_string_store(BasicObject* self_, BasicObject* idx,
     if (_e > _clen) _e = _clen;
     if (_e < _b) _e = _b;
     _c0 = _b; _c1 = _e;
-  } else if (auto* _ss = dynamic_cast<String*>(idx)) {
+  } else if (typeid(*idx) == typeid(String)) {
+    auto* _ss = static_cast<String*>(idx);
     auto _it = std::search(_s->bytes.begin(), _s->bytes.end(), _ss->bytes.begin(), _ss->bytes.end());
     if (_it == _s->bytes.end() && !_ss->bytes.empty()) {
       throw_index_error("string not matched");

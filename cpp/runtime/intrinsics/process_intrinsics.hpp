@@ -12,8 +12,8 @@
 // :float_second, Integer otherwise. Sufficient for benchmark probes.
 inline BasicObject* intrinsic_process_clock_gettime(BasicObject* /*clock_id*/, BasicObject* unit) {
   auto _now = std::chrono::steady_clock::now().time_since_epoch();
-  if (auto* _s = dynamic_cast<Symbol*>(unit)) {
-    const char* n = _s->name_;
+  if (typeid(*unit) == typeid(Symbol)) {
+    const char* n = static_cast<Symbol*>(unit)->name_;
     if (std::strcmp(n, "second")      == 0) return new Integer(std::chrono::duration_cast<std::chrono::seconds>(_now).count());
     if (std::strcmp(n, "millisecond") == 0) return new Integer(std::chrono::duration_cast<std::chrono::milliseconds>(_now).count());
     if (std::strcmp(n, "microsecond") == 0) return new Integer(std::chrono::duration_cast<std::chrono::microseconds>(_now).count());
@@ -60,8 +60,8 @@ inline BasicObject* intrinsic_process_kill(BasicObject* sig, BasicObject* pid) {
     std::string name;
     if (sig->m_class() == reinterpret_cast<BasicObject*>(&String_CLASS)) {
       name = fs_detail::str_of(sig);
-    } else if (auto* sym = dynamic_cast<Symbol*>(sig)) {
-      name = sym->name_;
+    } else if (typeid(*sig) == typeid(Symbol)) {
+      name = static_cast<Symbol*>(sig)->name_;
     } else {
       std::fprintf(stderr, "[box-first] process_kill: unsupported sig type %s\n", sig->ruby_class_name());
       std::abort();
@@ -93,8 +93,8 @@ inline BasicObject* intrinsic_process_clock_getres(BasicObject* /*clock_id*/, Ba
   // process_clock_gettime above so callers see consistent behaviour.
   using period = std::chrono::steady_clock::period;
   double res_seconds = static_cast<double>(period::num) / static_cast<double>(period::den);
-  if (auto* _s = dynamic_cast<Symbol*>(unit)) {
-    const char* n = _s->name_;
+  if (typeid(*unit) == typeid(Symbol)) {
+    const char* n = static_cast<Symbol*>(unit)->name_;
     if (std::strcmp(n, "second")      == 0) return new Integer(static_cast<int64_t>(res_seconds));
     if (std::strcmp(n, "millisecond") == 0) return new Integer(static_cast<int64_t>(res_seconds * 1e3));
     if (std::strcmp(n, "microsecond") == 0) return new Integer(static_cast<int64_t>(res_seconds * 1e6));

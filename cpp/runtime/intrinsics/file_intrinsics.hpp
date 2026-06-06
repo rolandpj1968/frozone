@@ -16,7 +16,7 @@ inline BasicObject* intrinsic_file_expand_path(BasicObject* path, BasicObject* d
 inline BasicObject* intrinsic_file_dirname(BasicObject* path, BasicObject* level) {
   int64_t lvl = 1;
   if (level && level != nil_instance()) {
-    if (auto* i = dynamic_cast<Integer*>(level)) lvl = i->raw_;
+    if (typeid(*level) == typeid(Integer)) lvl = static_cast<Integer*>(level)->raw_;
   }
   std::string s = fs_detail::str_of(path);
   while (lvl-- > 0 && !s.empty()) {

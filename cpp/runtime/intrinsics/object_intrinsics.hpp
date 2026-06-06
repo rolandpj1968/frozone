@@ -7,22 +7,25 @@
 
 // ---- Object / BasicObject ------------------------------------------
 
-// `Object#dup` — shallow copy. Picks the runtime type by dynamic_cast
-// so the new instance has the right vtable; ivars not copied (rare to
-// depend on for non-Ruby-defined classes). Real impl would call
+// `Object#dup` — shallow copy. Picks the runtime type by typeid so the
+// new instance has the right vtable; ivars not copied (rare to depend
+// on for non-Ruby-defined classes). Real impl would call
 // m_initialize_copy.
 inline BasicObject* intrinsic_object_dup(BasicObject* self_) {
-  if (auto* _s = dynamic_cast<String*>(self_)) {
+  if (typeid(*self_) == typeid(String)) {
+    auto* _s = static_cast<String*>(self_);
     auto* _r = new String();
     _r->bytes = _s->bytes;
     return _r;
   }
-  if (auto* _a = dynamic_cast<Array*>(self_)) {
+  if (typeid(*self_) == typeid(Array)) {
+    auto* _a = static_cast<Array*>(self_);
     auto* _r = new Array();
     _r->data = _a->data;
     return _r;
   }
-  if (auto* _h = dynamic_cast<Hash*>(self_)) {
+  if (typeid(*self_) == typeid(Hash)) {
+    auto* _h = static_cast<Hash*>(self_);
     auto* _r = new Hash();
     _r->data = _h->data;
     return _r;
@@ -65,8 +68,7 @@ inline BasicObject* intrinsic_basic_object___send__(BasicObject* self_, BasicObj
 // defined method_missing.
 [[noreturn]] inline BasicObject* intrinsic_basic_object_method_missing(BasicObject* /*self_*/, BasicObject* name,
                                                                        BasicObject* /*args*/, BasicObject* /*kwargs*/) {
-  auto* _n = dynamic_cast<Symbol*>(name);
-  const char* _name = _n ? _n->name_ : "<?>";
+  const char* _name = typeid(*name) == typeid(Symbol) ? static_cast<Symbol*>(name)->name_ : "<?>";
   std::string _msg = std::string("undefined method '") + _name + "'";
   throw static_cast<Exception*>(
       (&NoMethodError_CLASS)->m_new(new Array({static_cast<BasicObject*>(new String(_msg.data(), _msg.size()))})));
