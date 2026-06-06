@@ -1185,6 +1185,21 @@ module Frozone
           # into super_context; we just walk one step further. Forwarding
           # super passes the current method's `args`/`kwargs`/`_block`
           # through; explicit super builds a fresh args array.
+          # Super's parser folds explicit `super(x, foo: 99)` kwargs
+          # into `kw_splat_nodes[0]` as a synthesized HashLiteral with
+          # symbol keys. Reify those pairs as [key_node, value_node]
+          # tuples — matches MethodCall#kw_arg_nodes shape so the
+          # kw_unset codegen can fill slots uniformly. Variable splats
+          # (**hash) stay in kw_splat_nodes; we don't unfold them here.
+          def extract_super_kw_pairs(node)
+            splats = node.respond_to?(:kw_splat_nodes) ? node.kw_splat_nodes : nil
+            return [] if splats.nil? || splats.empty?
+            head = splats.first
+            return [] unless head.is_a?(Ast::HashLiteral)
+            return [] unless head.kv_nodes.all? { |k, _| k.is_a?(Ast::SymbolLiteral) }
+            head.kv_nodes
+          end
+
           def from_super(node, locals)
             ctx = @super_context
             raise EmissionError, "super used outside a method body" unless ctx
@@ -1267,16 +1282,21 @@ module Frozone
             kw_sig = emit&.kw_unset_table&.dig(method_name)
             if kw_sig
               all_kw_locals = kw_sig.all_kw_names.map { |kn| MethodEmitter.local_cpp_name(kn) }
+              # Super has no kw_arg_nodes accessor — the parser folds
+              # explicit `foo: 99` super args into kw_splat_nodes[0]
+              # as a synthesized HashLiteral. Reify those pairs for
+              # the UNSET slot-fill below.
+              super_kw_pairs = extract_super_kw_pairs(node)
               args_csv =
                 if node.forwarding
                   ((ctx[:method_params] || []) + all_kw_locals).join(', ')
-                elsif node.arg_nodes.empty? && (node.kw_arg_nodes || []).empty?
+                elsif node.arg_nodes.empty? && super_kw_pairs.empty?
                   ""
                 else
                   pos = node.arg_nodes.map { |a| from_expr(a, locals) }
                   # Pad positionals up to arity_req + opt with UNSET.
                   pad = Array.new(kw_sig.arity_req + kw_sig.opt - pos.length, "unset_instance()")
-                  call_kw_map = (node.kw_arg_nodes || []).each_with_object({}) do |(k, v), h|
+                  call_kw_map = super_kw_pairs.each_with_object({}) do |(k, v), h|
                     kn = k.respond_to?(:value) ? k.value.to_sym : nil
                     h[kn] = v if kn
                   end
