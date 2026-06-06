@@ -1,15 +1,31 @@
 # Box-first optimization design notes
 
-Status: design — none implemented. Pure optimizations, no correctness
-component. Tackle as profiling motivates; the box-first model works
-correctly without any of these.
+This doc collects optimization design notes for the box-first emitter
+and runtime. Some are **landed**; the rest are deferred until profiling
+motivates them. Each section is independent and they compose where
+noted.
 
-This doc collects deferred optimizations to the box-first emitter and
-runtime. Each section is independent; they compose where noted.
+Status overview (skim before reading the bodies):
+
+| § | Topic                                  | Status              |
+|--:|----------------------------------------|---------------------|
+| 1 | Universal-surface VT cleavage (typeid gateway) | landed — Phase A + B |
+| 2 | is_a? — per-class 1D bitset, leaf columns pruned | design (global N×N today) |
+| 3 | dynamic_cast removal                   | partial — m_is_a_q done; rest open |
+| 4 | Reachability pruning                   | landed — see docs/reachability-pruning.md |
+| 5 | Block invocation — arity-specialized Procs | landed — Proc0/Proc1/Proc2 + NA-with-block bucket |
 
 ---
 
 ## 1. Universal-surface VT cleavage
+
+Status: **landed** — Phase A (single-def leaf) and Phase B (K-way
+typeid OR-chain for multi-def leaves) are both in. Codegen sits
+behind `FROZONE_LEAF_DISPATCH=1`. The design that follows is the
+original write-up; see `method_shape_survey.rb` (`leaf_dispatch_table`)
+and `class_emitter.rb` for what actually lives in the gen today.
+Phase C (wide-LCA, VT lowering from BasicObject to LCA) is still
+deferred — pursue when codegen / compile-time wins become measurable.
 
 Box-first emits a universal vtable on `BasicObject`: one virtual slot
 per method name in the program's call surface. Every subclass inherits
@@ -224,6 +240,14 @@ to compare codebases.
 
 ## 2. is_a? — per-class 1D bitset, leaf columns pruned
 
+Status: **design — not landed**. The global `IS_A[N_CLASSES][N_CLASSES]`
+bool table is still what's emitted. The complementary leaf-target
+optimisation — `o.is_a?(LeafClass)` lowering to a pointer compare via
+typeid when the target is statically known to be a leaf class — *is*
+landed (see `cpp.rb` from_method_call). The bigger restructure (split
+the LUT into per-class 1D rows on the Class struct, prune leaf columns
+entirely) is what the rest of this section describes.
+
 Box-first answers `o.is_a?(target)` via a closed-world LUT computed at
 AOT time. Currently a single global `IS_A[N_CLASSES][N_CLASSES]` bool
 table; every receiver indirects through `__class_id__()` to find its
@@ -404,9 +428,12 @@ the real win factor.
 
 ## 3. dynamic_cast removal
 
-Status: partial — `m_is_a_q` body now compares `m_class()` against
+Status: **partial**. `m_is_a_q` body now compares `m_class()` against
 `&Class_CLASS` instead of `dynamic_cast<Class*>`. The remaining call
-sites stayed for now and want a follow-up.
+sites stayed for now and want a focused audit pass — see the broader
+`Audit ALL casts` follow-up in the work stack, which classifies every
+cast (static, dynamic, reinterpret) as legitimate-internal,
+value-protocol-narrowing, or eliminable via vtable.
 
 ### The pattern
 
@@ -590,6 +617,16 @@ dependency in the hot path and unlocks `-fno-rtti` globally.
 ---
 
 ## 5. Block invocation — arity-specialized Proc subclasses
+
+Status: **landed**. Proc / Proc0 / Proc1 / Proc2 hierarchy ships, with
+`call0` / `call1` / `call2` slots and the universal `m_call(Array*,
+Hash*)` for the fallback shape. NA-with-block — a separate bucket of
+universal-surface slots that carries a typed `Proc* block` parameter
+so block-bearing methods avoid the `nil_instance() ↔ nullptr` round-
+trip on hot paths — also landed. Stack-allocation for no-capture
+blocks and per-block C++ subclass (drop `std::function`) are still
+open follow-ups; see `lambda_emitter.rb` for current call-site /
+constructor selection.
 
 ### The cost today
 
