@@ -1551,6 +1551,21 @@ module Frozone
             # is forward-declared at this point). The dispatched method
             # body needs a real Vm Context — m_invoke / inner dispatches
             # crash with `nil.frame` if context is nil.
+            #
+            # Lookup form: when m_lookup_instance_method is NA-eligible
+            # (FROZONE_NATURAL_ARGS=1) we emit the direct 1-arg NA call
+            # — passes the Symbol* without allocating an Array wrapper.
+            # Otherwise we fall back to the 3-arg universal form. The
+            # call routes the same place either way; NA just skips the
+            # trampoline + Array alloc on the hot path.
+            lim_na = @natural_arity_names[:lookup_instance_method]
+            lim_call = ->(sym_lit) do
+              if lim_na
+                %|_self->m_lookup_instance_method(intern("#{sym_lit}"))|
+              else
+                %|_self->m_lookup_instance_method(new Array({intern("#{sym_lit}")}), &EMPTY_KWARGS, nil_instance())|
+              end
+            end
             [
               "std::size_t m_hash_value() const override {",
               "  auto* _self = const_cast<#{cls_name}*>(this);",
@@ -1559,7 +1574,7 @@ module Frozone
               "  // (Class, BasicObject, the Vm internals) have hash only at the",
               "  // C++ vtable layer. Dispatching :hash there would fall through",
               "  // to method_missing and BUG. Identity is the right default.",
-              "  BasicObject* _m = _self->m_lookup_instance_method(new Array({intern(\"hash\")}), &EMPTY_KWARGS, nil_instance());",
+              "  BasicObject* _m = #{lim_call.call('hash')};",
               "  if (!_m || _m == nil_instance() || _m == k_Frozone_Vm_ModuleObject_UNDEF_SENTINEL()) {",
               "    return reinterpret_cast<std::size_t>(_self);",
               "  }",
@@ -1593,7 +1608,7 @@ module Frozone
               "  // would fall through to method_missing and BUG. Identity check has",
               "  // already returned true if pointers match; otherwise default to",
               "  // false unless a Ruby `==` is registered.",
-              "  BasicObject* _m = _self->m_lookup_instance_method(new Array({intern(\"==\")}), &EMPTY_KWARGS, nil_instance());",
+              "  BasicObject* _m = #{lim_call.call('==')};",
               "  if (!_m || _m == nil_instance() || _m == k_Frozone_Vm_ModuleObject_UNDEF_SENTINEL()) {",
               "    return false_instance();",
               "  }",
