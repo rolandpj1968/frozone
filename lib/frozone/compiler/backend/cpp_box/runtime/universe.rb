@@ -614,7 +614,8 @@ module Frozone
                   BasicObject* idx = args->data[0];
                   BasicObject* val = args->data[1];
                   // 2-arg with Range idx: a[begin..end] = ary → slice replace.
-                  if (auto* r = dynamic_cast<Range*>(idx)) {
+                  if (typeid(*idx) == typeid(Range)) {
+                    auto* r = static_cast<Range*>(idx);
                     int64_t b = r->begin_ ? static_cast<Integer*>(r->begin_)->raw_ : 0;
                     int64_t e = r->end_   ? static_cast<Integer*>(r->end_)->raw_   : sz - 1;
                     if (b < 0) b += sz;
@@ -816,11 +817,11 @@ module Frozone
               "m_to_s"     => { params: [], body: "return this;" },
               "op_eq_q"     => {
                 params: ["BasicObject* other"],
-                body: "auto* o = dynamic_cast<String*>(other); return boxed_bool(o && bytes == o->bytes);",
+                body: "if (typeid(*other) != typeid(String)) return false_instance(); return boxed_bool(bytes == static_cast<String*>(other)->bytes);",
               },
               "op_ne_q"     => {
                 params: ["BasicObject* other"],
-                body: "auto* o = dynamic_cast<String*>(other); return boxed_bool(!o || bytes != o->bytes);",
+                body: "if (typeid(*other) != typeid(String)) return true_instance(); return boxed_bool(bytes != static_cast<String*>(other)->bytes);",
               },
               "op_lt"       => { params: ["BasicObject* other"], body: "return boxed_bool(bytes <  static_cast<String*>(other)->bytes);" },
               "op_gt"       => { params: ["BasicObject* other"], body: "return boxed_bool(bytes >  static_cast<String*>(other)->bytes);" },
@@ -843,7 +844,8 @@ module Frozone
                 body: <<~CPP.chomp,
                   // MRI String#<<: Integer arg appends the codepoint;
                   // String arg appends bytes (with encoding promotion).
-                  if (auto* i = dynamic_cast<Integer*>(other)) {
+                  if (typeid(*other) == typeid(Integer)) {
+                    auto* i = static_cast<Integer*>(other);
                     std::int64_t cp = i->raw_;
                     if (cp < 0) {
                       std::fprintf(stderr, "[box-first] String#<<: invalid codepoint %ld\\n", static_cast<long>(cp));
@@ -905,7 +907,7 @@ module Frozone
                   // this, `"abc"[0..-1]` static_casts Range to Integer
                   // and returns garbage / nil.
                   BasicObject* idx = args->data[0];
-                  if (!dynamic_cast<Integer*>(idx)) {
+                  if (typeid(*idx) != typeid(Integer)) {
                     return intrinsic_string_slice(this, idx, intern("__unset__"));
                   }
                   std::int64_t i = static_cast<Integer*>(idx)->raw_;
@@ -1359,7 +1361,8 @@ module Frozone
                     return new Float(mri_next_float());
                   }
                   BasicObject* n = args->data[0];
-                  if (auto* i = dynamic_cast<Integer*>(n)) {
+                  if (typeid(*n) == typeid(Integer)) {
+                    auto* i = static_cast<Integer*>(n);
                     if (i->raw_ <= 0) return new Float(mri_next_float());
                     // MRI's rand(n): rejection-sample with the
                     // smallest mask that covers (n-1), avoiding the
@@ -1375,7 +1378,8 @@ module Frozone
                       if (v <= lim) return new Integer(static_cast<int64_t>(v));
                     }
                   }
-                  if (auto* f = dynamic_cast<Float*>(n)) {
+                  if (typeid(*n) == typeid(Float)) {
+                    auto* f = static_cast<Float*>(n);
                     return new Float(mri_next_float() * f->raw_);
                   }
                   return nil_instance();
@@ -1419,7 +1423,8 @@ module Frozone
                   auto* pat = static_cast<String*>(args->data[0]);
                   int64_t opts = 0;
                   if (args->data.size() >= 2) {
-                    if (auto* i = dynamic_cast<Integer*>(args->data[1])) opts = i->raw_;
+                    BasicObject* a1 = args->data[1];
+                    if (typeid(*a1) == typeid(Integer)) opts = static_cast<Integer*>(a1)->raw_;
                   }
                   source_ = pat;
                   options_ = opts;
@@ -1692,8 +1697,9 @@ module Frozone
             body: <<~CPP.chomp,
               // `puts` with no args calls ruby_puts(nullptr); MRI prints just a newline.
               if (!o)                                       { std::putchar('\\n'); return; }
-              if (auto* i = dynamic_cast<Integer*>(o))      { std::printf("%lld\\n", static_cast<long long>(i->raw_)); return; }
-              if (auto* f = dynamic_cast<Float*>(o))        {
+              if (typeid(*o) == typeid(Integer))            { std::printf("%lld\\n", static_cast<long long>(static_cast<Integer*>(o)->raw_)); return; }
+              if (typeid(*o) == typeid(Float))              {
+                auto* f = static_cast<Float*>(o);
                 if (std::isnan(f->raw_))      { std::printf("NaN\\n");      return; }
                 if (std::isinf(f->raw_))      { std::printf("%sInfinity\\n", f->raw_ < 0 ? "-" : ""); return; }
                 // Shortest round-trippable representation (matches Ruby).
@@ -1709,8 +1715,8 @@ module Frozone
                 if (!has_dot && n + 2 < (int)sizeof(buf)) { buf[n++] = '.'; buf[n++] = '0'; }
                 std::fwrite(buf, 1, n, stdout); std::putchar('\\n'); return;
               }
-              if (auto* s = dynamic_cast<Symbol*>(o))       { std::printf("%s\\n", s->name_); return; }
-              if (auto* str = dynamic_cast<String*>(o))     { std::fwrite(str->bytes.data(), 1, str->bytes.size(), stdout); std::putchar('\\n'); return; }
+              if (typeid(*o) == typeid(Symbol))             { std::printf("%s\\n", static_cast<Symbol*>(o)->name_); return; }
+              if (typeid(*o) == typeid(String))             { auto* str = static_cast<String*>(o); std::fwrite(str->bytes.data(), 1, str->bytes.size(), stdout); std::putchar('\\n'); return; }
               if (o == true_instance())                      { std::printf("true\\n"); return; }
               if (o == false_instance())                     { std::printf("false\\n"); return; }
               if (o == nil_instance())                       { std::printf("\\n"); return; }
