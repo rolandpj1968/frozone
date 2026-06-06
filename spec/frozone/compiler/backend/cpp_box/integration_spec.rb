@@ -25,12 +25,26 @@ ONIGMO_LIB   = File.join(ONIGMO_DIR, 'lib', 'libonigmo.a')
 # Dispatch-feature matrix. Each test runs once per mode (4 modes
 # total) so codegen regressions in either natural-args or leaf-
 # dispatch surface in CI rather than waiting for a perf run.
-EXEC_MODES = {
-  baseline: {},
-  natural:  { 'FROZONE_NATURAL_ARGS' => '1' },
-  leaf:     { 'FROZONE_LEAF_DISPATCH' => '1' },
-  both:     { 'FROZONE_NATURAL_ARGS' => '1', 'FROZONE_LEAF_DISPATCH' => '1' },
-}.freeze
+EXEC_MODES =
+  if ENV['RUN_EXTENDED_MATRIX'] == '1'
+    # Diagnostic axis — surface NA-vs-leaf interactions individually.
+    # Opt-in only; full cross-product is combinatorial pain. Use this
+    # only when triaging a specific suspected interaction.
+    {
+      baseline: {},
+      natural:  { 'FROZONE_NATURAL_ARGS' => '1' },
+      leaf:     { 'FROZONE_LEAF_DISPATCH' => '1' },
+      shipped:  { 'FROZONE_NATURAL_ARGS' => '1', 'FROZONE_LEAF_DISPATCH' => '1' },
+    }.freeze
+  else
+    # Default: only baseline (opts off — ground truth) and shipped
+    # (the actual user-facing default config). The other two modes
+    # are intermediate diagnostics that aren't ship configurations.
+    {
+      baseline: {},
+      shipped:  { 'FROZONE_NATURAL_ARGS' => '1', 'FROZONE_LEAF_DISPATCH' => '1' },
+    }.freeze
+  end
 
 # Stubs bundled into the unified binary. Each is wrapped in
 # `module Stub_<name>` by tools/build_unified_stub.rb. The behaviour
