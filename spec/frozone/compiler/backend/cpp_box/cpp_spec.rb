@@ -341,11 +341,13 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
       thrice = A::MethodCall.new(:thrice, nil, [], [], blk)
       result = cpp.from_expr(thrice, locals)
       expect(result).to include("this->m_thrice(")
-      # Lambda takes Array* __blkargs__ (universal protocol —
-      # multi-arg yield works since args is an Array). Captures
-      # `this` POINTER by value (`[&, this]`), locals by ref —
-      # so Procs stored on ivars don't dangle. See pitfalls #1.
-      expect(result).to include("(new Proc([&, this](Array* __blkargs__) -> BasicObject*")
+      # Lambda takes Array* __blkargs__ + Hash* __blkkwargs__
+      # (universal protocol — multi-arg yield works since args is
+      # an Array; #165 added the kwargs slot for block keyword
+      # params). Captures `this` POINTER by value (`[&, this]`),
+      # locals by ref — so Procs stored on ivars don't dangle.
+      # See pitfalls #1.
+      expect(result).to include("(new Proc([&, this](Array* __blkargs__, Hash* __blkkwargs__) -> BasicObject*")
       # Block-param `|n|` binds from data[0] (or nil).
       expect(result).to include("l_n = (0 < (int)__blkargs__->data.size())")
       expect(result).to include("return")

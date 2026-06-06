@@ -233,11 +233,6 @@ module Frozone
             optional_params = (block_node.respond_to?(:optional_params) ? block_node.optional_params : nil) || []
             rest_param = block_node.respond_to?(:rest_param) ? block_node.rest_param : nil
             post_params = (block_node.respond_to?(:post_params) ? block_node.post_params : nil) || []
-            # Optional params in blocks remain unsupported — uncommon
-            # in practice (`each { |a = 1| ... }`).
-            if optional_params.any?
-              raise Cpp::EmissionError, "block with optional params not yet supported"
-            end
             # Hash-shaped params are destructure patterns:
             #   `do |(a, b, *r, c)| ... end` →
             #   { names: [:a, :b], rest: :r, rights: [:c] }
@@ -254,7 +249,7 @@ module Frozone
             # respectively. `next [v]` becomes a lambda return via
             # next_returns: true (the lambda IS one block invocation).
             block_locals = locals.dup
-            (params + (rest_param ? [rest_param] : []) + post_params).each do |p|
+            (params + optional_params.map { |n, _| n } + (rest_param ? [rest_param] : []) + post_params).each do |p|
               # Hash-shaped params get their inner names declared by
               # emit_mass_destructure (which appends to block_locals
               # itself). Only flat params register here.
@@ -271,7 +266,7 @@ module Frozone
 
             # Compute THIS block's own captured locals (its own params
             # and body decls referenced by its own inner blocks).
-            block_param_names = (params + (rest_param ? [rest_param] : []) + post_params).map(&:to_s)
+            block_param_names = (params + optional_params.map { |n, _| n } + (rest_param ? [rest_param] : []) + post_params).map(&:to_s)
             inner_own = Set.new(block_param_names) | Set.new((block_node.respond_to?(:locals) ? (block_node.locals || []) : []).map(&:to_s))
             inner_captured = LambdaEmitter.collect_captured_locals(body, inner_own)
 
@@ -292,7 +287,7 @@ module Frozone
                 # `ch = [ch, i]; i = nil`. Lambdas (from_lambda) never
                 # auto-splat — only proc-style blocks do, so this rebind
                 # is scoped to from_block_as_proc.
-                arity = params.length + post_params.length
+                arity = params.length + optional_params.length + post_params.length
                 if arity >= 2 || (params.length >= 1 && rest_param)
                   emit.line "if (__blkargs__->data.size() == 1) {"
                   emit.indented do
@@ -314,11 +309,31 @@ module Frozone
                     end
                   end
                 end
+                # Optional positional params sit between required + post.
+                # MRI's fill order: required first (from front), post next
+                # (from back), THEN optional fills in remaining middle
+                # slots. So optional[j] gets an actual arg iff there are
+                # enough args to reach past required + post + (j+1). The
+                # guard `size >= params.length + post_params.length + j + 1`
+                # captures that. Block-flavor (Proc) semantics — missing
+                # → default. Lambdas (strict) handled in from_lambda.
+                optional_params.each_with_index do |(p, default_node), j|
+                  idx = params.length + j
+                  needed = params.length + post_params.length + j + 1
+                  default_str = default_node ? from_expr(default_node, block_locals) : "nil_instance()"
+                  init = "((int)__blkargs__->data.size() >= #{needed}) ? __blkargs__->data[#{idx}] : (#{default_str})"
+                  cpp = MethodEmitter.local_cpp_name(p)
+                  if emit.cpp.captured?(p)
+                    emit.line "BasicObject** #{cpp} = gc_box<BasicObject*>(#{init});"
+                  else
+                    emit.line "BasicObject* #{cpp} = #{init};"
+                  end
+                end
                 if rest_param
-                  # `|a, b, *rest, x, y|` — rest binds to the slice
-                  # between required and post-required params.
+                  # `|a, b=1, *rest, x, y|` — rest binds to the slice
+                  # between required + optional and post-required params.
                   rest_cpp = MethodEmitter.local_cpp_name(rest_param)
-                  pre = params.length
+                  pre = params.length + optional_params.length
                   post = post_params.length
                   emit.line "Array* __blk_rest__ = new Array();"
                   emit.line "for (std::size_t _i = #{pre}; _i + #{post} < __blkargs__->data.size(); _i++) __blk_rest__->data.push_back(__blkargs__->data[_i]);"

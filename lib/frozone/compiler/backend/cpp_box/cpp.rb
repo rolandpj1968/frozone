@@ -863,7 +863,7 @@ module Frozone
             if args.empty? && !has_kw
               return "_block->m_call()"
             end
-            args_expr = args.empty? ? "(&EMPTY_ARGS)" : "(new Array({#{args.join(", ")}}))"
+            args_expr = args.empty? ? "&EMPTY_ARGS" : "new Array({#{args.join(", ")}})"
             return "_block->m_call(#{args_expr})" unless has_kw
             # Use Hash::put rather than raw data[k] = v — keeps insertion-
             # order vector + order_idx in sync. Direct data[] bypasses
