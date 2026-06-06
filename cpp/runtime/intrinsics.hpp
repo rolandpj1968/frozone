@@ -247,10 +247,10 @@ namespace integer_detail {
 }
 
 // Aggregator — pulls all per-category intrinsic headers.
-// Per-TU include pruning is a follow-up (task #117 step B); for now
-// every TU still gets every category, but the file split lets that
-// change cleanly later. Helpers (namespaces, free functions) above
-// stay in this file so every per-category header can see them.
+// Per-TU include pruning is a follow-up; for now every TU still
+// gets every category, but the file split lets that change cleanly
+// later. Helpers (namespaces, free functions) above stay in this
+// file so every per-category header can see them.
 #include "intrinsics/dir_intrinsics.hpp"
 #include "intrinsics/env_intrinsics.hpp"
 #include "intrinsics/file_intrinsics.hpp"

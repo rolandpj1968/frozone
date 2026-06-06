@@ -237,8 +237,8 @@ module Frozone
             optional_kw_for_elig = (block_node.respond_to?(:optional_kw_params) ? block_node.optional_kw_params : nil) || []
             kw_rest_for_elig = block_node.respond_to?(:kw_rest_param) ? block_node.kw_rest_param : nil
 
-            # Arity-specialized Proc subclass eligibility (#167) — initial
-            # shape gate. Final gate (capture check) needs `inner_captured`,
+            # Arity-specialized Proc subclass eligibility — initial shape
+            # gate. Final gate (capture check) needs `inner_captured`,
             # which is computed below.
             specialized_kind = nil
             spec_shape_ok = optional_params.empty? && rest_param.nil? && post_params.empty? &&

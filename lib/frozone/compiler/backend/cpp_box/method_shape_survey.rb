@@ -360,8 +360,8 @@ module Frozone
             end
           end
 
-          # What-if (item 6): names that WOULD become kw_unset-eligible
-          # if we relaxed to multi-shape (any kw-unset-eligible shapes,
+          # What-if: names that WOULD become kw_unset-eligible if we
+          # relaxed to multi-shape (any kw-unset-eligible shapes,
           # possibly with different kw sets). Used by the report to
           # size the opportunity before committing to the codegen
           # extension.

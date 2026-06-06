@@ -159,10 +159,10 @@ module Frozone
               %(const char* ruby_class_name() const override { return "Object"; }),
               "// Universal per-object metadata. Lives on Object (NOT BasicObject —",
               "// BasicObject stays slot-free for user code that wants the lightweight",
-              "// no-metadata semantics). Pre-de-fusion these slots lived on",
+              "// no-metadata semantics). Earlier these slots lived on",
               "// Frozone_Vm_ObjectObject and were pulled into NilClass et al. via",
-              "// C-form fusion (#63/#64); that made every gen depend on Frozone-",
-              "// internal types only present when frozone-AOT was the build root.",
+              "// C-form fusion; that made every gen depend on Frozone-internal",
+              "// types only present when frozone-AOT was the build root.",
               "// Now Frozone_Vm_ObjectObject : Object inherits these naturally.",
               "BasicObject* iv_class_object = nil_instance();",
               "BasicObject* iv_eigenclass = nil_instance();",
@@ -296,11 +296,11 @@ module Frozone
           )
 
           # NilClass / TrueClass / FalseClass inherit from Object directly.
-          # Pre-de-fusion they were `: Frozone_Vm_ObjectObject` (#63/#64) to
-          # pick up dispatch/set_ivar/lookup_instance_method via the vtable.
-          # That dependency only exists in frozone-AOT builds; sub-stubs
-          # don't have Frozone_Vm_ObjectObject in the gen and the inherit
-          # was unsatisfiable. The iv_* slots that fusion was carrying are
+          # Earlier they were `: Frozone_Vm_ObjectObject` to pick up
+          # dispatch/set_ivar/lookup_instance_method via the vtable. That
+          # dependency only exists in frozone-AOT builds; sub-stubs don't
+          # have Frozone_Vm_ObjectObject in the gen and the inherit was
+          # unsatisfiable. The iv_* slots that fusion was carrying are
           # now on Object directly so the fused singletons (NIL_INSTANCE
           # etc.) still have a place to store iv_class_object.
           NIL_CLASS = RubyClass.new(
@@ -1674,15 +1674,15 @@ module Frozone
           TRUTHY = KernelFn.new(
             name: "truthy",
             signature: "bool truthy(BasicObject* o)",
-            # Calling-convention invariant (Phase 1): every BasicObject*
-            # slot in the universal protocol holds a real Ruby object —
-            # never C++ nullptr. Positional args default to &EMPTY_ARGS,
+            # Calling-convention invariant: every BasicObject* slot in
+            # the universal protocol holds a real Ruby object — never
+            # C++ nullptr. Positional args default to &EMPTY_ARGS,
             # kwargs to &EMPTY_KWARGS, block to nil_instance().
             #
-            # Singleton invariant (Phase 2): Frozone::Vm::NilObject /
-            # FalseObject / TrueObject fuse with the runtime nil/false/
-            # true classes, so there's exactly one of each. truthy() is
-            # back to its original two-pointer-compare form.
+            # Singleton invariant: Frozone::Vm::NilObject / FalseObject /
+            # TrueObject fuse with the runtime nil/false/true classes,
+            # so there's exactly one of each. truthy() can therefore stay
+            # a simple two-pointer-compare.
             body: "return o != nil_instance() && o != false_instance();",
           )
 
@@ -2190,10 +2190,10 @@ module Frozone
             CPP
           )
 
-          # String#gsub helper. Phase 1: handles String pattern + String
-          # replacement only (plain global replace). Regexp pattern and
-          # block-form replacement abort — TODO when needed by callers.
-          # WQ's only gsub call is `source.gsub("\r\n", "\n")`.
+          # String#gsub helper. Handles String pattern + String replacement
+          # only (plain global replace). Regexp pattern and block-form
+          # replacement abort — TODO when needed by callers. WQ's only
+          # gsub call is `source.gsub("\r\n", "\n")`.
           STRING_GSUB_FN = KernelFn.new(
             name: "string_gsub_helper",
             signature: "BasicObject* string_gsub_helper(BasicObject* self_obj, BasicObject* pat, BasicObject* repl, BasicObject* block)",
@@ -2396,13 +2396,13 @@ module Frozone
           # Global variable accessors — back GlobalVariableRead /
           # GlobalVariableWrite. Storage is a static Hash* local to the
           # universe TU, lazily allocated on first access so static-init
-          # order doesn't matter. Pre-de-fusion this routed through
+          # order doesn't matter. Earlier this routed through
           # k_Frozone_Vm_GLOBALS() (a Frozone-Ruby Hash constant
           # accessor), but that only existed when frozone-AOT was the
           # build root. Sub-stubs (fib.rb etc.) compiled to a TU that
-          # referenced the missing accessor. Same architectural smell
-          # as the C-form fusion (#79): gen depending on Frozone-
-          # internal types. Match-data globals stay special-cased
+          # referenced the missing accessor — same architectural smell
+          # as the C-form fusion: gen depending on Frozone-internal
+          # types. Match-data globals stay special-cased
           # (g_last_match()); everything else routes through these.
           G_GLOBALS_STORAGE_FN = KernelFn.new(
             name: "g_globals_storage",

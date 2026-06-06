@@ -133,13 +133,12 @@ module Frozone
               # inline class-body methods (e.g. Module#ancestors) can
               # reference them — the actual definitions come further
               # down in write_is_a_lut.
-              # Routed to layouts header so per-class TUs (Step 7)
-              # see the decls. N_CLASSES is `inline constexpr` for
-              # single-definition-across-TUs (C++17).
+              # Routed to layouts header so per-class TUs see the decls.
+              # N_CLASSES is `inline constexpr` for single-definition-
+              # across-TUs (C++17).
               n_classes = class_ids.size
-              # Route foundation declarations to :base (Stage 1 of the
-              # layouts.hpp split; project_layouts_split.md). Per-class
-              # TUs that #include "frozone_layouts.hpp" still see these
+              # Route foundation declarations to :base. Per-class TUs
+              # that #include "frozone_layouts.hpp" still see these
               # transitively because layouts.hpp opens with #include
               # "frozone_base.hpp".
               emit.with_stream(:base) do
@@ -148,8 +147,8 @@ module Frozone
                 emit.line "extern BasicObject* const CLASS_BY_ID[N_CLASSES];"
                 emit.blank
               end
-              # Per-class TU split (Step 7). Each class's out-of-line
-              # method definitions go to its own .cpp file —
+              # Per-class TU split. Each class's out-of-line method
+              # definitions go to its own .cpp file —
               # frozone_<ClassName>.cpp. Each per-class TU includes
               # the layouts header, opens namespace Ruby, emits the
               # method bodies, closes namespace.
@@ -246,9 +245,8 @@ module Frozone
               write_constant_typeerror_body(emit)
               write_const_missing_default(emit)
               # Kernel fn + intrinsic bodies route to the :universe stream
-              # → frozone_universe.cpp. They were inline in frozone.cpp;
-              # now they're non-inline definitions in their own TU,
-              # decls in layouts.hpp. Step 5 of TU split.
+              # → frozone_universe.cpp. Non-inline definitions, with
+              # decls in layouts.hpp so other TUs can call them.
               emit.with_stream(:universe) do
                 write_kernel_fn_bodies(emit, kernel_fns)
                 write_intrinsic_bodies(emit, intrinsics)
@@ -939,12 +937,10 @@ module Frozone
             # of nullptr. Lets us drop nullptr branches throughout.
             emit.line "extern Hash EMPTY_KWARGS;"
             emit.blank
-            # Non-inline declarations — bodies live in frozone_universe.cpp
-            # (Step 5 of TU split). `inline` would force every TU including
-            # this header to also see the body, but bodies stay in one TU.
-            # Without -flto we lose cross-TU inlining; with -flto it's
-            # recovered. For one-TU calls (today, frozone.cpp + universe.cpp)
-            # this is moot; matters when per-class TUs land (Step 7).
+            # Non-inline declarations — bodies live in frozone_universe.cpp.
+            # `inline` would force every TU including this header to also
+            # see the body, but bodies stay in one TU. Without -flto we
+            # lose cross-TU inlining; with -flto it's recovered.
             kernel_fns.each { |fn| emit.line "#{fn.signature};" }
             intrinsics.each { |fn| emit.line "#{fn.signature};" }
           end
@@ -1331,10 +1327,9 @@ module Frozone
           def self.write_override_def(emit, class_name, name, spec)
             if name.start_with?("c_")
               # Constant-lookup slot — empty arg list, body is a `return
-              # <value>;` line. Non-inline now (per-class TU split,
-              # Step 7) — bodies are unique defs in their TU, not
-              # duplicated inline definitions in every TU's vtable
-              # reference.
+              # <value>;` line. Non-inline now (per-class TU split) —
+              # bodies are unique defs in their TU, not duplicated
+              # inline definitions in every TU's vtable reference.
               emit.line "BasicObject* #{class_name}::#{name}() {"
               emit.indented do
                 spec[:body].each_line { |l| emit.line l.chomp }

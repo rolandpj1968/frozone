@@ -931,12 +931,12 @@ module Frozone
           # arg_nodes=[k, v]). Emit as a vtable call to op_aset via
           # the universal protocol. Arg shape via na_or_wrap_args.
           def from_attribute_write(node, locals)
-            # Visibility (#116 Stages 2/3): setter `obj.attr=` is a method
-            # call to `:attr=` with the value as the single positional arg.
-            # Apply the same visibility plumbing as from_method_call:
-            # explicit-other receivers get recv_with_visibility_check
-            # (Stage 2 emits P2 raise / P3 kind_of? check), and P4 calls
-            # are wrapped with g_caller_self transport (Stage 3).
+            # Visibility: setter `obj.attr=` is a method call to `:attr=`
+            # with the value as the single positional arg. Apply the same
+            # visibility plumbing as from_method_call: explicit-other
+            # receivers get recv_with_visibility_check (P2 raise /
+            # P3 kind_of? check), and P4 calls are wrapped with
+            # g_caller_self transport.
             prev_vis_name = @vis_check_name
             @vis_check_name = node.name
             begin
@@ -1541,7 +1541,7 @@ module Frozone
             when Vm::ClassObject, Vm::ModuleObject
               flat = class_object_to_flat(val)
               raise EmissionError, "emit_vm_value: #{val.class.name.split('::').last} #{val.full_name} not in emitted set" unless flat
-              # Route through format_constant so Phase 2 fused classes
+              # Route through format_constant so fused classes
               # (Frozone_Vm_NilObject etc.) redirect to the runtime
               # singleton (&NilClass_CLASS) — the flat name is filtered
               # from emission, but the runtime equivalent exists.

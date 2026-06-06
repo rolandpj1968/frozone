@@ -284,8 +284,8 @@ module Frozone
             # Return the real Encoding::UTF_8 constant (auto-emitted from
             # core/4.0/encoding.rb) — callers expect an Encoding object,
             # not a String, so they can call `ascii_compatible?` etc.
-            # Always returning UTF-8 is a Phase 1 stub; real per-string
-            # encoding tracking is parity-gaps §6.
+            # Always returning UTF-8 is a stub; real per-string encoding
+            # tracking is a parity-gap follow-up.
             string_encoding: ->(_self_) { "k_Encoding_UTF_8()" },
             string_force_encoding: ->(self_, _enc) { "(#{self_})" },
             # Stub: Encoding.compatible?(a, b) — assume both UTF-8.

@@ -235,8 +235,8 @@ module Frozone
             all_eigenclasses = all_classes.map { |k| Runtime.eigenclass_for(k) }.compact
             decorate_eigenclasses_with_const_overrides(all_classes, all_eigenclasses)
             # Topo-sort by parent so each class's parent struct is fully
-            # defined before the child in layouts.hpp. Required since
-            # Phase 2 fusion (C-form) makes NilClass : Frozone_Vm_ObjectObject —
+            # defined before the child in layouts.hpp. Required because
+            # the C-form fusion makes NilClass : Frozone_Vm_ObjectObject —
             # the parent now lives among user classes, not before them.
             classes = topo_sort_by_parent(all_classes + all_eigenclasses)
             @class_ids_for_init = classes.each_with_index.to_h { |k, i| [k.name, i] }
@@ -254,7 +254,7 @@ module Frozone
             ClassEmitter.write_runtime(self, classes: classes, call_surface: @call_surface, const_surface: @const_surface, kernel_fns: kernel_fns) do
               # __init_static_state__ goes to its own TU
               # (frozone_static.cpp) — huge AOT-captured constant
-              # initializers live there. Step 6 of TU split.
+              # initializers live there.
               with_stream(:static) { write_static_state_init }
               write_snapshot_owner_tus
               write_main_object
@@ -264,19 +264,13 @@ module Frozone
             with_stream(:all_hpp) { write_all_hpp_close }
             with_stream(:int_literals_hpp) { write_int_literals_hpp_close }
             with_stream(:int_literals_cpp) { write_int_literals_cpp_close }
-            # Close the :layouts namespace now that ClassEmitter has
-            # populated it (forward decls in step 3; more in later steps).
             with_stream(:layouts) { write_layouts_close }
-            # Close the :universe namespace too (kernel_fn / intrinsic
-            # bodies now in it via Step 5).
             with_stream(:universe) { write_universe_close }
-            # Close the :static namespace (Step 6).
             with_stream(:static) { write_static_close }
-            # `frozone_main_impl` (was `int main()`) lives in the default
-            # stream so it has direct visibility into the namespace's
-            # types. Step 1 of the TU split: `int main()` itself is
-            # extracted into its own stream — frozone_main.cpp — as a
-            # tiny trampoline that calls frozone_main_impl.
+            # `frozone_main_impl` lives in the default stream so it has
+            # direct visibility into the namespace's types. `int main()`
+            # itself is extracted into its own stream — frozone_main.cpp
+            # — as a tiny trampoline that calls frozone_main_impl.
             write_main_impl
             write_namespace_close
             with_stream(:main) { write_main_trampoline }
@@ -288,7 +282,7 @@ module Frozone
           # Sort classes so each class's `parent` (by name) appears
           # earlier than the class itself. Stable for siblings — a
           # class's relative position to non-ancestors is preserved.
-          # Required since Phase 2 fusion (C-form) makes NilClass etc.
+          # Required because the C-form fusion makes NilClass etc.
           # depend on Frozone_Vm_ObjectObject (a user class) as their
           # struct base, breaking the prior assumption that runtime
           # classes always come before user classes.
@@ -367,8 +361,8 @@ module Frozone
           # the IS_A LUT, m_freeze, m_class, …) are the load-bearing
           # implementations — overlaying their core/4.0/ Ruby twins via
           # virtual dispatch would shadow them and recurse.
-          # Phase 2 fusion (C-form): the chain may now pass through a
-          # user class (Frozone_Vm_ObjectObject) en route to Object/
+          # With C-form fusion the chain may now pass through a user
+          # class (Frozone_Vm_ObjectObject) en route to Object/
           # BasicObject. User classes don't carry hand_coded_method_names
           # but they do have a parent, so just walk past them — the
           # hand-coded entries live further up the chain on Object etc.
@@ -1594,8 +1588,8 @@ module Frozone
               # identity default — user-defined `def ==` lives in the class_object
               # method table and isn't reflected in the vtable. Dispatch `:==` so
               # the user's equality wins. Vm::True/False/NilObject are fused
-              # with the runtime singletons (#63/#64), so `truthy()` covers
-              # both sides without needing those Vm classes complete here.
+              # with the runtime singletons, so `truthy()` covers both sides
+              # without needing those Vm classes complete here.
               "BasicObject* op_eq_q(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
               "  if (args->data.empty()) return false_instance();",
               "  BasicObject* _other = args->data[0];",
@@ -1919,9 +1913,10 @@ module Frozone
             (ru_class.members || []).filter_map { |line| line[/\biv_([A-Za-z_][A-Za-z_0-9]*)\b/, 1] }
           end
 
-          # Slots placed on Object's struct by de-fusion (#79). Cached
-          # so collect_parent_ivars / inherited_ivar_names can dedup
-          # without re-scanning Object.members each call.
+          # Slots placed on Object's struct (universal — every Ruby
+          # object carries them). Cached so collect_parent_ivars /
+          # inherited_ivar_names can dedup without re-scanning
+          # Object.members each call.
           OBJECT_UNIVERSAL_IVARS = (UNIVERSE_BY_NAME["Object"].members || [])
             .filter_map { |line| line[/\biv_([A-Za-z_][A-Za-z_0-9]*)\b/, 1] }
             .freeze
@@ -1931,9 +1926,9 @@ module Frozone
           # already-declared ivars when emitting a derived struct,
           # avoiding C++ field shadowing.
           def collect_parent_ivars(cls)
-            # Universal Object slots (de-fusion #79): every Ruby object
-            # gets these via Object's struct in the gen, so any subclass
-            # that mentions them via collect_ivars must NOT redeclare.
+            # Universal Object slots: every Ruby object gets these via
+            # Object's struct in the gen, so any subclass that mentions
+            # them via collect_ivars must NOT redeclare.
             seen = Set.new(OBJECT_UNIVERSAL_IVARS)
             sc = cls.respond_to?(:superclass) ? cls.superclass : nil
             while sc && sc.respond_to?(:full_name) && sc.full_name &&
@@ -3129,7 +3124,6 @@ module Frozone
           # the default stream so it has direct access to the runtime
           # types. The actual `int main()` is a tiny trampoline emitted
           # in :main stream (write_main_trampoline) that calls this.
-          # Step 1 of the TU split.
           def write_main_impl
             line "int frozone_main_impl(int argc, char** argv) {"
             indented do
@@ -3185,11 +3179,7 @@ module Frozone
 
           # Tiny `int main()` wrapper that lives in its own translation
           # unit (frozone_main.cpp). All it does is forward-declare and
-          # call frozone_main_impl in namespace Ruby. Step 1 of the TU
-          # split — proves the multi-stream / multi-file machinery
-          # without touching layouts or class definitions yet. Future
-          # steps move __init_static_state__, universe helpers, then
-          # per-class method bodies into their own streams.
+          # call frozone_main_impl in namespace Ruby.
           def write_main_trampoline
             line "// Generated trampoline. Forwards to frozone_main_impl"
             line "// defined in frozone.cpp's namespace Ruby."
