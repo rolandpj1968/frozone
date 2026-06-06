@@ -852,16 +852,25 @@ module Frozone
 
           # `Ast::Yield` → call into the implicit `_block` Proc* that
           # MethodEmitter inserts when a body contains yield.
-          # Universal call protocol: m_call(args, kwargs, block).
-          # Multi-arg yield works since args is an Array. Kwargs path
-          # (`yield foo: bar`) builds a Hash literal at the call site
-          # and passes it as the second arg to m_call.
+          #
+          # Fast paths via arity-specialized Proc slots:
+          # - yield (0 args, no kw)         → _block->call0()
+          # - yield x (1 arg,  no kw)       → _block->call1(x)
+          # - yield x, y (2 args, no kw)    → _block->call2(x, y)
+          # When _block is a Proc1/Proc2/Proc0 (the matching specialized
+          # subclass), the callN override skips the Array allocation
+          # entirely. When _block is a generic Proc, base callN wraps
+          # in an Array internally — same semantics as the old path.
+          #
+          # 3+ args or any kwargs → universal m_call(args, kwargs).
           def from_yield(node, locals)
             args = (node.arg_nodes || []).map { |a| from_expr(a, locals) }
             kw_arg_nodes = node.respond_to?(:kw_arg_nodes) ? (node.kw_arg_nodes || {}) : {}
             has_kw = !kw_arg_nodes.empty?
-            if args.empty? && !has_kw
-              return "_block->m_call()"
+            unless has_kw
+              return "_block->call0()" if args.empty?
+              return "_block->call1(#{args[0]})" if args.length == 1
+              return "_block->call2(#{args[0]}, #{args[1]})" if args.length == 2
             end
             args_expr = args.empty? ? "&EMPTY_ARGS" : "new Array({#{args.join(", ")}})"
             return "_block->m_call(#{args_expr})" unless has_kw

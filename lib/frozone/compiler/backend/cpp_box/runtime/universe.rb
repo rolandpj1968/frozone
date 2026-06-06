@@ -967,9 +967,92 @@ module Frozone
               "Proc() = default;",
               "explicit Proc(std::function<BasicObject*(Array*, Hash*)> f) : fn_(std::move(f)) {}",
               %(const char* ruby_class_name() const override { return "Proc"; }),
+              # Arity-specialized call slots. Default impls allocate an
+              # Array and delegate to m_call — semantics-preserving
+              # fallback for the generic Proc case. Proc0/Proc1/Proc2
+              # subclasses override these to skip the Array allocation
+              # entirely (the per-iteration GC-pressure win). Yield-site
+              # codegen emits the matching `_block->callN(...)` directly
+              # when the yield has 0/1/2 args, so generic and specialized
+              # blocks share one call shape.
+              #
+              # See docs/box-first-optimization.md §5 for the design
+              # context and Proc-flavor laxness rules embedded in the
+              # cross-arity adapters.
+              "virtual BasicObject* call0() { return m_call(&EMPTY_ARGS, &EMPTY_KWARGS, nil_instance()); }",
+              "virtual BasicObject* call1(BasicObject* a) { Array _t; _t.data.push_back(a); return m_call(&_t, &EMPTY_KWARGS, nil_instance()); }",
+              "virtual BasicObject* call2(BasicObject* a, BasicObject* b) { Array _t; _t.data.push_back(a); _t.data.push_back(b); return m_call(&_t, &EMPTY_KWARGS, nil_instance()); }",
             ],
             overrides: {
               "m_call" => { params: [], body: "return fn_(args, kwargs);" },
+            },
+          )
+
+          # Proc0/Proc1/Proc2 — arity-specialized Proc subclasses. Each
+          # carries a fn_ matching its arity (no Array wrapping) and
+          # `final`-overrides the matching callN to invoke fn_ directly.
+          # The cross-arity adapters (other callN + m_call) embed the
+          # Proc-flavor laxness rules: extra positional args dropped,
+          # missing positional args → nil. Kwargs are method-strict
+          # (handled in lambda_emitter — fn_ here is positional-only
+          # because the specialized subclasses are gated on no-kw
+          # eligibility at codegen time).
+          PROC0 = RubyClass.new(
+            name: "Proc0",
+            parent: "Proc",
+            members: [
+              "std::function<BasicObject*()> fn0_;",
+              "Proc0() = default;",
+              "explicit Proc0(std::function<BasicObject*()> f) : fn0_(std::move(f)) {}",
+              "BasicObject* call0() final { return fn0_(); }",
+              "BasicObject* call1(BasicObject*) final { return fn0_(); }",
+              "BasicObject* call2(BasicObject*, BasicObject*) final { return fn0_(); }",
+            ],
+            overrides: {
+              "m_call" => { params: [], body: "return fn0_();" },
+            },
+          )
+
+          PROC1 = RubyClass.new(
+            name: "Proc1",
+            parent: "Proc",
+            members: [
+              "std::function<BasicObject*(BasicObject*)> fn1_;",
+              "Proc1() = default;",
+              "explicit Proc1(std::function<BasicObject*(BasicObject*)> f) : fn1_(std::move(f)) {}",
+              "BasicObject* call1(BasicObject* a) final { return fn1_(a); }",
+              "BasicObject* call0() final { return fn1_(nil_instance()); }",
+              "BasicObject* call2(BasicObject* a, BasicObject*) final { return fn1_(a); }",
+            ],
+            overrides: {
+              "m_call" => {
+                params: [],
+                body: "return fn1_(args->data.empty() ? nil_instance() : args->data[0]);",
+              },
+            },
+          )
+
+          PROC2 = RubyClass.new(
+            name: "Proc2",
+            parent: "Proc",
+            members: [
+              "std::function<BasicObject*(BasicObject*, BasicObject*)> fn2_;",
+              "Proc2() = default;",
+              "explicit Proc2(std::function<BasicObject*(BasicObject*, BasicObject*)> f) : fn2_(std::move(f)) {}",
+              "BasicObject* call2(BasicObject* a, BasicObject* b) final { return fn2_(a, b); }",
+              "BasicObject* call0() final { return fn2_(nil_instance(), nil_instance()); }",
+              # procarg0 (auto-splat): `yield array_of_pair` into a 2-param
+              # block destructures the Array as if `*` had been splatted at
+              # the yield site. Hash#each relies on this: it yields `[k, v]`
+              # and the block sees `k, v` separately. Same logic as the
+              # universal Proc's `__blkargs__` rebind in lambda_emitter.rb.
+              "BasicObject* call1(BasicObject* a) final { if (auto* _arr = dynamic_cast<Array*>(a)) { BasicObject* _x = _arr->data.size() > 0 ? _arr->data[0] : nil_instance(); BasicObject* _y = _arr->data.size() > 1 ? _arr->data[1] : nil_instance(); return fn2_(_x, _y); } return fn2_(a, nil_instance()); }",
+            ],
+            overrides: {
+              "m_call" => {
+                params: [],
+                body: "if (args->data.size() == 1) { if (auto* _arr = dynamic_cast<Array*>(args->data[0])) { BasicObject* _x = _arr->data.size() > 0 ? _arr->data[0] : nil_instance(); BasicObject* _y = _arr->data.size() > 1 ? _arr->data[1] : nil_instance(); return fn2_(_x, _y); } return fn2_(args->data[0], nil_instance()); } BasicObject* _a = args->data.size() > 0 ? args->data[0] : nil_instance(); BasicObject* _b = args->data.size() > 1 ? args->data[1] : nil_instance(); return fn2_(_a, _b);",
+              },
             },
           )
 
@@ -1464,6 +1547,7 @@ module Frozone
             BASIC_OBJECT, OBJECT, MODULE, CLASS_TYPE,
             NIL_CLASS, TRUE_CLASS, FALSE_CLASS, UNSET_SENTINEL_CLASS,
             INTEGER, FLOAT, ARRAY, SYMBOL, STRING, HASH, RANGE, PROC,
+            PROC0, PROC1, PROC2,
             REGEXP, MATCH_DATA, MATH, RANDOM, TIME, THROWN_TAG
           ].freeze
 

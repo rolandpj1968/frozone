@@ -2795,7 +2795,7 @@ module Frozone
             String
             NilClass TrueClass FalseClass
             Array Hash
-            Proc
+            Proc Proc0 Proc1 Proc2
             Range Regexp MatchData
             Exception NoMethodError RuntimeError
             Random Time ThrownTag

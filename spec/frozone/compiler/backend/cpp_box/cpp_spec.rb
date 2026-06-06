@@ -289,15 +289,15 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
   end
 
   describe "#from_expr — Yield" do
-    it "yield with no args dispatches m_call() with the universal-arg defaults" do
+    it "yield with no args uses the arity-specialized call0 slot (#167)" do
       node = A::Yield.new([])
-      expect(cpp.from_expr(node, locals)).to eq("_block->m_call()")
+      expect(cpp.from_expr(node, locals)).to eq("_block->call0()")
     end
 
-    it "yield with one arg wraps in Array (no parens around args, no defaults)" do
+    it "yield with one arg uses the arity-specialized call1 slot (#167)" do
       node = A::Yield.new([int(42)])
       expect(cpp.from_expr(node, locals))
-        .to eq("_block->m_call(new Array({(&_f_i_42)}))")
+        .to eq("_block->call1((&_f_i_42))")
     end
   end
 
@@ -341,15 +341,13 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
       thrice = A::MethodCall.new(:thrice, nil, [], [], blk)
       result = cpp.from_expr(thrice, locals)
       expect(result).to include("this->m_thrice(")
-      # Lambda takes Array* __blkargs__ + Hash* __blkkwargs__
-      # (universal protocol — multi-arg yield works since args is
-      # an Array; #165 added the kwargs slot for block keyword
-      # params). Captures `this` POINTER by value (`[&, this]`),
+      # Block has 1 required positional param + no kw / opt / rest /
+      # captured deref — eligible for Proc1 specialization (#167).
+      # The lambda parameter IS `l_n` directly; no `__blkargs__`
+      # unpack needed. Captures `this` POINTER by value (`[&, this]`),
       # locals by ref — so Procs stored on ivars don't dangle.
       # See pitfalls #1.
-      expect(result).to include("(new Proc([&, this](Array* __blkargs__, Hash* __blkkwargs__) -> BasicObject*")
-      # Block-param `|n|` binds from data[0] (or nil).
-      expect(result).to include("l_n = (0 < (int)__blkargs__->data.size())")
+      expect(result).to include("(new Proc1([&, this](BasicObject* l_n) -> BasicObject*")
       expect(result).to include("return")
     end
   end

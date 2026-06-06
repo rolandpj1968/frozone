@@ -233,6 +233,18 @@ module Frozone
             optional_params = (block_node.respond_to?(:optional_params) ? block_node.optional_params : nil) || []
             rest_param = block_node.respond_to?(:rest_param) ? block_node.rest_param : nil
             post_params = (block_node.respond_to?(:post_params) ? block_node.post_params : nil) || []
+            required_kw_for_elig = (block_node.respond_to?(:required_kw_params) ? block_node.required_kw_params : nil) || []
+            optional_kw_for_elig = (block_node.respond_to?(:optional_kw_params) ? block_node.optional_kw_params : nil) || []
+            kw_rest_for_elig = block_node.respond_to?(:kw_rest_param) ? block_node.kw_rest_param : nil
+
+            # Arity-specialized Proc subclass eligibility (#167) — initial
+            # shape gate. Final gate (capture check) needs `inner_captured`,
+            # which is computed below.
+            specialized_kind = nil
+            spec_shape_ok = optional_params.empty? && rest_param.nil? && post_params.empty? &&
+                            required_kw_for_elig.empty? && optional_kw_for_elig.empty? && kw_rest_for_elig.nil? &&
+                            params.all? { |p| p.is_a?(Symbol) || p.is_a?(String) } &&
+                            params.length <= 2
             # Hash-shaped params are destructure patterns:
             #   `do |(a, b, *r, c)| ... end` →
             #   { names: [:a, :b], rest: :r, rights: [:c] }
@@ -270,6 +282,25 @@ module Frozone
             inner_own = Set.new(block_param_names) | Set.new((block_node.respond_to?(:locals) ? (block_node.locals || []) : []).map(&:to_s))
             inner_captured = LambdaEmitter.collect_captured_locals(body, inner_own)
 
+            # Now that inner_captured is known: any specialized-kind block
+            # whose param appears in inner_captured OR in the outer's
+            # captured_locals (inherited via with_captured_locals when
+            # the body emits) needs the extra gc_box indirection — the
+            # universal Proc path emits `BasicObject**` for captured
+            # params so inner lambdas can write through it, and
+            # `from_local_variable_read` checks captured? to decide
+            # whether to emit `l_x` or `(*l_x)`. The Proc0/1/2 lambda
+            # signatures don't carry that indirection, so fall back to
+            # the universal Proc emission whenever the param would be
+            # deref'd somewhere in our body.
+            if spec_shape_ok && params.none? { |p| inner_captured.include?(p.to_s) || emit.cpp.captured?(p) }
+              specialized_kind = case params.length
+                                 when 0 then :proc0
+                                 when 1 then :proc1
+                                 when 2 then :proc2
+                                 end
+            end
+
             # Body emission via write_body so statement-only forms
             # (if-as-stmt, case-as-stmt, MultipleAssignment, ...) work.
             # next_returns: true rewrites `next [v]` as `return v;` —
@@ -287,25 +318,33 @@ module Frozone
                 # `ch = [ch, i]; i = nil`. Lambdas (from_lambda) never
                 # auto-splat — only proc-style blocks do, so this rebind
                 # is scoped to from_block_as_proc.
-                arity = params.length + optional_params.length + post_params.length
-                if arity >= 2 || (params.length >= 1 && rest_param)
-                  emit.line "if (__blkargs__->data.size() == 1) {"
-                  emit.indented do
-                    emit.line "Array* _arr0 = dynamic_cast<Array*>(__blkargs__->data[0]);"
-                    emit.line "if (_arr0) __blkargs__ = _arr0;"
+                # Procarg0 auto-splat + positional unpack are only needed
+                # when the lambda receives the args as an Array. When the
+                # block is specialized to Proc0/Proc1/Proc2, the lambda's
+                # C++ parameters ARE the block params directly — no
+                # __blkargs__ to unpack, and procarg0 is embedded in the
+                # Proc2 cross-arity adapters in the runtime.
+                unless specialized_kind
+                  arity = params.length + optional_params.length + post_params.length
+                  if arity >= 2 || (params.length >= 1 && rest_param)
+                    emit.line "if (__blkargs__->data.size() == 1) {"
+                    emit.indented do
+                      emit.line "Array* _arr0 = dynamic_cast<Array*>(__blkargs__->data[0]);"
+                      emit.line "if (_arr0) __blkargs__ = _arr0;"
+                    end
+                    emit.line "}"
                   end
-                  emit.line "}"
-                end
-                params.each_with_index do |p, i|
-                  init = "(#{i} < (int)__blkargs__->data.size()) ? __blkargs__->data[#{i}] : nil_instance()"
-                  if p.is_a?(Hash) && p.key?(:names)
-                    LambdaEmitter.emit_destructured_block_param(emit, p, init, block_locals)
-                  else
-                    cpp = MethodEmitter.local_cpp_name(p)
-                    if emit.cpp.captured?(p)
-                      emit.line "BasicObject** #{cpp} = gc_box<BasicObject*>(#{init});"
+                  params.each_with_index do |p, i|
+                    init = "(#{i} < (int)__blkargs__->data.size()) ? __blkargs__->data[#{i}] : nil_instance()"
+                    if p.is_a?(Hash) && p.key?(:names)
+                      LambdaEmitter.emit_destructured_block_param(emit, p, init, block_locals)
                     else
-                      emit.line "BasicObject* #{cpp} = #{init};"
+                      cpp = MethodEmitter.local_cpp_name(p)
+                      if emit.cpp.captured?(p)
+                        emit.line "BasicObject** #{cpp} = gc_box<BasicObject*>(#{init});"
+                      else
+                        emit.line "BasicObject* #{cpp} = #{init};"
+                      end
                     end
                   end
                 end
@@ -435,7 +474,20 @@ module Frozone
             referenced = LambdaEmitter.referenced_outer_locals(body, inner_own)
             cap_extras = (outer_captured_at_creation & referenced).to_a.map { |n| MethodEmitter.local_cpp_name(n) }
             cap_str = (["&", "this"] + cap_extras).join(", ")
-            "(new Proc([#{cap_str}](Array* __blkargs__, Hash* __blkkwargs__) -> BasicObject* { #{body_buf.gsub(/\s+/, ' ').strip} }))"
+            body_text = body_buf.gsub(/\s+/, ' ').strip
+            case specialized_kind
+            when :proc0
+              "(new Proc0([#{cap_str}]() -> BasicObject* { #{body_text} }))"
+            when :proc1
+              p0 = MethodEmitter.local_cpp_name(params[0])
+              "(new Proc1([#{cap_str}](BasicObject* #{p0}) -> BasicObject* { #{body_text} }))"
+            when :proc2
+              p0 = MethodEmitter.local_cpp_name(params[0])
+              p1 = MethodEmitter.local_cpp_name(params[1])
+              "(new Proc2([#{cap_str}](BasicObject* #{p0}, BasicObject* #{p1}) -> BasicObject* { #{body_text} }))"
+            else
+              "(new Proc([#{cap_str}](Array* __blkargs__, Hash* __blkkwargs__) -> BasicObject* { #{body_text} }))"
+            end
           end
 
           # Names referenced (read or written) inside `body`, recursing
