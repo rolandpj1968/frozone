@@ -1432,6 +1432,25 @@ module Frozone
               emit.blank
               return
             end
+            # Spec without :kw_unset flag but slot decl is kw_unset
+            # (Struct attr accessors, auto-generated bodies for slots
+            # whose name aggregates to kw_unset from defs elsewhere).
+            # Decl was emitted via @kw_unset_table at line 1280; def
+            # must match — unused kw params just sit there.
+            if (kw_sig = @kw_unset_table[cpp_name_head_ruby(name).to_sym])
+              n_pos = kw_sig.arity_req + kw_sig.opt
+              pos_params = (spec[:params] || []).each_with_index.map do |decl, i|
+                "BasicObject* #{decl.split(/\s+/).last.delete_prefix('*')}"
+              end
+              pad_n = n_pos - pos_params.length
+              pad = (0...pad_n).map { |i| "BasicObject* _arg_unused#{pos_params.length + i}" }
+              kw_params = kw_sig.all_kw_names.map { |kn| "BasicObject* _kw_unused_#{kn}" }
+              emit.line "BasicObject* #{class_name}::#{name}(#{(pos_params + pad + kw_params).join(', ')}) {"
+              emit.indented { spec[:body].each_line { |l| emit.line l.chomp } }
+              emit.line "}"
+              emit.blank
+              return
+            end
             emit.line "BasicObject* #{class_name}::#{name}(Array* args, Hash* kwargs, BasicObject* block) {"
             emit.indented do
               (spec[:params] || []).each_with_index do |param_decl, i|

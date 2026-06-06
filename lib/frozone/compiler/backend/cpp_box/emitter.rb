@@ -2363,12 +2363,23 @@ module Frozone
             lookup_name = storage_name || (method.respond_to?(:name) ? method.name : nil)
             sig = lookup_name && @natural_arity_names && @natural_arity_names[lookup_name]
             family = lookup_name && @multi_arity_table && @multi_arity_table[lookup_name]
+            kw_sig = lookup_name && @kw_unset_table && @kw_unset_table[lookup_name]
             abort_body = %|std::fprintf(stderr, "%s\\n", #{@cpp.cpp_string_literal(msg)});\nstd::abort();\n|
             if family
               entries = family.arities.to_a.sort.map do |k|
                 { params: (0...k).map { |i| "BasicObject* _arg#{i}" }, body: abort_body }
               end
               return { multi_arity: entries }
+            end
+            if kw_sig
+              # kw_unset slot: pos-required + pos-optional + all kw
+              # names, all `BasicObject*`. Must match the layout
+              # emitted by build_kw_unset_override above and the
+              # decl emitted by write_override_decl.
+              params = (0...kw_sig.arity_req).map { |i| "BasicObject* _arg#{i}" } +
+                       (0...kw_sig.opt).map { |i| "BasicObject* _arg#{kw_sig.arity_req + i}" } +
+                       kw_sig.all_kw_names.map { |kn| "BasicObject* _kw_#{kn}" }
+              return { params: params, body: abort_body, kw_unset: true }
             end
             params = sig ? (0...sig.arity_req).map { |i| "BasicObject* _arg#{i}" } : []
             {
