@@ -190,6 +190,13 @@ module Frozone
           # from_rescue) know to emit Break/Return as throws rather than
           # C++ break/return. Push/pop via with_in_block.
           attr_accessor :in_block
+          # Set true while emitting the body of an NA-with-block slot.
+          # NA-with-block declares `Proc* block = nullptr`; bodies use
+          # `_block != nullptr` for block_given?. Universal-slot bodies
+          # use `_block != nil_instance()` (Phase-1 invariant: block
+          # is BasicObject* and never C++ nullptr). The block_given?
+          # lowering in from_method_call switches on this flag.
+          attr_accessor :block_is_nullable
           # Class variables seen during emission. Mapped: host-class flat
           # name (e.g. `:Frozone_Vm_ObjectObject`) → set of cvar names
           # (without the `@@` prefix). Each entry becomes a top-level
@@ -212,6 +219,7 @@ module Frozone
             @raw_int_arrays = []
             @tmp_counter = 0
             @in_block = false
+            @block_is_nullable = false
             @captured_locals = Set.new
             @class_vars = Hash.new { |h, k| h[k] = Set.new }
           end
@@ -476,7 +484,7 @@ module Frozone
             # universal vtable would receive the block passed to the
             # block_given? call itself, not the enclosing method's,
             # which is wrong. Special-case to a direct check.
-            return "boxed_bool(_block != nil_instance())" if !recv && name == :block_given?
+            return "boxed_bool(_block != #{@block_is_nullable ? 'nullptr' : 'nil_instance()'})" if !recv && name == :block_given?
 
             # `binding.local_variable_get(SYM)` — Frozone-Ruby uses this
             # to access locals whose names collide with Ruby keywords
@@ -565,15 +573,27 @@ module Frozone
                 false
               end
             end
+            # has_block at call site is serviced by the NA slot iff
+            # the sig is na_with_block. Block-less calls to a
+            # has_block slot rely on the slot's default Proc* arg.
             na_compatible = na_sig &&
                             arg_nodes.length == na_sig.arity_req &&
                             arg_nodes.none? { |a| a.is_a?(Ast::SplatArg) } &&
-                            !has_block &&
+                            (!has_block || na_sig.has_block) &&
                             kw_compat
 
             if na_compatible
               pos_csv = arg_nodes.map { |a| from_expr(a, locals) }
-              all_csv = (pos_csv + (na_kw_csv || [])).join(', ')
+              all_parts = pos_csv + (na_kw_csv || [])
+              if na_sig.has_block
+                # NA-with-block slot expects `Proc* block` — convert
+                # the universal-style block_arg at the seam: drop
+                # nil_instance() to nullptr (the slot's "absent block"
+                # sentinel); pass real blocks through unchanged (they're
+                # already Proc-typed via from_block_as_proc).
+                all_parts << (has_block ? block_arg : "nullptr")
+              end
+              all_csv = all_parts.join(', ')
               if recv && node.safe_nav
                 recv_str = from_expr(recv, locals)
                 return "([&]() -> BasicObject* { auto* _r = #{recv_str}; return (_r == nil_instance()) ? nil_instance() : _r->#{Cpp.method_name(name)}(#{all_csv}); }())"

@@ -69,7 +69,8 @@ module Frozone
             if sig
               pos = (0...sig.arity_req).map { |i| "BasicObject* l_a#{i}" }
               kw = sig.required_kw_names.map { |kn| "BasicObject* #{local_cpp_name(kn)}" }
-              emit.line "virtual BasicObject* #{cpp_name}(#{(pos + kw).join(', ')}) {"
+              blk = sig.has_block ? ["Proc* /*block*/"] : []
+              emit.line "virtual BasicObject* #{cpp_name}(#{(pos + kw + blk).join(', ')}) {"
             else
               emit.line "virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) {"
             end
@@ -121,10 +122,12 @@ module Frozone
           def self.write_natural_arity_method(emit, _name, method, cpp_name, sig)
             required = method.required_params || []
             req_kw = (method.required_kw_params || []).map(&:to_sym).sort
-            # The slot signature has arity_req positional slots
-            # followed by required_kw_names slots (sorted Symbol order
-            # — matches sig.required_kw_names). Each slot binds to a
-            # named local via decl_local_line in the body prologue.
+            # The slot signature has arity_req positional slots,
+            # required_kw_names slots (sorted), and optionally a
+            # trailing Proc* block param when sig.has_block. Each
+            # positional/kw slot binds to a named local via
+            # decl_local_line. has_block bodies may use yield,
+            # block_given?, and &blk.
             if required.length != sig.arity_req ||
                !(method.optional_params || []).empty? ||
                !(method.post_params || []).empty? ||
@@ -132,14 +135,20 @@ module Frozone
                method.kw_rest_param ||
                !(method.optional_kw_params || []).empty? ||
                req_kw != sig.required_kw_names ||
-               method.block_param
+               (!sig.has_block && method.block_param)
               raise Cpp::EmissionError, "natural-arity shape mismatch for #{cpp_name}: def doesn't fit #{sig}"
             end
 
             pos_decls = required.each_with_index.map { |_, i| "BasicObject* _arg#{i}" }
             kw_decls = sig.required_kw_names.map { |kn| "BasicObject* _kw_#{kn}" }
-            param_decls = pos_decls + kw_decls
+            block_decl = sig.has_block ? ["Proc* block"] : []
+            param_decls = pos_decls + kw_decls + block_decl
             captured = method.body ? collect_method_captured(method) : Set.new
+            # NA-with-block slot has `Proc* block = nullptr` — set the
+            # flag so block_given? lowers as `_block != nullptr` for
+            # the duration of body emission. Body epilogue restores.
+            prev_block_nullable = emit.cpp.block_is_nullable
+            emit.cpp.block_is_nullable = sig.has_block
             body_buf = emit.cpp.with_captured_locals(captured) do
             emit.capture do
               locals = Set.new
@@ -151,11 +160,14 @@ module Frozone
                 emit.line decl_local_line(emit, kn, "_kw_#{kn}")
                 locals << kn.to_s
               end
-              # Eligibility disqualifies methods that use yield /
-              # block_given? in their body, so `_block` is never
-              # referenced — don't emit it. Universal-sig emits
-              # `Proc* _block = static_cast<Proc*>(block);` to support
-              # those constructs; natural-arity doesn't need to.
+              if sig.has_block
+                emit.line "Proc* _block = block;"
+                user_block = user_block_name(method)
+                if user_block
+                  emit.line decl_local_line(emit, user_block, "block")
+                  locals << user_block
+                end
+              end
               seen_writes = collect_local_writes(method.body)
               ((method.locals || []) + seen_writes.to_a).uniq.each do |loc|
                 s = loc.to_s
@@ -166,6 +178,7 @@ module Frozone
               emit_body_with_frame(emit, method.body, locals)
             end
             end
+            emit.cpp.block_is_nullable = prev_block_nullable
             emit.line "virtual BasicObject* #{cpp_name}(#{param_decls.join(', ')}) {"
             emit.indented { body_buf.each_line { |l| emit.line l.chomp } }
             emit.line "}"
@@ -468,10 +481,11 @@ module Frozone
             # _block is the internal alias used by from_yield (it stays
             # as `_block` rather than `l__block` because it isn't a
             # user-named local and never appears in user-source code).
-            # Type stays Proc* — yield sites do `_block->m_call(...)` and
-            # need the narrowed type. Absent-block is `nil_instance()` at
-            # the call surface; yield-without-block is invalid Ruby
-            # (LocalJumpError) so the cast is safe by precondition.
+            # Type narrows to Proc*. Universal-slot `block` is
+            # `BasicObject* = nil_instance()` per Phase-1 invariant
+            # (never C++ nullptr); cast to Proc* is safe by precondition.
+            # `block_given?` lowers as `_block != nil_instance()` in
+            # this body. NA-with-block bodies have their own seam.
             emit.line "Proc* _block = static_cast<Proc*>(block);"
             user_block = user_block_name(method)
             if user_block

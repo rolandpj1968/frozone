@@ -29,7 +29,7 @@ module Frozone
     module Backend
       module CppBox
         class Emitter
-          attr_reader :cpp, :top_level_scope, :user_classes, :user_constants, :natural_arity_names, :natural_arity_with_block_names, :multi_arity_table, :kw_unset_table, :leaf_dispatch_table, :visibility_survey
+          attr_reader :cpp, :top_level_scope, :user_classes, :user_constants, :natural_arity_names, :multi_arity_table, :kw_unset_table, :leaf_dispatch_table, :visibility_survey
           # When true, emission errors inside method bodies re-raise
           # under FROZONE_BOX_HARD_FAIL=1 instead of graceful-skipping.
           # Toggled true while emitting user-class bodies + the
@@ -173,7 +173,6 @@ module Frozone
             @const_surface = collect_dynamic_constant_surface
             print_method_def_analysis if ENV['FROZONE_BOX_ANALYSIS'] == '1'
             @natural_arity_names = {}
-            @natural_arity_with_block_names = {}
             @multi_arity_table = {}
             @kw_unset_table = {}
             @leaf_dispatch_table = {}
@@ -188,27 +187,26 @@ module Frozone
               agg = build_method_shape_survey
               MethodShapeSurvey.report(agg) if ENV['FROZONE_METHOD_SHAPES'] == '1'
               if ENV['FROZONE_NATURAL_ARGS'] == '1'
-                # Eligibility table partitions on has_block: names with
-                # `&blk` params or that yield/block_given? carry
-                # has_block:true; those go to @natural_arity_with_block_names
-                # and are not consumed by codegen (no block slot in the
-                # NA decl yet — they still fall through to universal).
-                # multi_arity + kw_unset still exclude block-bearing
-                # names — their signatures have no block slot at all.
+                # Eligibility table includes block-bearing defs and
+                # yield / block_given? bodies as has_block:true sigs.
+                # The slot decl + body carry a trailing `Proc* block`
+                # param; the universal-slot trampoline casts its block
+                # arg and forwards. multi_arity + kw_unset still
+                # exclude block-bearing names — their signatures have
+                # no block slot yet.
                 hand_coded = compute_hand_coded_disqualified_names
                 ibu = @internal_block_users || Set.new
-                full_table = MethodShapeSurvey.eligibility_table(
+                @natural_arity_names = MethodShapeSurvey.eligibility_table(
                   agg, exclude: hand_coded, internal_block_users: ibu,
                 )
-                @natural_arity_names = full_table.reject { |_, s| s.has_block }
-                @natural_arity_with_block_names = full_table.select { |_, s| s.has_block }
                 @multi_arity_table = MethodShapeSurvey.multi_arity_table(agg, exclude: hand_coded | ibu)
                 @kw_unset_table = MethodShapeSurvey.kw_unset_table(agg, exclude: hand_coded | ibu)
                 override_collisions = prune_override_arity_collisions
                 multi_collisions = prune_multi_arity_override_collisions
                 kw_unset_collisions = prune_kw_unset_override_collisions
+                has_block_count = @natural_arity_names.values.count(&:has_block)
                 $stderr.puts "[box-first] natural-args: #{@natural_arity_names.size} eligible names " \
-                             "(+#{@natural_arity_with_block_names.size} has_block, not yet consumed; " \
+                             "(#{has_block_count} has_block; " \
                              "excluded: #{hand_coded.size} hand-coded, " \
                              "#{override_collisions} cpp-name arity collisions); " \
                              "#{@multi_arity_table.size} multi-arity (defaults; -#{multi_collisions} override collisions); " \
@@ -2064,10 +2062,15 @@ module Frozone
                method.kw_rest_param ||
                !(method.optional_kw_params || []).empty? ||
                req_kw != sig.required_kw_names ||
-               method.block_param
+               (!sig.has_block && method.block_param)
               raise Cpp::EmissionError, "natural-arity shape mismatch for :#{method.name}: def doesn't fit #{sig}"
             end
             captured = method.body ? MethodEmitter.collect_method_captured(method) : Set.new
+            # NA-with-block slot has `Proc* block = nullptr` — set the
+            # flag so block_given? lowers as `_block != nullptr` for
+            # the duration of body emission.
+            prev_block_nullable = @cpp.block_is_nullable
+            @cpp.block_is_nullable = sig.has_block
             body = @cpp.with_captured_locals(captured) do
               capture do
                 locals = Set.new
@@ -2086,8 +2089,14 @@ module Frozone
                   line MethodEmitter.decl_local_line(self, kn, "_kw_#{kn}")
                   locals << kn.to_s
                 end
-                # Eligibility excludes internal-yield / block_given?
-                # so `_block` is never referenced. Don't emit it.
+                if sig.has_block
+                  line "Proc* _block = block;"
+                  user_block = MethodEmitter.user_block_name(method)
+                  if user_block
+                    line MethodEmitter.decl_local_line(self, user_block, "block")
+                    locals << user_block
+                  end
+                end
                 seen_writes = MethodEmitter.collect_local_writes(method.body)
                 ((method.locals || []) + seen_writes.to_a).uniq.each do |loc|
                   s = loc.to_s
@@ -2098,6 +2107,7 @@ module Frozone
                 ExprEmitter.write_body(self, method.body, locals: locals, last_is_return: true) if method.body
               end
             end
+            @cpp.block_is_nullable = prev_block_nullable
             indented_body = body.each_line.map { |l| "  #{l}" }.join
             vis_prologue = MethodEmitter.visibility_prologue_text(
               @visibility_survey, method.name, method.visibility
@@ -2394,7 +2404,13 @@ module Frozone
                        kw_sig.all_kw_names.map { |kn| "BasicObject* _kw_#{kn}" }
               return { params: params, body: abort_body, kw_unset: true }
             end
-            params = sig ? (0...sig.arity_req).map { |i| "BasicObject* _arg#{i}" } : []
+            if sig
+              params = (0...sig.arity_req).map { |i| "BasicObject* _arg#{i}" }
+              params += sig.required_kw_names.map { |kn| "BasicObject* _kw_#{kn}" }
+              params << "BasicObject* /*block*/" if sig.has_block
+            else
+              params = []
+            end
             {
               params: params,
               body: abort_body,

@@ -494,21 +494,23 @@ module Frozone
                 n = sig.arity_req
                 pos_params = (0...n).map { |i| "BasicObject* a#{i}" }
                 kw_params = sig.required_kw_names.map { |kn| "BasicObject* k_#{kn}" }
-                params = (pos_params + kw_params).join(', ')
+                block_param = sig.has_block ? ["Proc* block"] : []
+                params = (pos_params + kw_params + block_param).join(', ')
                 pack = (0...n).map { |i| "_args->data.push_back(a#{i});" }.join(' ')
+                block_arg = sig.has_block ? "block" : "nil_instance()"
                 # Pack kw params back into a Hash for mm_dispatch — the
                 # fallthrough path doesn't know the natural-arity shape.
                 if sig.required_kw_names.empty?
-                  emit.line "BasicObject* BasicObject::#{cpp_name}(#{params}) { Array* _args = new Array(); #{pack} return mm_dispatch(this, _args, &EMPTY_KWARGS, nil_instance(), \"#{ruby_lit}\"); }"
+                  emit.line "BasicObject* BasicObject::#{cpp_name}(#{params}) { Array* _args = new Array(); #{pack} return mm_dispatch(this, _args, &EMPTY_KWARGS, #{block_arg}, \"#{ruby_lit}\"); }"
                 else
                   kw_pack = sig.required_kw_names.map { |kn| %|_kw->data[intern("#{kn}")] = k_#{kn};| }.join(' ')
-                  emit.line "BasicObject* BasicObject::#{cpp_name}(#{params}) { Array* _args = new Array(); #{pack} Hash* _kw = new Hash(); #{kw_pack} return mm_dispatch(this, _args, _kw, nil_instance(), \"#{ruby_lit}\"); }"
+                  emit.line "BasicObject* BasicObject::#{cpp_name}(#{params}) { Array* _args = new Array(); #{pack} Hash* _kw = new Hash(); #{kw_pack} return mm_dispatch(this, _args, _kw, #{block_arg}, \"#{ruby_lit}\"); }"
                 end
               elsif (family = @multi_arity_table[ruby_name.to_sym])
                 family.arities.to_a.sort.each do |k|
                   params = (0...k).map { |i| "BasicObject* a#{i}" }.join(', ')
                   pack = (0...k).map { |i| "_args->data.push_back(a#{i});" }.join(' ')
-                  emit.line "BasicObject* BasicObject::#{cpp_name}(#{params}) { Array* _args = new Array(); #{pack} return mm_dispatch(this, _args, &EMPTY_KWARGS, nil_instance(), \"#{ruby_lit}\"); }"
+                  emit.line "BasicObject* BasicObject::#{cpp_name}(#{params}) { Array* _args = new Array(); #{pack} return mm_dispatch(this, _args, &EMPTY_KWARGS, nullptr, \"#{ruby_lit}\"); }"
                 end
               elsif (kw_sig = @kw_unset_table[ruby_name.to_sym])
                 n_pos = kw_sig.arity_req + kw_sig.opt
@@ -517,7 +519,7 @@ module Frozone
                 params = (pos_params + kw_params).join(', ')
                 pack = (0...n_pos).map { |i| "_args->data.push_back(a#{i});" }.join(' ')
                 kw_pack = kw_sig.all_kw_names.map { |kn| %|if (k_#{kn} != unset_instance()) _kw->data[intern("#{kn}")] = k_#{kn};| }.join(' ')
-                emit.line "BasicObject* BasicObject::#{cpp_name}(#{params}) { Array* _args = new Array(); #{pack} Hash* _kw = new Hash(); #{kw_pack} return mm_dispatch(this, _args, _kw, nil_instance(), \"#{ruby_lit}\"); }"
+                emit.line "BasicObject* BasicObject::#{cpp_name}(#{params}) { Array* _args = new Array(); #{pack} Hash* _kw = new Hash(); #{kw_pack} return mm_dispatch(this, _args, _kw, nullptr, \"#{ruby_lit}\"); }"
               end
             end
             emit.blank
@@ -647,13 +649,20 @@ module Frozone
                 next
               end
               n = sig.arity_req
-              emit.line "BasicObject* BasicObject::#{cpp_name}(Array* args, Hash* kwargs, BasicObject* /*block*/) {"
+              # Trampoline IS the universal-slot signature on
+              # BasicObject — block stays `BasicObject*` here.
+              # has_block forwards convert at the seam (below).
+              block_param_decl = sig.has_block ? "BasicObject* block" : "BasicObject* /*block*/"
+              emit.line "BasicObject* BasicObject::#{cpp_name}(Array* args, Hash* kwargs, #{block_param_decl}) {"
               emit.indented do
                 if sig.required_kw_names.empty?
                   emit.line "if (!kwargs->data.empty()) { Array* _ext = new Array(); _ext->data = args->data; Hash* _h = new Hash(); _h->copy_kvps_from(*kwargs); _ext->data.push_back(static_cast<BasicObject*>(_h)); args = _ext; }"
                   emit.line "check_arity_fixed(args->data.size(), #{n});"
-                  args_call = (0...n).map { |i| "args->data[#{i}]" }.join(', ')
-                  emit.line "return this->#{cpp_name}(#{args_call});"
+                  call_args = (0...n).map { |i| "args->data[#{i}]" }
+                  # Normalise nil_instance() to nullptr so block_given?
+                  # in the called slot is just `_block != nullptr`.
+                  call_args << "block == nil_instance() ? nullptr : static_cast<Proc*>(block)" if sig.has_block
+                  emit.line "return this->#{cpp_name}(#{call_args.join(', ')});"
                 else
                   emit.line "check_arity_fixed(args->data.size(), #{n});"
                   sig.required_kw_names.each do |kn|
@@ -666,9 +675,12 @@ module Frozone
                   # ArgumentError matching MRI semantics.
                   expected_set = sig.required_kw_names.map { |kn| %|intern("#{kn.to_s.gsub('\\', '\\\\\\\\').gsub('"', '\\"')}")| }.join(', ')
                   emit.line %|for (auto& _kv : kwargs->data) { Symbol* _k = static_cast<Symbol*>(_kv.first); bool _ok = false; for (auto _e : {#{expected_set}}) { if (_k == _e) { _ok = true; break; } } if (!_ok) raise_unknown_kw(_k->name_); }|
-                  pos_args = (0...n).map { |i| "args->data[#{i}]" }
-                  kw_args = sig.required_kw_names.map { |kn| "_it_#{kn}->second" }
-                  emit.line "return this->#{cpp_name}(#{(pos_args + kw_args).join(', ')});"
+                  call_args = (0...n).map { |i| "args->data[#{i}]" } +
+                              sig.required_kw_names.map { |kn| "_it_#{kn}->second" }
+                  # Normalise nil_instance() to nullptr so block_given?
+                  # in the called slot is just `_block != nullptr`.
+                  call_args << "block == nil_instance() ? nullptr : static_cast<Proc*>(block)" if sig.has_block
+                  emit.line "return this->#{cpp_name}(#{call_args.join(', ')});"
                 end
               end
               emit.line "}"
@@ -1007,9 +1019,14 @@ module Frozone
                 # Universal slot drops its default-arg values to avoid
                 # overload-resolution ambiguity with the 0-arg per-arity
                 # slot — callers always pass explicit args/kwargs/block.
+                # has_block sigs append a Proc* block trailing param;
+                # the default `static_cast<Proc*>(nil_instance())`
+                # lets block-less callers omit it. Default args live
+                # only on the base (BasicObject) decl.
                 pos_params = (0...sig.arity_req).map { |i| "BasicObject* a#{i}" }
                 kw_params = sig.required_kw_names.map { |kn| "BasicObject* k_#{kn}" }
-                params = (pos_params + kw_params).join(', ')
+                block_param = sig.has_block ? ["Proc* block = nullptr"] : []
+                params = (pos_params + kw_params + block_param).join(', ')
                 emit.line %(virtual BasicObject* #{cpp_name}(#{params});)
                 emit.line %(virtual BasicObject* #{cpp_name}(Array* args, Hash* kwargs, BasicObject* block);)
               elsif (family = @multi_arity_table[ruby_name.to_sym])
@@ -1258,7 +1275,15 @@ module Frozone
               emit.line "using BasicObject::#{name};" if emit_using
               pos_params = (0...sig.arity_req).map { |i| "BasicObject* a#{i}" }
               kw_params = sig.required_kw_names.map { |kn| "BasicObject* k_#{kn}" }
-              emit.line "virtual BasicObject* #{name}(#{(pos_params + kw_params).join(', ')})#{override_kw}#{final_kw};"
+              # has_block sigs carry a trailing Proc* block param.
+              # Default = static_cast<Proc*>(nil_instance()) so callers
+              # can omit it. Default args are evaluated against the
+              # static type of the call expression; emitting the
+              # default on every decl (base + overrides) keeps call
+              # sites working through any pointer type.
+              block_param = sig.has_block ? ["Proc* block = nullptr"] : []
+              all_params = pos_params + kw_params + block_param
+              emit.line "virtual BasicObject* #{name}(#{all_params.join(', ')})#{override_kw}#{final_kw};"
               if klass.name == "BasicObject"
                 emit.line "virtual BasicObject* #{name}(Array* args, Hash* kwargs, BasicObject* block);"
               end
@@ -1419,13 +1444,15 @@ module Frozone
               end
               pos_params = spec_param_names.map { |n| "BasicObject* #{n}" }
               kw_params = sig.required_kw_names.map { |kn| "BasicObject* _kw_#{kn}" }
-              emit.line "BasicObject* #{class_name}::#{name}(#{(pos_params + kw_params).join(', ')}) {"
+              block_param = sig.has_block ? ["Proc* block"] : []
+              emit.line "BasicObject* #{class_name}::#{name}(#{(pos_params + kw_params + block_param).join(', ')}) {"
               emit.indented do
                 # If the spec body references kw param names directly,
                 # bind each to its `_kw_<name>` incoming slot.
                 sig.required_kw_names.each do |kn|
                   emit.line "BasicObject* #{kn} = _kw_#{kn};"
                 end
+                emit.line "Proc* _block = block;" if sig.has_block
                 spec[:body].each_line { |l| emit.line l.chomp }
               end
               emit.line "}"
