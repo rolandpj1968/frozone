@@ -320,14 +320,14 @@ def box_compile(stub_name)
       loop do
         cpp = queue.pop(true) rescue break
         o = cpp.sub(/\.cpp\z/, '.o')
-        ok = system("g++ -O2 -std=c++20 -I #{ONIGMO_INCLUDE} -c #{cpp} -o #{o} 2>/dev/null")
+        ok = system("g++ -O2 #{frozone_box_lto_flag(opt_level: 'O2')} -std=c++20 -I #{ONIGMO_INCLUDE} -c #{cpp} -o #{o} 2>/dev/null")
         mutex.synchronize { ok ? o_files << o : errors << cpp }
       end
     end
   end.each(&:join)
   return [:compile_fail, nil] unless errors.empty?
   return [:compile_fail, nil] unless system(
-    "g++ -O2 -std=c++20 #{o_files.sort.join(' ')} #{ONIGMO_LIB} -lgc -o #{bin} 2>/dev/null"
+    "g++ -O2 #{frozone_box_lto_flag(opt_level: 'O2')} -std=c++20 #{o_files.sort.join(' ')} #{ONIGMO_LIB} -lgc -o #{bin} 2>/dev/null"
   )
   [:ok, bin]
 end
@@ -490,7 +490,7 @@ def cpp_compile_run(name, gc: :none, expected: nil, backend: 'legacy')
       ""
     end
   cflags = "#{cflags} -I #{ONIGMO_INCLUDE} #{ONIGMO_LIB}" if backend == 'box' && File.exist?(ONIGMO_LIB)
-  return [:compile_fail, nil] unless system("g++ -O2 -std=c++20 #{cpp} -o #{bin} #{cflags} 2>/dev/null")
+  return [:compile_fail, nil] unless system("g++ -O2 #{frozone_box_lto_flag(opt_level: 'O2')} -std=c++20 #{cpp} -o #{bin} #{cflags} 2>/dev/null")
   t0 = Process.clock_gettime(Process::CLOCK_MONOTONIC)
   actual = `./#{bin} 2>&1`
   elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - t0
@@ -780,6 +780,18 @@ def frozone_box_opt
   ENV.fetch('OPT', 'O0')
 end
 
+def frozone_box_lto_flag(opt_level: frozone_box_opt)
+  # LTO defaults ON at O2+ where the optimiser is actually doing
+  # work — sweep shows 10–20% wall-clock wins on the canonical 10
+  # from cross-TU inlining (#164). At O0 the flag is dead weight.
+  # Set LTO=0 to disable explicitly (diagnostic / comparison runs).
+  # Per-stub benchmark builds (`box_compile()`) hard-code -O2 so
+  # they pass `opt_level: 'O2'` explicitly.
+  return '' if opt_level.to_s == 'O0'
+  return '' if ENV['LTO'] == '0'
+  '-flto=auto'
+end
+
 def frozone_box_jobs
   # Default to half the cores — g++ -O2 on these TUs peaks at 300-500MB
   # per worker; full -j on a 12-core / 28GB box OOM-thrashes. Floor of 2.
@@ -868,7 +880,7 @@ def frozone_box_compile(force: false)
     Thread.new do
       loop do
         cpp = queue.pop(true) rescue break
-        cmd = %(#{cxx} -std=c++20 -#{opt} -c "#{cpp}" -I #{ONIGMO_INCLUDE} -o "#{cpp}.o")
+        cmd = %(#{cxx} -std=c++20 -#{opt} #{frozone_box_lto_flag} -c "#{cpp}" -I #{ONIGMO_INCLUDE} -o "#{cpp}.o")
         unless system(cmd)
           mutex.synchronize { errors << cpp }
         end
@@ -894,7 +906,7 @@ def frozone_box_link
   opt = frozone_box_opt
   cxx = frozone_box_cxx
   t0 = Time.now
-  cmd = %(#{cxx} -std=c++20 -#{opt} #{o_files.join(' ')} -I #{ONIGMO_INCLUDE} #{ONIGMO_LIB} -lgc -o #{FROZONE_BOX_BIN})
+  cmd = %(#{cxx} -std=c++20 -#{opt} #{frozone_box_lto_flag} #{o_files.join(' ')} -I #{ONIGMO_INCLUDE} #{ONIGMO_LIB} -lgc -o #{FROZONE_BOX_BIN})
   ok = system(cmd)
   elapsed = Time.now - t0
   if ok

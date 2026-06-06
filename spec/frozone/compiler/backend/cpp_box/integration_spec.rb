@@ -39,10 +39,11 @@ EXEC_MODES = {
 # selfcompile_more stays standalone (heavy require chain).
 UNIFIED_STUBS = %w[
   arity_test array_test attrw_test block_kw_test block_opt_test
-  block_test box_test case_test class_method_test fib float_test
-  getivar hash_test iow_test kw_test kw_unset_test
-  leaf_dispatch_test multi_arity_test nqueens_small random_test
-  splat_test string_test super_test ternary_test visibility_test
+  block_specialization_test block_test box_test case_test
+  class_method_test fib float_test getivar hash_test iow_test
+  kw_test kw_unset_test leaf_dispatch_test multi_arity_test
+  nqueens_small random_test splat_test string_test super_test
+  ternary_test visibility_test
 ].freeze
 
 # Cache: env_extras (sorted-array form) → { stub_name => stdout-section }.
@@ -301,6 +302,10 @@ RSpec.describe 'box-first end-to-end' do
 
   it 'handles block optional positional params (#166)' do
     expect(unified_stub_out('block_opt_test', env_extras: env_extras).strip).to eq('block_opt_test: OK')
+  end
+
+  it 'exercises Proc0/Proc1/Proc2 cross-arity adapters (#167)' do
+    expect(unified_stub_out('block_specialization_test', env_extras: env_extras).strip).to eq('block_specialization_test: OK')
   end
 
   it 'dispatches per-arity overloads for methods with optional positionals' do
