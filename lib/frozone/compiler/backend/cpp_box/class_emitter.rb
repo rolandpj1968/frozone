@@ -943,6 +943,17 @@ module Frozone
             # lose cross-TU inlining; with -flto it's recovered.
             kernel_fns.each { |fn| emit.line "#{fn.signature};" }
             intrinsics.each { |fn| emit.line "#{fn.signature};" }
+            emit.blank
+            # UnivArgs — wrapper for the universal-vtable protocol args.
+            # Single-parameter signature `m_X(UnivArgs ua = {})` cannot
+            # be confused with NA per-arity overloads under C++ overload
+            # resolution, fencing the two surfaces from each other.
+            # Declared but not yet used; migration is staged.
+            emit.line "struct UnivArgs {"
+            emit.line "  Array* args = &EMPTY_ARGS;"
+            emit.line "  Hash* kwargs = &EMPTY_KWARGS;"
+            emit.line "  BasicObject* block = nil_instance();"
+            emit.line "};"
           end
 
           def self.write_intrinsic_bodies(emit, intrinsics)
