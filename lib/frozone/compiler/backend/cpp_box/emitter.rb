@@ -1960,6 +1960,20 @@ module Frozone
             end
             parent_set = Set.new
             classes.each { |c| parent_set << c.superclass if c.superclass.is_a?(Vm::ClassObject) }
+            # Runtime::ALL_CLASSES contains C++-only RubyClass entries
+            # (Proc0/Proc1/Proc2 etc.) that aren't Vm::ClassObjects, so
+            # their `parent` string points at a class that IS a Vm one
+            # (e.g. "Proc"). Without this pass, Proc is incorrectly
+            # marked as a leaf and the leaf-dispatch `final` emission
+            # devirtualises `static_cast<Proc*>(...)->m_call(...)` to
+            # base `Proc::m_call`, which reads the base-class `fn_`
+            # field that's left default-constructed on Proc1/Proc2
+            # instances (each ProcN owns its own arity-typed `fnN_`).
+            Runtime::ALL_CLASSES.each do |uk|
+              next unless uk.parent
+              pc = top[uk.parent.to_sym]
+              parent_set << pc if pc.is_a?(Vm::ClassObject)
+            end
             @leaf_classes = classes.reject { |c| parent_set.include?(c) }.to_set
           end
 
