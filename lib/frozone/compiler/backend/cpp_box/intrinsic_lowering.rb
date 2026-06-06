@@ -438,7 +438,7 @@ module Frozone
             # via send. Proc#to_proc returns self, so the chain works.
             # Args coming in are the proc's call args (already an Array).
             object_method: ->(self_, name) {
-              "(new Proc([__obj_=#{self_}, __name_=#{name}](Array* __args_) -> BasicObject* { Array* _full = new Array(); _full->data.push_back(__name_); for (auto* _e : __args_->data) _full->data.push_back(_e); return __obj_->m_send(_full); }))"
+              "(new Proc([__obj_=#{self_}, __name_=#{name}](Array* __args_, Hash*) -> BasicObject* { Array* _full = new Array(); _full->data.push_back(__name_); for (auto* _e : __args_->data) _full->data.push_back(_e); return __obj_->m_send(_full); }))"
             },
             # Dynamic ivar access has no implementation in box-first —
             # every `@foo` is a dedicated C++ struct field (`this->iv_foo`),

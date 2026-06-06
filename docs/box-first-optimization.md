@@ -586,3 +586,157 @@ dynamic_casts in §3 want (2) eventually; we'd write a small
 `klass_is(BasicObject* o, Class* k)` helper that does the vptr
 compare and use it in numeric op bodies. That removes the last RTTI
 dependency in the hot path and unlocks `-fno-rtti` globally.
+
+---
+
+## 5. Block invocation — arity-specialized Proc subclasses
+
+### The cost today
+
+Every block invocation in box-first pays a heavy calling convention:
+
+```cpp
+// Yield site
+_block->m_call(new Array({arg1, arg2}))
+
+// Inside Proc::m_call → lambda body:
+BasicObject* l_x = (0 < (int)__blkargs__->data.size())
+                   ? __blkargs__->data[0]
+                   : nil_instance();
+BasicObject* l_y = (1 < (int)__blkargs__->data.size())
+                   ? __blkargs__->data[1]
+                   : nil_instance();
+```
+
+Per iteration in a hot loop: heap-allocate one `Array`, push every
+arg, virtual-dispatch `m_call`, then bounds-check + index per block
+param. The `Array` is allocation pressure for the GC; the bounds
+checks are unnecessary when both sides know the arity.
+
+For `[1,2,3].each_with_index { |x, i| body }` over 50M iterations,
+that's 50M Array allocations and 100M bounds-checked extractions —
+for a loop that should be ~2 stack moves per iteration.
+
+### The shape
+
+Introduce arity-specialized `Proc` subclasses for the common cases.
+Each subclass carries one lambda body and provides cross-arity
+adapters that embed Ruby's Proc-flavored laxness rules.
+
+```cpp
+struct Proc : BasicObject {
+  virtual BasicObject* m_call(Array* args, Hash* kwargs) = 0;
+  virtual BasicObject* call0()                            = 0;
+  virtual BasicObject* call1(BasicObject*)                = 0;
+  virtual BasicObject* call2(BasicObject*, BasicObject*)  = 0;
+};
+
+struct Proc1 final : Proc {   // block: { |x| ... }
+  std::function<BasicObject*(BasicObject*)> body;
+  BasicObject* call1(BasicObject* a) final { return body(a); }
+  BasicObject* call0() final {
+    return body(nil_instance());                              // missing arg → nil
+  }
+  BasicObject* call2(BasicObject* a, BasicObject*) final {
+    return body(a);                                           // extra arg dropped
+  }
+  BasicObject* m_call(Array* args, Hash*) final {
+    return body(args->data.empty() ? nil_instance() : args->data[0]);
+  }
+};
+// Proc0, Proc2 analogous.
+```
+
+The Proc-flavor laxness rules (extra args dropped, missing args →
+nil, procarg0 auto-splat) embed as static C++ code paths in the
+cross-arity adapters. Each block compiles to **one** lambda body —
+the adapters route to it. Lambdas (created via `->` or `lambda { }`)
+keep MRI method-strict arity by emitting differently (raise on
+arity mismatch instead of adapting).
+
+### Codegen integration
+
+At block creation site, the codegen picks the subclass based on the
+block's actual signature:
+
+```cpp
+// block: { |x| ... }   (1 required positional, no kw, no rest)
+new Proc1([&, this](BasicObject* x) -> BasicObject* { ...body... })
+
+// block: { |x, y| ... }
+new Proc2([&, this](BasicObject* x, BasicObject* y) -> BasicObject* { ...body... })
+
+// block: { ... }       (zero params)
+new Proc0([&, this]() -> BasicObject* { ...body... })
+```
+
+Fallback to the universal `new Proc([&, this](Array* args, Hash* kw) {...})`
+when:
+- arity ≥ 3
+- kw-bearing
+- rest-param (`*args`)
+- destructure pattern (`|(a, b)|`)
+- optional positional (`|a = 1|`)
+- block_param (`|&blk|`)
+
+At yield site, the codegen picks the matching specialized call:
+
+```cpp
+// yield x  (one arg, callee known to yield 1)
+_block->call1(x)
+
+// yield x, y
+_block->call2(x, y)
+
+// yield  (no args)
+_block->call0()
+```
+
+Saves the per-iteration `new Array` entirely. Falls back to
+`_block->m_call(new Array({...}), kwargs)` when yielding ≥3 args or
+yielding kwargs.
+
+### Why this is bigger than NA-for-methods
+
+NA-for-methods (§82-87) saved an Array per call site. Block iteration
+hits the same call site billions of times in a tight loop, so the
+absolute alloc count saved by this work is much higher than NA.
+
+### Composes with LTO (§-LTO)
+
+`Proc1::call1` is `final`. Under LTO, when the yield site's static
+type is known to be `Proc1*` (the local variable that was just
+assigned `new Proc1(...)` and never escaped), the compiler devirts
+the `call1()` and inlines the lambda body. That's the path to
+`for (auto* x : arr->data) { ...body... }` codegen — bottom-up,
+without needing TI or call-site inlining of the iter method.
+
+### Stack-allocation for no-capture blocks (bonus)
+
+When the block's capture clause is empty (`[]`), the Proc has no
+heap-reachable state. Safe to stack-allocate even without escape
+analysis. The capture-set detection already exists from §105's
+body-walk elision work — reuse it as the gate.
+
+```cpp
+// no captures, no escape: stack-alloc
+Proc1 _p1{ [](BasicObject* x) { return ...; } };
+arr->m_each(&_p1);
+```
+
+Aggressive stack-alloc for blocks WITH captures requires escape
+analysis on the callee — without TI we can't easily prove non-escape
+when calling through a virtual dispatch. Defer until TI lands or a
+small whitelist of "known iter methods on leaf types that don't
+retain blocks" gets curated.
+
+### Dependencies
+
+Block kwparam soundness (#165) and block optional-positional /
+block_param completeness (#166) come first. They shape the calling
+convention's kwargs slot and complete the param-pattern coverage so
+this arity-specialized hierarchy knows the full signature space
+before codegen.
+
+Tracked as #167.
+

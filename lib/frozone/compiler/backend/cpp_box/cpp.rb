@@ -853,11 +853,29 @@ module Frozone
           # `Ast::Yield` → call into the implicit `_block` Proc* that
           # MethodEmitter inserts when a body contains yield.
           # Universal call protocol: m_call(args, kwargs, block).
-          # Multi-arg yield works since args is an Array.
+          # Multi-arg yield works since args is an Array. Kwargs path
+          # (`yield foo: bar`) builds a Hash literal at the call site
+          # and passes it as the second arg to m_call.
           def from_yield(node, locals)
             args = (node.arg_nodes || []).map { |a| from_expr(a, locals) }
-            return "_block->m_call()" if args.empty?
-            "_block->m_call(new Array({#{args.join(", ")}}))"
+            kw_arg_nodes = node.respond_to?(:kw_arg_nodes) ? (node.kw_arg_nodes || {}) : {}
+            has_kw = !kw_arg_nodes.empty?
+            if args.empty? && !has_kw
+              return "_block->m_call()"
+            end
+            args_expr = args.empty? ? "(&EMPTY_ARGS)" : "(new Array({#{args.join(", ")}}))"
+            return "_block->m_call(#{args_expr})" unless has_kw
+            # Use Hash::put rather than raw data[k] = v — keeps insertion-
+            # order vector + order_idx in sync. Direct data[] bypasses
+            # those, and downstream **rest extraction (which iterates
+            # over `data` for filter-by-name) may silently lose entries
+            # because the Hash's internal invariants get out of sync.
+            kw_pairs = kw_arg_nodes.map do |k_node, v_node|
+              key_lit = k_node.respond_to?(:value) ? k_node.value.to_s.inspect : k_node.to_s.inspect
+              "_kw->put(intern(#{key_lit}), #{from_expr(v_node, locals)});"
+            end
+            kw_expr = "[&]() -> Hash* { Hash* _kw = new Hash(); #{kw_pairs.join(' ')} return _kw; }()"
+            "_block->m_call(#{args_expr}, #{kw_expr})"
           end
 
           # C++ argument-list string for a method-call lowering. NA-direct
@@ -1417,7 +1435,7 @@ module Frozone
               format_constant(flat)
             when Vm::ProcObject
               loc = val.block_object&.source_location || ["unknown", 0]
-              %{(new Proc([](Array*) -> BasicObject* { /* snapshot Proc placeholder, defined at #{loc[0]}:#{loc[1]} */ return nil_instance(); }))}
+              %{(new Proc([](Array*, Hash*) -> BasicObject* { /* snapshot Proc placeholder, defined at #{loc[0]}:#{loc[1]} */ return nil_instance(); }))}
             else
               raise EmissionError, "emit_leaf: #{val.class.name} is not a leaf value (String/Array/Hash/ObjectObject must be snapshot-slotted)"
             end
@@ -1495,7 +1513,7 @@ module Frozone
               # programs. Source location is captured in the lambda
               # comment for debuggability.
               loc = val.block_object&.source_location || ["unknown", 0]
-              %{(new Proc([](Array*) -> BasicObject* { /* snapshot Proc placeholder, defined at #{loc[0]}:#{loc[1]} */ return nil_instance(); }))}
+              %{(new Proc([](Array*, Hash*) -> BasicObject* { /* snapshot Proc placeholder, defined at #{loc[0]}:#{loc[1]} */ return nil_instance(); }))}
             when Vm::ObjectObject
               # If this object is itself one of our registered user
               # constants, emit a reference to its accessor (its ivars

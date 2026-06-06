@@ -38,11 +38,11 @@ EXEC_MODES = {
 # per mode (~2 min/mode) instead of paying ~30s gen+compile per stub.
 # selfcompile_more stays standalone (heavy require chain).
 UNIFIED_STUBS = %w[
-  arity_test array_test attrw_test block_test box_test case_test
-  class_method_test fib float_test getivar hash_test iow_test
-  kw_test kw_unset_test leaf_dispatch_test multi_arity_test
-  nqueens_small random_test splat_test string_test super_test
-  ternary_test visibility_test
+  arity_test array_test attrw_test block_kw_test block_test
+  box_test case_test class_method_test fib float_test getivar
+  hash_test iow_test kw_test kw_unset_test leaf_dispatch_test
+  multi_arity_test nqueens_small random_test splat_test
+  string_test super_test ternary_test visibility_test
 ].freeze
 
 # Cache: env_extras (sorted-array form) → { stub_name => stdout-section }.
@@ -293,6 +293,10 @@ RSpec.describe 'box-first end-to-end' do
       'unknown keyword: :bogus',               # via send
       '[:Z, :X, :Y]',                          # kw value eval — source order
     ])
+  end
+
+  it 'threads kwargs through block invocations (#165)' do
+    expect(unified_stub_out('block_kw_test', env_extras: env_extras).strip).to eq('block_kw_test: OK')
   end
 
   it 'dispatches per-arity overloads for methods with optional positionals' do

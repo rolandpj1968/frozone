@@ -951,22 +951,25 @@ module Frozone
             name: "Proc",
             parent: "Object",
             members: [
-              # Lambdas now take the whole args array — supports blocks
-              # with 0, 1, or many params. The lambda body unpacks
-              # `args->data[i]` as needed; expr_emitter generates the
-              # binding code at the top of each lambda body.
+              # Lambdas take the whole args array AND kwargs hash — supports
+              # blocks with 0, 1, or many positional params AND keyword
+              # params (`{ |a:, b:| ... }`). The lambda body unpacks
+              # `args->data[i]` and `kwargs->lookup(...)` as needed;
+              # expr_emitter generates the binding code at the top of each
+              # lambda body.
+              #
               # std::function for type erasure of the captured lambda.
               # _Base_manager (the captures' heap home) is allocated via
               # global operator new which we override to GC_MALLOC (see
               # box_first.hpp), so captured BasicObject* pointers are
               # Boehm-traced.
-              "std::function<BasicObject*(Array*)> fn_;",
+              "std::function<BasicObject*(Array*, Hash*)> fn_;",
               "Proc() = default;",
-              "explicit Proc(std::function<BasicObject*(Array*)> f) : fn_(std::move(f)) {}",
+              "explicit Proc(std::function<BasicObject*(Array*, Hash*)> f) : fn_(std::move(f)) {}",
               %(const char* ruby_class_name() const override { return "Proc"; }),
             ],
             overrides: {
-              "m_call" => { params: [], body: "return fn_(args);" },
+              "m_call" => { params: [], body: "return fn_(args, kwargs);" },
             },
           )
 

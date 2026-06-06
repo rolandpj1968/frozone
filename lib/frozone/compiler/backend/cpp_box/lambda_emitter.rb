@@ -225,7 +225,7 @@ module Frozone
                   body << "__rest__->data.push_back(__blkargs__->data[_i]); } "
                   body << "return __recv__->#{m}(__rest__);"
                 end
-                return "(new Proc([](Array* __blkargs__) -> BasicObject* { #{body} }))"
+                return "(new Proc([](Array* __blkargs__, Hash* __blkkwargs__) -> BasicObject* { #{body} }))"
               end
               return "static_cast<Proc*>(#{from_expr(block_node.value_node, locals)})"
             end
@@ -338,6 +338,58 @@ module Frozone
                     emit.line "BasicObject* #{cpp} = #{init};"
                   end
                 end
+                # Keyword param extraction. Blocks are method-strict on
+                # kwargs (the Proc-flavor "extra dropped / missing → nil"
+                # laxness applies only to POSITIONAL args). MRI raises
+                # ArgumentError on both missing-required-kw and unknown-kw,
+                # whether the caller is yield or Proc#call. So mirror the
+                # method-side raise_missing_kw / raise_unknown_kw shape.
+                required_kw_params = (block_node.respond_to?(:required_kw_params) ? block_node.required_kw_params : nil) || []
+                optional_kw_params = (block_node.respond_to?(:optional_kw_params) ? block_node.optional_kw_params : nil) || []
+                kw_rest_param = block_node.respond_to?(:kw_rest_param) ? block_node.kw_rest_param : nil
+                required_kw_params.each do |kw_name|
+                  cpp = MethodEmitter.local_cpp_name(kw_name)
+                  key_lit = kw_name.to_s.inspect
+                  init = "[&]() -> BasicObject* { auto _it = __blkkwargs__->data.find(intern(#{key_lit})); if (_it == __blkkwargs__->data.end()) raise_missing_kw(#{key_lit}); return _it->second; }()"
+                  if emit.cpp.captured?(kw_name)
+                    emit.line "BasicObject** #{cpp} = gc_box<BasicObject*>(#{init});"
+                  else
+                    emit.line "BasicObject* #{cpp} = #{init};"
+                  end
+                  block_locals << kw_name.to_s
+                end
+                optional_kw_params.each do |kw_name, default_node|
+                  cpp = MethodEmitter.local_cpp_name(kw_name)
+                  key_lit = kw_name.to_s.inspect
+                  default_str = default_node ? from_expr(default_node, block_locals) : "nil_instance()"
+                  init = "[&]() -> BasicObject* { auto _it = __blkkwargs__->data.find(intern(#{key_lit})); return _it == __blkkwargs__->data.end() ? (#{default_str}) : _it->second; }()"
+                  if emit.cpp.captured?(kw_name)
+                    emit.line "BasicObject** #{cpp} = gc_box<BasicObject*>(#{init});"
+                  else
+                    emit.line "BasicObject* #{cpp} = #{init};"
+                  end
+                  block_locals << kw_name.to_s
+                end
+                if kw_rest_param
+                  # When **kwrest is declared, all unknown-named kwargs flow
+                  # into the rest Hash — there's no "unknown kw" error.
+                  cpp = MethodEmitter.local_cpp_name(kw_rest_param)
+                  known_kws = (required_kw_params + optional_kw_params.map { |kn, _| kn }).map { |k| "intern(#{k.to_s.inspect})" }
+                  filter = known_kws.empty? ? "true" : known_kws.map { |k| "_kv.first != #{k}" }.join(" && ")
+                  init = "[&]() -> Hash* { Hash* _h = new Hash(); for (auto& _kv : __blkkwargs__->data) { if (#{filter}) _h->put(_kv.first, _kv.second); } return _h; }()"
+                  if emit.cpp.captured?(kw_rest_param)
+                    emit.line "BasicObject** #{cpp} = gc_box<BasicObject*>(static_cast<BasicObject*>(#{init}));"
+                  else
+                    emit.line "BasicObject* #{cpp} = static_cast<BasicObject*>(#{init});"
+                  end
+                  block_locals << kw_rest_param.to_s
+                elsif !required_kw_params.empty? || !optional_kw_params.empty?
+                  # No **kwrest, but block has named kwargs: raise on
+                  # any kw whose name isn't in the declared set. Mirrors
+                  # method_emitter.rb's raise_unknown_kw emission.
+                  expected_set = (required_kw_params + optional_kw_params.map { |kn, _| kn }).map { |k| "intern(#{k.to_s.inspect})" }.join(", ")
+                  emit.line %|for (auto& _kv : __blkkwargs__->data) { Symbol* _k = static_cast<Symbol*>(_kv.first); bool _ok = false; for (auto _e : {#{expected_set}}) { if (_k == _e) { _ok = true; break; } } if (!_ok) raise_unknown_kw(_k->name_); }|
+                end
                 if body
                   emit.cpp.with_in_block do
                     ExprEmitter.write_body(emit, body, locals: block_locals, last_is_return: true, next_returns: true, in_block: true)
@@ -368,7 +420,7 @@ module Frozone
             referenced = LambdaEmitter.referenced_outer_locals(body, inner_own)
             cap_extras = (outer_captured_at_creation & referenced).to_a.map { |n| MethodEmitter.local_cpp_name(n) }
             cap_str = (["&", "this"] + cap_extras).join(", ")
-            "(new Proc([#{cap_str}](Array* __blkargs__) -> BasicObject* { #{body_buf.gsub(/\s+/, ' ').strip} }))"
+            "(new Proc([#{cap_str}](Array* __blkargs__, Hash* __blkkwargs__) -> BasicObject* { #{body_buf.gsub(/\s+/, ' ').strip} }))"
           end
 
           # Names referenced (read or written) inside `body`, recursing
@@ -546,7 +598,7 @@ module Frozone
             referenced = LambdaEmitter.referenced_outer_locals(body, inner_own)
             cap_extras = (outer_captured_at_creation & referenced).to_a.map { |n| MethodEmitter.local_cpp_name(n) }
             cap_str = (["&", "this"] + cap_extras).join(", ")
-            "(new Proc([#{cap_str}](Array* __blkargs__) -> BasicObject* { #{body_buf.gsub(/\s+/, ' ').strip} }))"
+            "(new Proc([#{cap_str}](Array* __blkargs__, Hash* __blkkwargs__) -> BasicObject* { #{body_buf.gsub(/\s+/, ' ').strip} }))"
           end
 
           # If-as-expression where one or both branches contain Return /
