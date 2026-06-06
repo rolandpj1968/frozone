@@ -944,16 +944,18 @@ module Frozone
             kernel_fns.each { |fn| emit.line "#{fn.signature};" }
             intrinsics.each { |fn| emit.line "#{fn.signature};" }
             emit.blank
-            # UnivArgs — wrapper for the universal-vtable protocol args.
-            # Single-parameter signature `m_X(UnivArgs ua = {})` cannot
-            # be confused with NA per-arity overloads under C++ overload
-            # resolution, fencing the two surfaces from each other.
-            # Declared but not yet used; migration is staged.
-            emit.line "struct UnivArgs {"
-            emit.line "  Array* args = &EMPTY_ARGS;"
-            emit.line "  Hash* kwargs = &EMPTY_KWARGS;"
-            emit.line "  BasicObject* block = nil_instance();"
-            emit.line "};"
+            # UnivTag — empty-struct sentinel intended as the first
+            # parameter of every universal-vtable slot:
+            #   m_X(UnivTag, Array*, Hash*, BasicObject*)
+            # would fence the universal protocol from any NA per-arity
+            # overload under C++ overload resolution. Declared here;
+            # not yet threaded through decls or call sites (the full
+            # migration is more than the "insert one token" framing
+            # — every universal-call site across the Ruby emitter and
+            # the cpp/runtime intrinsics headers needs `univ` prepended
+            # in lockstep, ~120 lines total).
+            emit.line "struct UnivTag {};"
+            emit.line "inline constexpr UnivTag univ{};"
           end
 
           def self.write_intrinsic_bodies(emit, intrinsics)
