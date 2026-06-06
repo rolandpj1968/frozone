@@ -140,6 +140,7 @@ bundle exec rake core                    # ruby/spec core suite
 - [docs/perf-suite.md](docs/perf-suite.md) — benchmark suite + dual-backend perf data
 
 **Second backend (correctness-first):**
+- [docs/translation.md](docs/translation.md) — Ruby → C++ translation reference (naive baseline)
 - [docs/box-first-pitfalls.md](docs/box-first-pitfalls.md) — pitfalls / invariants
 - [docs/box-first-load-execute-split.md](docs/box-first-load-execute-split.md) — load/execute boundary
 - [docs/box-first-layouts-split.md](docs/box-first-layouts-split.md) — headers + per-class TU split
