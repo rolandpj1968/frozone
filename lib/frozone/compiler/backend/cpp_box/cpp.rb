@@ -712,10 +712,10 @@ module Frozone
                   # via IIFE to avoid double-evaluation of side effects.
                   # safe_nav skips visibility check (Stage 2b).
                   recv_str = from_expr(recv, locals)
-                  call_tail_str = "->#{Cpp.method_name(name)}#{call_tail(args_array, kwargs_arg, block_arg)}"
-                  "([&]() -> BasicObject* { auto* _r = #{recv_str}; return (_r == nil_instance()) ? nil_instance() : _r#{call_tail_str}; }())"
+                  tail = univ_call_tail(Cpp.method_name(name), args_array, kwargs_arg, block_arg)
+                  "([&]() -> BasicObject* { auto* _r = #{recv_str}; return (_r == nil_instance()) ? nil_instance() : _r#{tail}; }())"
                 else
-                  "#{recv_with_visibility_check(recv, locals)}->#{Cpp.method_name(name)}#{call_tail(args_array, kwargs_arg, block_arg)}"
+                  univ_call(recv_with_visibility_check(recv, locals), Cpp.method_name(name), args_array, kwargs_arg, block_arg)
                 end
               elsif name == :puts
                 # ruby_puts returns void; Ruby's puts returns nil — comma
@@ -731,7 +731,7 @@ module Frozone
                   "(#{args.map { |a| "ruby_puts(#{a})" }.join(", ")}, nil_instance())"
                 end
               else
-                "this->#{Cpp.method_name(name)}#{call_tail(args_array, kwargs_arg, block_arg)}"
+                univ_call("this", Cpp.method_name(name), args_array, kwargs_arg, block_arg)
               end
 
             # `break v` inside the block becomes `throw BreakException{v}`
@@ -781,6 +781,24 @@ module Frozone
             parts = [args_str, kwargs_str, block_str]
             parts.pop while parts.size > 0 && DEFAULT_TRAILING_PARTS.include?(parts.last)
             "(#{parts.join(", ")})"
+          end
+
+          # Compose the full universal-protocol call expression.
+          # Single source of truth for the call shape — every emit site
+          # that issues a universal-vtable dispatch should route through
+          # here so future call-shape changes (e.g. UnivTag fence) need
+          # only one edit. `recv_expr` is the C++ receiver expression
+          # (or "this", "_r", etc.); `method` is the cpp_name. Trailing
+          # defaults are dropped via call_tail.
+          def univ_call(recv_expr, method, args_str = "(&EMPTY_ARGS)", kwargs_str = "(&EMPTY_KWARGS)", block_str = "nil_instance()")
+            "#{recv_expr}->#{method}#{call_tail(args_str, kwargs_str, block_str)}"
+          end
+
+          # Same as univ_call but for the (args, kwargs, block) trailing
+          # portion only — used by sites that already have the
+          # `recv->method` prefix constructed (e.g. the safe-nav IIFE).
+          def univ_call_tail(method, args_str = "(&EMPTY_ARGS)", kwargs_str = "(&EMPTY_KWARGS)", block_str = "nil_instance()")
+            "->#{method}#{call_tail(args_str, kwargs_str, block_str)}"
           end
 
           # Build the args Array for a call. Cases:
