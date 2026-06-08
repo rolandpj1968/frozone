@@ -45,14 +45,14 @@ module Frozone
               raise Cpp::EmissionError, "raise: unknown exception class #{parts.join('::')}" unless flat && instantiable_class?(flat)
               ctor_args = arg_nodes.drop(1).map { |a| "static_cast<BasicObject*>(#{from_arg(a, locals)})" }
               args_array = "(new Array({#{ctor_args.join(", ")}}))"
-              return "([&]() -> BasicObject* { throw static_cast<Exception*>((&#{flat}_CLASS)->m_new(#{args_array})); }())"
+              return "([&]() -> BasicObject* { throw static_cast<Exception*>((&#{flat}_CLASS)->m_new(univ, #{args_array})); }())"
             end
 
             if arg_nodes.length == 1
               # `raise "msg"` is sugar for `raise RuntimeError.new("msg")`.
               if first.is_a?(Ast::StringLiteral) || first.is_a?(Ast::InterpolatedString)
                 msg_str = from_expr(first, locals)
-                return %(([&]() -> BasicObject* { throw static_cast<Exception*>((&RuntimeError_CLASS)->m_new(new Array({static_cast<BasicObject*>(#{msg_str})}))); }()))
+                return %(([&]() -> BasicObject* { throw static_cast<Exception*>((&RuntimeError_CLASS)->m_new(univ, new Array({static_cast<BasicObject*>(#{msg_str})}))); }()))
               end
               expr_str = from_expr(first, locals)
               return "([&]() -> BasicObject* { throw static_cast<Exception*>(#{expr_str}); }())"
@@ -224,7 +224,7 @@ module Frozone
                   body << "if (__blkargs__->data.size() > 1) { __rest__ = new Array(); "
                   body << "for (std::size_t _i = 1; _i < __blkargs__->data.size(); ++_i) "
                   body << "__rest__->data.push_back(__blkargs__->data[_i]); } "
-                  body << "return __recv__->#{m}(__rest__);"
+                  body << "return __recv__->#{m}(univ, __rest__);"
                 end
                 return "(new Proc([](Array* __blkargs__, Hash* __blkkwargs__) -> BasicObject* { #{body} }))"
               end
@@ -775,7 +775,7 @@ module Frozone
             node.whens.each do |w|
               cond_strs = w.condition_nodes.map { |c|
                 c_s = from_expr(c, locals)
-                node.subject_node ? "truthy(#{c_s}->op_case_eq(new Array({_subj})))" : "truthy(#{c_s})"
+                node.subject_node ? "truthy(#{c_s}->op_case_eq(univ, new Array({_subj})))" : "truthy(#{c_s})"
               }
               # body_as_lambda_call (vs from_expr) handles bodies
               # with statement-position constructs the from_expr

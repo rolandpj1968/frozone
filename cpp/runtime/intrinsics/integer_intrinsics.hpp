@@ -80,7 +80,7 @@ inline BasicObject* intrinsic_integer_fdiv(BasicObject* s, BasicObject* o) {
   // o may be Integer or Float - integer.rb's `def fdiv(n) = Intrinsics.integer_fdiv(self, n)`
   // is the only caller and accepts both. Branch on actual class.
   double a = static_cast<double>(static_cast<Integer*>(s)->raw_);
-  if (o->m_class() == reinterpret_cast<BasicObject*>(&Float_CLASS)) {
+  if (o->m_class(univ) == reinterpret_cast<BasicObject*>(&Float_CLASS)) {
     return new Float(a / static_cast<Float*>(o)->raw_);
   }
   return new Float(a / static_cast<double>(static_cast<Integer*>(o)->raw_));

@@ -53,12 +53,12 @@ inline BasicObject* intrinsic_process_kill(BasicObject* sig, BasicObject* pid) {
   // optional leading "SIG". A handful of common names are enough for
   // anything self-host frozone runs into; rare names → loud abort.
   int sig_num = 0;
-  if (sig->m_class() == reinterpret_cast<BasicObject*>(&Integer_CLASS)) {
+  if (sig->m_class(univ) == reinterpret_cast<BasicObject*>(&Integer_CLASS)) {
     sig_num = static_cast<int>(static_cast<Integer*>(sig)->raw_);
   } else {
     // Accept either String or Symbol — both go to a const char*.
     std::string name;
-    if (sig->m_class() == reinterpret_cast<BasicObject*>(&String_CLASS)) {
+    if (sig->m_class(univ) == reinterpret_cast<BasicObject*>(&String_CLASS)) {
       name = fs_detail::str_of(sig);
     } else if (typeid(*sig) == typeid(Symbol)) {
       name = static_cast<Symbol*>(sig)->name_;

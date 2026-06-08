@@ -1474,14 +1474,14 @@ module Frozone
           def value_eq_wrapper_members(cls_name)
             [
               "std::size_t m_hash_value() const override { return iv_raw ? iv_raw->m_hash_value() : 0; }",
-              "BasicObject* op_eq_q(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
+              "BasicObject* op_eq_q(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
               "  if (args->data.empty()) return false_instance();",
               "  if (this == args->data[0]) return true_instance();",
               "  BasicObject* _other = args->data[0];",
               "  if (typeid(*_other) != typeid(#{cls_name})) return false_instance();",
               "  auto* o = static_cast<#{cls_name}*>(_other);",
               "  if (!iv_raw || !o->iv_raw) return false_instance();",
-              "  return iv_raw->op_eq_q(new Array({o->iv_raw}));",
+              "  return iv_raw->op_eq_q(univ, new Array({o->iv_raw}));",
               "}",
             ]
           end
@@ -1503,7 +1503,7 @@ module Frozone
           def user_hash_delegate_members(cls_name)
             [
               "std::size_t m_hash_value() const override {",
-              "  BasicObject* _h = const_cast<#{cls_name}*>(this)->m_hash();",
+              "  BasicObject* _h = const_cast<#{cls_name}*>(this)->m_hash(univ);",
               "  if (_h && typeid(*_h) == typeid(Integer)) return static_cast<std::size_t>(static_cast<Integer*>(_h)->raw_);",
               "  return reinterpret_cast<std::size_t>(this);",
               "}",
@@ -1559,7 +1559,7 @@ module Frozone
               if lim_na
                 %|_self->m_lookup_instance_method(intern("#{sym_lit}"))|
               else
-                %|_self->m_lookup_instance_method(new Array({intern("#{sym_lit}")}), &EMPTY_KWARGS, nil_instance())|
+                %|_self->m_lookup_instance_method(univ, new Array({intern("#{sym_lit}")}), &EMPTY_KWARGS, nil_instance())|
               end
             end
             [
@@ -1574,9 +1574,9 @@ module Frozone
               "  if (!_m || _m == nil_instance() || _m == k_Frozone_Vm_ModuleObject_UNDEF_SENTINEL()) {",
               "    return reinterpret_cast<std::size_t>(_self);",
               "  }",
-              "  BasicObject* _ctx = g_fiber_storage()->op_aref(new Array({intern(\"context\")}));",
+              "  BasicObject* _ctx = g_fiber_storage()->op_aref(univ, new Array({intern(\"context\")}));",
               "  if (!_ctx || _ctx == nil_instance()) return reinterpret_cast<std::size_t>(_self);",
-              "  BasicObject* _r = _self->m_dispatch(",
+              "  BasicObject* _r = _self->m_dispatch(univ,",
               "    new Array({_ctx, intern(\"hash\"), &EMPTY_ARGS, static_cast<BasicObject*>(&EMPTY_KWARGS), nil_instance()}),",
               "    &EMPTY_KWARGS, nil_instance());",
               "  // Re-dispatch m_hash_value on the result: Vm::IntegerObject (the",
@@ -1592,7 +1592,7 @@ module Frozone
               # the user's equality wins. Vm::True/False/NilObject are fused
               # with the runtime singletons, so `truthy()` covers both sides
               # without needing those Vm classes complete here.
-              "BasicObject* op_eq_q(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
+              "BasicObject* op_eq_q(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
               "  if (args->data.empty()) return false_instance();",
               "  BasicObject* _other = args->data[0];",
               "  if (this == _other) return true_instance();",
@@ -1608,10 +1608,10 @@ module Frozone
               "  if (!_m || _m == nil_instance() || _m == k_Frozone_Vm_ModuleObject_UNDEF_SENTINEL()) {",
               "    return false_instance();",
               "  }",
-              "  BasicObject* _ctx = g_fiber_storage()->op_aref(new Array({intern(\"context\")}));",
+              "  BasicObject* _ctx = g_fiber_storage()->op_aref(univ, new Array({intern(\"context\")}));",
               "  if (!_ctx || _ctx == nil_instance()) return false_instance();",
               "  Array* _outer = new Array({_other});",
-              "  BasicObject* _r = _self->m_dispatch(",
+              "  BasicObject* _r = _self->m_dispatch(univ,",
               "    new Array({_ctx, intern(\"==\"), static_cast<BasicObject*>(_outer), static_cast<BasicObject*>(&EMPTY_KWARGS), nil_instance()}),",
               "    &EMPTY_KWARGS, nil_instance());",
               "  return truthy(_r) ? true_instance() : false_instance();",
@@ -1690,7 +1690,7 @@ module Frozone
             # Hand-coded ancestor methods (m_class, m_send, mm_is_a_q, …)
             # have load-bearing C++ implementations we must NOT shadow
             # with the Ruby-level def from Kernel/Object. E.g.
-            # Kernel#class lowers to `this->m_class()`; if a user class
+            # Kernel#class lowers to `this->m_class(univ)`; if a user class
             # picks that up via chain-flattening as its m_class
             # override, every dispatch infinitely recurses. The fix:
             # for any hand-coded universe-ancestor name where the
@@ -2230,7 +2230,7 @@ module Frozone
                 "    case #{k}: return this->#{call_cpp_name}(#{args_call});"
               end.join("\n")
               spec[:universal_entry] = {
-                params: ["Array* args", "Hash* kwargs", "BasicObject* /*block*/"],
+                params: ["UnivTag", "Array* args", "Hash* kwargs", "BasicObject* /*block*/"],
                 body: <<~CPP,
                   if (!kwargs->data.empty()) { Array* _ext = new Array(); _ext->data = args->data; Hash* _h = new Hash(); _h->copy_kvps_from(*kwargs); _ext->data.push_back(static_cast<BasicObject*>(_h)); args = _ext; }
                   #{check_call}

@@ -184,7 +184,7 @@ module Frozone
             # vtable slot on Class that every eigenclass overrides with
             # `return new HostType()`. Used by `def allocate` in class.rb
             # and per-class wrappers (`Thread#__allocate_thread`).
-            class_allocate: ->(klass) { "static_cast<Class*>(#{klass})->m_raw_allocate()" },
+            class_allocate: ->(klass) { "static_cast<Class*>(#{klass})->m_raw_allocate(univ)" },
 
             # Array
             array_length: ->(self_) { "(new Integer(static_cast<int64_t>(static_cast<Array*>(#{self_})->data.size())))" },
@@ -338,15 +338,15 @@ module Frozone
               "([&]() -> BasicObject* { auto* _s = static_cast<String*>(#{self_}); std::string _str(reinterpret_cast<const char*>(_s->bytes.data()), _s->bytes.size()); double _d = 0.0; try { _d = std::stod(_str); } catch (...) {} return new Float(_d); }())"
             },
             string_to_r: ->(_self_) {
-              "(&Rational_CLASS)->m_new(new Array({static_cast<BasicObject*>(new Integer(0)), static_cast<BasicObject*>(new Integer(1))}))"
+              "(&Rational_CLASS)->m_new(univ, new Array({static_cast<BasicObject*>(new Integer(0)), static_cast<BasicObject*>(new Integer(1))}))"
             },
             # `String#to_sym` — interns the string. intern() takes a
             # const char*, so the string must be NUL-terminated. Copy
             # bytes into a std::string for the lookup.
 
             # Object identity / class — needed by core/4.0 dispatch helpers.
-            object_is_a: ->(self_, klass) { "(#{self_})->mm_is_a_q(new Array({#{klass}}))" },
-            object_class: ->(self_) { "#{self_}->m_class()" },
+            object_is_a: ->(self_, klass) { "(#{self_})->mm_is_a_q(univ, new Array({#{klass}}))" },
+            object_class: ->(self_) { "#{self_}->m_class(univ)" },
             # Kernel#lambda just returns the captured block as a Proc.
             # The Ruby `def lambda(&_block) = Intrinsics.kernel_lambda(self)`
             # form passes self to the intrinsic; the actual block lives
@@ -438,7 +438,7 @@ module Frozone
             # via send. Proc#to_proc returns self, so the chain works.
             # Args coming in are the proc's call args (already an Array).
             object_method: ->(self_, name) {
-              "(new Proc([__obj_=#{self_}, __name_=#{name}](Array* __args_, Hash*) -> BasicObject* { Array* _full = new Array(); _full->data.push_back(__name_); for (auto* _e : __args_->data) _full->data.push_back(_e); return __obj_->m_send(_full); }))"
+              "(new Proc([__obj_=#{self_}, __name_=#{name}](Array* __args_, Hash*) -> BasicObject* { Array* _full = new Array(); _full->data.push_back(__name_); for (auto* _e : __args_->data) _full->data.push_back(_e); return __obj_->m_send(univ, _full); }))"
             },
             # Dynamic ivar access has no implementation in box-first —
             # every `@foo` is a dedicated C++ struct field (`this->iv_foo`),
@@ -460,7 +460,7 @@ module Frozone
               "(#{self_})->mm_respond_to_q(new Array({#{name}}))"
             },
             object_instance_of: ->(self_, klass) {
-              "boxed_bool(#{self_}->m_class() == (#{klass}))"
+              "boxed_bool(#{self_}->m_class(univ) == (#{klass}))"
             },
 
             # kernel_block_given stays inline — would need surrounding-
@@ -543,7 +543,7 @@ module Frozone
             # uses typeid (Hash is a leaf class); fall back to
             # &EMPTY_KWARGS so we never pass nullptr.
             proc_call: ->(self_, args, kwargs) {
-              "((#{self_})->m_call(splat_to_array(#{args}), [&]() -> Hash* { return ((#{kwargs}) && typeid(*(#{kwargs})) == typeid(Hash)) ? static_cast<Hash*>(#{kwargs}) : &EMPTY_KWARGS; }()))"
+              "((#{self_})->m_call(univ, splat_to_array(#{args}), [&]() -> Hash* { return ((#{kwargs}) && typeid(*(#{kwargs})) == typeid(Hash)) ? static_cast<Hash*>(#{kwargs}) : &EMPTY_KWARGS; }()))"
             },
             # `Proc#arity` — stub returning -1 (variable-arity). We don't
             # track block arity at AOT time; -1 is MRI's default for

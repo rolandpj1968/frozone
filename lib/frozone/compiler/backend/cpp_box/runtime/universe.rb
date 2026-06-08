@@ -94,17 +94,17 @@ module Frozone
               "// NoMethodError; user classes that `def method_missing`",
               "// override it via normal vtable lookup. args is",
               "// `[Symbol.method_name, *original_args]`.",
-              "virtual BasicObject* m_method_missing(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance());",
+              "virtual BasicObject* m_method_missing(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance());",
               "// m_const_missing — same shape but for constants (raised",
               "// from Module's c_X overrides). Default throws NameError.",
-              "virtual BasicObject* m_const_missing(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance());",
+              "virtual BasicObject* m_const_missing(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance());",
               "// constant_typeerror — BasicObject's default for c_X. Raised",
               "// when the receiver isn't a Module/Class at all (TypeError).",
               "// Distinct from m_const_missing — `nil::FOO` is unrecoverable;",
               "// user-overridable const_missing only fires for actual modules.",
               "virtual BasicObject* constant_typeerror(const char* const_name);",
               "// == default — pointer identity (BasicObject#==).",
-              "virtual BasicObject* op_eq_q(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) {",
+              "virtual BasicObject* op_eq_q(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) {",
               "  return boxed_bool(this == array_at(args, 0));",
               "}",
               "// m_hash_value — C++-internal hook for std::unordered_map<BasicObject*,…>.",
@@ -112,19 +112,19 @@ module Frozone
               "virtual std::size_t m_hash_value() const { return reinterpret_cast<std::size_t>(this); }",
               "// equal? — pointer identity (BasicObject#equal?). Distinct from",
               "// `==` which subclasses often override for value equality.",
-              "virtual BasicObject* mm_equal_q(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) {",
+              "virtual BasicObject* mm_equal_q(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) {",
               "  return boxed_bool(this == array_at(args, 0));",
               "}",
               "// __id__ — pointer cast as integer. Closed-world: each",
               "// object has a unique address; that's the id. Note that",
               "// Ruby's #object_id is on Kernel, not BasicObject.",
-              "virtual BasicObject* m___id__(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) {",
+              "virtual BasicObject* m___id__(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) {",
               "  return int_box(reinterpret_cast<std::int64_t>(this));",
               "}",
               "// initialize default — no-op returning self. User classes",
               "// override; eigenclass m_new always invokes this after",
               "// allocating the new instance.",
-              "virtual BasicObject* m_initialize(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) {",
+              "virtual BasicObject* m_initialize(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) {",
               "  return this;",
               "}",
               "// __class_id__ — closed-world class identity. Returns -1",
@@ -176,39 +176,39 @@ module Frozone
               "BasicObject* iv_instance_variables_hash = nil_instance();",
               "BasicObject* iv_frozen_object = nil_instance();",
               "// === defaults to ==. Module/Class override for `Class === obj`.",
-              "virtual BasicObject* op_case_eq(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
-              "  return op_eq_q(args, kwargs, block);",
+              "virtual BasicObject* op_case_eq(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
+              "  return op_eq_q(univ, args, kwargs, block);",
               "}",
               "// nil? defaults to false; NilClass overrides to true.",
-              "virtual BasicObject* mm_nil_q(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
+              "virtual BasicObject* mm_nil_q(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
               "  return false_instance();",
               "}",
               "// freeze / frozen? — we don't enforce frozen state, so",
               "// these are no-ops returning self / false. Lots of core",
               "// code calls .freeze on initialization; this stays cheap.",
-              "virtual BasicObject* m_freeze(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
+              "virtual BasicObject* m_freeze(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
               "  return this;",
               "}",
-              "virtual BasicObject* mm_frozen_q(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
+              "virtual BasicObject* mm_frozen_q(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
               "  return false_instance();",
               "}",
               "// object_id — Kernel#object_id. Same value as __id__.",
-              "virtual BasicObject* m_object_id(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
-              "  return m___id__(args, kwargs, block);",
+              "virtual BasicObject* m_object_id(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
+              "  return m___id__(univ, args, kwargs, block);",
               "}",
               "// is_a? / kind_of? / instance_of? — closed-world LUT. mm_is_a_q",
               "// body is emitted out-of-line by class_emitter (write_is_a_lut)",
               "// once all classes are complete.",
-              "virtual BasicObject* mm_is_a_q(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override;",
+              "virtual BasicObject* mm_is_a_q(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override;",
               "// send / __send__ — METHOD_VT-based dispatch. Out-of-line body",
               "// emitted by class_emitter (write_send_body) once Array is complete.",
-              "virtual BasicObject* m_send(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override;",
-              "virtual BasicObject* m___send__(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override;",
-              "virtual BasicObject* mm_kind_of_q(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
-              "  return mm_is_a_q(args, kwargs, block);",
+              "virtual BasicObject* m_send(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override;",
+              "virtual BasicObject* m___send__(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override;",
+              "virtual BasicObject* mm_kind_of_q(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
+              "  return mm_is_a_q(univ, args, kwargs, block);",
               "}",
-              "virtual BasicObject* mm_instance_of_q(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
-              "  return boxed_bool(m_class(args, kwargs, block) == array_at(args, 0));",
+              "virtual BasicObject* mm_instance_of_q(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
+              "  return boxed_bool(m_class(univ, args, kwargs, block) == array_at(args, 0));",
               "}",
             ],
             hand_coded_method_names: %w[
@@ -295,7 +295,7 @@ module Frozone
               # bypassing any user `def self.allocate` (e.g. Thread.allocate
               # raises). Universal-sig matches the auto-emit form so the
               # override resolves; args/kwargs/block ignored. Default aborts.
-              "virtual BasicObject* m_raw_allocate(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) {",
+              "virtual BasicObject* m_raw_allocate(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) {",
               %(  std::fprintf(stderr, "[box-first] m_raw_allocate called on non-class %s\\n", ruby_class_name());),
               "  std::abort();",
               "}",
@@ -571,7 +571,7 @@ module Frozone
                   if (args->data.size() == 2) {
                     start = coerce_to_int(args->data[0]);
                     len   = coerce_to_int(args->data[1]);
-                  } else if (args->data[0] && args->data[0]->m_class() == (BasicObject*)(&Range_CLASS)) {
+                  } else if (args->data[0] && args->data[0]->m_class(univ) == (BasicObject*)(&Range_CLASS)) {
                     auto* r = static_cast<Range*>(args->data[0]);
                     // Beginless `(..n)` → start = 0; endless `(n..)` →
                     // stop = sz. Beginless+endless `(..)` → whole array.
@@ -702,7 +702,7 @@ module Frozone
                 body: <<~CPP.chomp,
                   if (args->data.empty()) return this;
                   BasicObject* arg0 = args->data[0];
-                  if (arg0->m_class() == (BasicObject*)(&Array_CLASS)) {
+                  if (arg0->m_class(univ) == (BasicObject*)(&Array_CLASS)) {
                     data = static_cast<Array*>(arg0)->data;
                     return this;
                   }
@@ -711,7 +711,7 @@ module Frozone
                     auto* _b = static_cast<Proc*>(block);
                     data.reserve(n);
                     for (int64_t i = 0; i < n; i++) {
-                      data.push_back(_b->m_call((new Array({(new Integer(i))}))));
+                      data.push_back(_b->m_call(univ, new Array({(new Integer(i))})));
                     }
                   } else {
                     BasicObject* fill = args->data.size() >= 2 ? args->data[1] : nil_instance();
@@ -990,9 +990,9 @@ module Frozone
               # See docs/box-first-optimization.md §5 for the design
               # context and Proc-flavor laxness rules embedded in the
               # cross-arity adapters.
-              "virtual BasicObject* call0() { return m_call(&EMPTY_ARGS, &EMPTY_KWARGS, nil_instance()); }",
-              "virtual BasicObject* call1(BasicObject* a) { Array _t; _t.data.push_back(a); return m_call(&_t, &EMPTY_KWARGS, nil_instance()); }",
-              "virtual BasicObject* call2(BasicObject* a, BasicObject* b) { Array _t; _t.data.push_back(a); _t.data.push_back(b); return m_call(&_t, &EMPTY_KWARGS, nil_instance()); }",
+              "virtual BasicObject* call0() { return m_call(univ, &EMPTY_ARGS, &EMPTY_KWARGS, nil_instance()); }",
+              "virtual BasicObject* call1(BasicObject* a) { Array _t; _t.data.push_back(a); return m_call(univ, &_t, &EMPTY_KWARGS, nil_instance()); }",
+              "virtual BasicObject* call2(BasicObject* a, BasicObject* b) { Array _t; _t.data.push_back(a); _t.data.push_back(b); return m_call(univ, &_t, &EMPTY_KWARGS, nil_instance()); }",
             ],
             overrides: {
               "m_call" => { params: [], body: "return fn_(args, kwargs);" },
@@ -1108,7 +1108,7 @@ module Frozone
               "    if (by_identity && *by_identity) return a == b;",
               "    Array tmp;",
               "    tmp.data.push_back(b);",
-              "    return a->op_eq_q(&tmp) == true_instance();",
+              "    return a->op_eq_q(univ, &tmp) == true_instance();",
               "  }",
               "};",
               "using map_t = std::unordered_map<",
@@ -1593,7 +1593,7 @@ module Frozone
               body: <<~CPP.chomp,
                 #{klass.name}* obj = new #{klass.name}();
                 g_caller_self = nullptr;
-                obj->m_initialize(args, kwargs, block);
+                obj->m_initialize(univ, args, kwargs, block);
                 return obj;
               CPP
             }
@@ -1758,7 +1758,7 @@ module Frozone
             signature: "[[noreturn]] void throw_not_implemented(const char* msg)",
             body: <<~CPP.chomp,
               throw static_cast<Exception*>(
-                (&NotImplementedError_CLASS)->m_new(new Array({static_cast<BasicObject*>(
+                (&NotImplementedError_CLASS)->m_new(univ, new Array({static_cast<BasicObject*>(
                   new String(msg, std::strlen(msg))
                 )}))
               );
@@ -1784,7 +1784,7 @@ module Frozone
               if (n < 0) n = 0;
               if (n >= (int)sizeof(buf)) n = (int)sizeof(buf) - 1;
               throw static_cast<Exception*>(
-                (&ArgumentError_CLASS)->m_new(new Array({static_cast<BasicObject*>(new String(buf, n))}))
+                (&ArgumentError_CLASS)->m_new(univ, new Array({static_cast<BasicObject*>(new String(buf, n))}))
               );
             CPP
           )
@@ -1840,7 +1840,7 @@ module Frozone
               msg->bytes.insert(msg->bytes.end(), name, name + nlen);
               msg->bytes.insert(msg->bytes.end(), mid, mid + sizeof(mid) - 1);
               msg->bytes.insert(msg->bytes.end(), cn, cn + clen);
-              throw static_cast<Exception*>((&NoMethodError_CLASS)->m_new(
+              throw static_cast<Exception*>((&NoMethodError_CLASS)->m_new(univ, 
                 new Array({static_cast<BasicObject*>(msg)})));
             CPP
           )
@@ -1860,7 +1860,7 @@ module Frozone
               msg->bytes.insert(msg->bytes.end(), name, name + nlen);
               msg->bytes.insert(msg->bytes.end(), mid, mid + sizeof(mid) - 1);
               msg->bytes.insert(msg->bytes.end(), cn, cn + clen);
-              throw static_cast<Exception*>((&NoMethodError_CLASS)->m_new(
+              throw static_cast<Exception*>((&NoMethodError_CLASS)->m_new(univ, 
                 new Array({static_cast<BasicObject*>(msg)})));
             CPP
           )
@@ -1872,19 +1872,19 @@ module Frozone
           THROW_INDEX_ERROR_FN = KernelFn.new(
             name: "throw_index_error",
             signature: "[[noreturn]] void throw_index_error(const char* msg)",
-            body: %(throw static_cast<Exception*>((&IndexError_CLASS)->m_new(new Array({static_cast<BasicObject*>(new String(msg))})));),
+            body: %(throw static_cast<Exception*>((&IndexError_CLASS)->m_new(univ, new Array({static_cast<BasicObject*>(new String(msg))})));),
           )
 
           THROW_TYPE_ERROR_FN = KernelFn.new(
             name: "throw_type_error",
             signature: "[[noreturn]] void throw_type_error(const char* msg)",
-            body: %(throw static_cast<Exception*>((&TypeError_CLASS)->m_new(new Array({static_cast<BasicObject*>(new String(msg))})));),
+            body: %(throw static_cast<Exception*>((&TypeError_CLASS)->m_new(univ, new Array({static_cast<BasicObject*>(new String(msg))})));),
           )
 
           THROW_RANGE_ERROR_FN = KernelFn.new(
             name: "throw_range_error",
             signature: "[[noreturn]] void throw_range_error(const char* msg)",
-            body: %(throw static_cast<Exception*>((&RangeError_CLASS)->m_new(new Array({static_cast<BasicObject*>(new String(msg))})));),
+            body: %(throw static_cast<Exception*>((&RangeError_CLASS)->m_new(univ, new Array({static_cast<BasicObject*>(new String(msg))})));),
           )
 
           BUILD_INT_ARRAY_FN = KernelFn.new(
@@ -1941,13 +1941,13 @@ module Frozone
             name: "splat_to_array",
             signature: "Array* splat_to_array(BasicObject* x)",
             body: <<~CPP.chomp,
-              if (x->m_class() == (BasicObject*)(&Array_CLASS)) return static_cast<Array*>(x);
+              if (x->m_class(univ) == (BasicObject*)(&Array_CLASS)) return static_cast<Array*>(x);
               if (x == nil_instance()) return new Array();
-              if (truthy(x->mm_is_a_q(new Array({(BasicObject*)(&Array_CLASS)})))) {
+              if (truthy(x->mm_is_a_q(univ, new Array({(BasicObject*)(&Array_CLASS)})))) {
                 return static_cast<Array*>(x);
               }
-              BasicObject* coerced = x->m_to_a();
-              if (coerced && coerced->m_class() == (BasicObject*)(&Array_CLASS)) {
+              BasicObject* coerced = x->m_to_a(univ);
+              if (coerced && coerced->m_class(univ) == (BasicObject*)(&Array_CLASS)) {
                 return static_cast<Array*>(coerced);
               }
               Array* r = new Array();
@@ -1968,7 +1968,7 @@ module Frozone
             body: <<~CPP.chomp,
               Array* arr = splat_to_array(classes);
               for (BasicObject* cls : arr->data) {
-                if (truthy(e_->mm_is_a_q(new Array({cls})))) return true;
+                if (truthy(e_->mm_is_a_q(univ, new Array({cls})))) return true;
               }
               return false;
             CPP
@@ -2024,14 +2024,14 @@ module Frozone
             name: "coerce_to_int",
             signature: "int64_t coerce_to_int(BasicObject* v)",
             body: <<~CPP.chomp,
-              if (v && v->m_class() == (BasicObject*)(&Integer_CLASS)) return static_cast<Integer*>(v)->raw_;
+              if (v && v->m_class(univ) == (BasicObject*)(&Integer_CLASS)) return static_cast<Integer*>(v)->raw_;
               // Only dispatch m_to_int if the receiver actually responds.
               // Otherwise the universal-vtable fallthrough raises
               // NoMethodError, which masks the TypeError MRI expects
               // (Array#[] with a non-coercible index, etc.).
-              if (v && v != nil_instance() && v->mm_respond_to_q(new Array({intern("to_int")})) == true_instance()) {
-                BasicObject* r = v->m_to_int();
-                if (r && r->m_class() == (BasicObject*)(&Integer_CLASS)) return static_cast<Integer*>(r)->raw_;
+              if (v && v != nil_instance() && v->mm_respond_to_q(univ, new Array({intern("to_int")})) == true_instance()) {
+                BasicObject* r = v->m_to_int(univ);
+                if (r && r->m_class(univ) == (BasicObject*)(&Integer_CLASS)) return static_cast<Integer*>(r)->raw_;
               }
               const char* cn = v ? v->ruby_class_name() : "nil";
               std::size_t cnlen = std::strlen(cn);
@@ -2044,7 +2044,7 @@ module Frozone
               msg->bytes.insert(msg->bytes.end(), suffix, suffix + sizeof(suffix) - 1);
               Array* mm_args = new Array();
               mm_args->data.push_back(static_cast<BasicObject*>(msg));
-              throw static_cast<Exception*>((&TypeError_CLASS)->m_new(mm_args));
+              throw static_cast<Exception*>((&TypeError_CLASS)->m_new(univ, mm_args));
             CPP
           )
 
@@ -2072,7 +2072,7 @@ module Frozone
               mm_args->data.reserve(args->data.size() + 1);
               mm_args->data.push_back(intern(method_name));
               for (auto* a : args->data) mm_args->data.push_back(a);
-              return recv->m_method_missing(mm_args, kwargs, block);
+              return recv->m_method_missing(univ, mm_args, kwargs, block);
             CPP
           )
 
@@ -2086,7 +2086,7 @@ module Frozone
             body: <<~CPP.chomp,
               Array* cm_args = new Array();
               cm_args->data.push_back(intern(const_name));
-              return recv->m_const_missing(cm_args);
+              return recv->m_const_missing(univ, cm_args);
             CPP
           )
 
@@ -2317,7 +2317,7 @@ module Frozone
                   if (std::memcmp(hay + i, nee, nee_n) == 0) {
                     BasicObject* match_str = new String(reinterpret_cast<const char*>(nee), nee_n);
                     if (has_block) {
-                      block_proc->m_call((new Array({match_str})));
+                      block_proc->m_call(univ, new Array({match_str}));
                     } else {
                       results->data.push_back(match_str);
                     }
@@ -2375,7 +2375,7 @@ module Frozone
                   }
 
                   if (has_block) {
-                    block_proc->m_call((new Array({this_result})));
+                    block_proc->m_call(univ, new Array({this_result}));
                   } else {
                     results->data.push_back(this_result);
                   }

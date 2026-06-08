@@ -33,7 +33,7 @@ inline BasicObject* intrinsic_random_new(BasicObject* /*receiver*/, BasicObject*
   init_args->data.push_back(seed == nil_instance()
                               ? static_cast<BasicObject*>(new Integer(static_cast<int64_t>(s)))
                               : seed);
-  obj->m_initialize(init_args, &EMPTY_KWARGS, nil_instance());
+  obj->m_initialize(univ, init_args, &EMPTY_KWARGS, nil_instance());
   // Also keep per_obj populated so intrinsic_random_rand (the path
   // used by `Random.rand` class method and any code that calls the
   // intrinsic directly) keeps working too.
@@ -62,7 +62,7 @@ inline BasicObject* intrinsic_random_rand(BasicObject* v, BasicObject* n) {
   // Random#rand passes n through directly, so n could be Integer,
   // Float, Range, or anything else. Branch on the actual class
   // rather than guessing.
-  if (n->m_class() == reinterpret_cast<BasicObject*>(&Integer_CLASS)) {
+  if (n->m_class(univ) == reinterpret_cast<BasicObject*>(&Integer_CLASS)) {
     int64_t bound = static_cast<Integer*>(n)->raw_;
     if (bound <= 0) {
       std::fprintf(stderr, "[box-first] random_rand: bound must be positive\n");
@@ -71,7 +71,7 @@ inline BasicObject* intrinsic_random_rand(BasicObject* v, BasicObject* n) {
     std::uniform_int_distribution<int64_t> dist(0, bound - 1);
     return new Integer(dist(rng));
   }
-  if (n->m_class() == reinterpret_cast<BasicObject*>(&Float_CLASS)) {
+  if (n->m_class(univ) == reinterpret_cast<BasicObject*>(&Float_CLASS)) {
     double bound = static_cast<Float*>(n)->raw_;
     std::uniform_real_distribution<double> dist(0.0, bound);
     return new Float(dist(rng));

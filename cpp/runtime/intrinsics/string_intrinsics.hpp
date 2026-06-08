@@ -50,13 +50,13 @@ inline BasicObject* intrinsic_string_index(BasicObject* self_, BasicObject* sub,
   if (_off < 0) _off = std::max<std::int64_t>(0, _clen + _off);
   if (_off > _clen) return nil_instance();
   std::int64_t _boff = _bytewise ? _off : static_cast<std::int64_t>(str_char_to_byte(_s, _off));
-  if (sub->m_class() == reinterpret_cast<BasicObject*>(&Regexp_CLASS)) {
+  if (sub->m_class(univ) == reinterpret_cast<BasicObject*>(&Regexp_CLASS)) {
     auto* _md = regexp_match_helper(sub, _s, _boff);
     if (!_md) return nil_instance();
     std::int64_t _bm = _md->captures_[0].first;
     return new Integer(_bytewise ? _bm : str_byte_to_char(_s, static_cast<std::size_t>(_bm)));
   }
-  if (sub->m_class() != reinterpret_cast<BasicObject*>(&String_CLASS)) {
+  if (sub->m_class(univ) != reinterpret_cast<BasicObject*>(&String_CLASS)) {
     std::fprintf(stderr, "[frozone-box-first] string_index: non-String/Regexp sub not yet supported\n");
     std::abort();
   }
@@ -139,7 +139,7 @@ inline BasicObject* intrinsic_string_slice(BasicObject* self_, BasicObject* idx,
     _out->enc = _ss->enc;
     return _out;
   }
-  if (idx->m_class() != reinterpret_cast<BasicObject*>(&Integer_CLASS)) {
+  if (idx->m_class(univ) != reinterpret_cast<BasicObject*>(&Integer_CLASS)) {
     std::fprintf(stderr, "[frozone-box-first] string_slice: non-Integer/Range/Regexp/String idx not yet supported (got %s)\n",
                  idx->ruby_class_name());
     std::abort();
@@ -281,7 +281,7 @@ inline BasicObject* intrinsic_string_split(BasicObject* self_, BasicObject* sep,
     }
     return _r;
   }
-  if (sep->m_class() != reinterpret_cast<BasicObject*>(&String_CLASS)) {
+  if (sep->m_class(univ) != reinterpret_cast<BasicObject*>(&String_CLASS)) {
     std::fprintf(stderr, "[frozone-box-first] string_split: non-String/nil sep not yet supported\n");
     std::abort();
   }
@@ -472,17 +472,17 @@ inline BasicObject* intrinsic_string_inspect(BasicObject* self_) {
 // when a real test case demands more (precision/width/flags etc.).
 inline BasicObject* intrinsic_string_format(BasicObject* self_, BasicObject* args) {
   auto* _tmpl = static_cast<String*>(self_);
-  auto* _hash = (args->m_class() == reinterpret_cast<BasicObject*>(&Hash_CLASS))
+  auto* _hash = (args->m_class(univ) == reinterpret_cast<BasicObject*>(&Hash_CLASS))
                     ? static_cast<Hash*>(args) : nullptr;
-  auto* _arr  = (args->m_class() == reinterpret_cast<BasicObject*>(&Array_CLASS))
+  auto* _arr  = (args->m_class(univ) == reinterpret_cast<BasicObject*>(&Array_CLASS))
                     ? static_cast<Array*>(args) : nullptr;
   std::string _out;
   _out.reserve(_tmpl->bytes.size());
   std::size_t _pos_idx = 0;
   std::size_t i = 0;
   auto append_to_s = [&](BasicObject* v) {
-    auto* _s = v->m_to_s();
-    if (_s->m_class() == reinterpret_cast<BasicObject*>(&String_CLASS)) {
+    auto* _s = v->m_to_s(univ);
+    if (_s->m_class(univ) == reinterpret_cast<BasicObject*>(&String_CLASS)) {
       auto* _ss = static_cast<String*>(_s);
       _out.append(reinterpret_cast<const char*>(_ss->bytes.data()), _ss->bytes.size());
     }
@@ -577,8 +577,8 @@ inline BasicObject* intrinsic_array_to_s(BasicObject* self_) {
   _buf.push_back('[');
   for (std::size_t _i = 0; _i < _a->data.size(); _i++) {
     if (_i) _buf += ", ";
-    auto* _ins = _a->data[_i]->m_inspect();
-    if (_ins && _ins->m_class() == reinterpret_cast<BasicObject*>(&String_CLASS)) {
+    auto* _ins = _a->data[_i]->m_inspect(univ);
+    if (_ins && _ins->m_class(univ) == reinterpret_cast<BasicObject*>(&String_CLASS)) {
       auto* _str = static_cast<String*>(_ins);
       _buf.append(reinterpret_cast<const char*>(_str->bytes.data()), _str->bytes.size());
     }

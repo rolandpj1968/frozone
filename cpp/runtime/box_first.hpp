@@ -230,7 +230,7 @@ inline std::uint64_t next_frame_id() {
 // Non-public method bodies on P4 names read it in their prologue:
 //   - private:   `if (g_caller_self) raise_private_call(...)`
 //                (MRI's syntactic rule: explicit-other always raises)
-//   - protected: `if (g_caller_self && !g_caller_self->mm_kind_of_q(this->m_class())) raise_protected_call(...)`
+//   - protected: `if (g_caller_self && !g_caller_self->mm_kind_of_q(this->m_class(univ))) raise_protected_call(...)`
 //
 // Public defs on P4 names just ignore it. One store at the call site
 // (~125 P4 names in Frozone's closed world × usage frequency) is much

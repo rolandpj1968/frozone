@@ -315,13 +315,13 @@ module Frozone
               if c.is_a?(Ast::SplatArg)
                 arr_str = emit.cpp.from_expr(c.value_node, locals)
                 if subj
-                  "([&]() -> bool { BasicObject* _sp = #{arr_str}; if (!_sp || typeid(*_sp) != typeid(Array)) return false; for (auto* _e : static_cast<Array*>(_sp)->data) { if (truthy(_e->op_case_eq(new Array({#{subj}})))) return true; } return false; }())"
+                  "([&]() -> bool { BasicObject* _sp = #{arr_str}; if (!_sp || typeid(*_sp) != typeid(Array)) return false; for (auto* _e : static_cast<Array*>(_sp)->data) { if (truthy(_e->op_case_eq(univ, new Array({#{subj}})))) return true; } return false; }())"
                 else
                   "([&]() -> bool { BasicObject* _sp = #{arr_str}; if (!_sp || typeid(*_sp) != typeid(Array)) return false; for (auto* _e : static_cast<Array*>(_sp)->data) { if (truthy(_e)) return true; } return false; }())"
                 end
               else
                 c_str = emit.cpp.from_expr(c, locals)
-                subj ? "truthy(#{c_str}->op_case_eq(new Array({#{subj}})))" : "truthy(#{c_str})"
+                subj ? "truthy(#{c_str}->op_case_eq(univ, new Array({#{subj}})))" : "truthy(#{c_str})"
               end
             }.join(" || ")
           end
@@ -351,7 +351,7 @@ module Frozone
               locals << var
             end
             coll = emit.cpp.from_expr(node.collection_node, locals)
-            emit.line "(#{coll})->m_each(&EMPTY_ARGS, &EMPTY_KWARGS, (new Proc([&, this](Array* __blkargs__, Hash* __blkkwargs__) -> BasicObject* {"
+            emit.line "(#{coll})->m_each(univ, &EMPTY_ARGS, &EMPTY_KWARGS, (new Proc([&, this](Array* __blkargs__, Hash* __blkkwargs__) -> BasicObject* {"
             emit.indented do
               emit.line "#{cpp_var} = __blkargs__->data.empty() ? nil_instance() : __blkargs__->data[0];"
               write_body(emit, node.body_node, locals: locals) if node.body_node
@@ -484,14 +484,14 @@ module Frozone
               name_lit = emit.cpp.cpp_string_literal(canonical)
               emit.line "g_global_set(#{name_lit}, #{value_expr});"
             when :index
-              # `q[i] = v` → q->op_aset(new Array({i, v}), nullptr, nullptr).
+              # `q[i] = v` → q->op_aset(univ, new Array({i, v}), nullptr, nullptr).
               # Index args are kept as exprs (re-evaluated per target); for
               # the typical `arr[lit_or_local]` case this is free. Targets
               # with side-effecting receivers/indices would need pre-eval
               # caching, but no benchmark hits that yet.
               recv_str  = emit.cpp.from_expr(target[1], locals)
               idx_strs  = (target[2] || []).map { |a| emit.cpp.from_arg(a, locals) }
-              emit.line "(void)(#{recv_str})->op_aset(new Array({#{idx_strs.join(", ")}, #{value_expr}}));"
+              emit.line "(void)(#{recv_str})->op_aset(univ, new Array({#{idx_strs.join(", ")}, #{value_expr}}));"
             when :splat_nil
               # Discard — evaluate the value_expr (it might have side effects via array_at) but throw it away.
               emit.line "(void)(#{value_expr});"

@@ -278,7 +278,7 @@ module Frozone
             when Vm::HashObject
               h = "static_cast<Hash*>(#{recv})"
               val.raw.filter_map do |k, v|
-                guard("#{n.accessor} entry") { "#{h}->op_aset(new Array({#{ref_expr(k)}, #{ref_expr(v)}}));" }
+                guard("#{n.accessor} entry") { "#{h}->op_aset(univ, new Array({#{ref_expr(k)}, #{ref_expr(v)}}));" }
               end
             else
               klass = val.class_object.full_name.to_s.gsub("::", "_")

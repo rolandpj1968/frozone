@@ -19,7 +19,7 @@ inline BasicObject* intrinsic_hash_each(BasicObject* self_, BasicObject* block) 
     if (!_k) continue;
     auto _it = _h->data.find(_k);
     if (_it == _h->data.end()) continue;
-    _b->m_call(new Array({_k, _it->second}));
+    _b->m_call(univ, new Array({_k, _it->second}));
   }
   return _h;
 }

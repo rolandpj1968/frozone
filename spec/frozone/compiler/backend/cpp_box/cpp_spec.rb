@@ -155,7 +155,7 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
     # signature rather than spelled at call sites.
     it "binary operator dispatches via op_<op> (defaults elided)" do
       expect(cpp.from_expr(call(:<, lvr(:n), [int(2)]), locals))
-        .to eq("l_n->op_lt((new Array({(&_f_i_2)})))")
+        .to eq("l_n->op_lt(univ, (new Array({(&_f_i_2)})))")
     end
 
     it "puts (no receiver) emits ruby_puts wrapped to return nil_instance" do
@@ -165,7 +165,7 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
 
     it "bare call (no receiver) dispatches through this->m_<name>" do
       expect(cpp.from_expr(call(:fib, nil, [int(20)]), locals))
-        .to eq("this->m_fib((new Array({(&_f_i_20)})))")
+        .to eq("this->m_fib(univ, (new Array({(&_f_i_20)})))")
     end
   end
 
@@ -175,12 +175,12 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
 
     it "user-class .new emits direct C++ instantiation" do
       expect(cpp.from_expr(call(:new, cr(:Box), [int(42)]), locals))
-        .to eq("(&Box_CLASS)->m_new((new Array({(&_f_i_42)})))")
+        .to eq("(&Box_CLASS)->m_new(univ, (new Array({(&_f_i_42)})))")
     end
 
     it "Universe-seeded class .new (Array) — empty args fully elided" do
       expect(cpp.from_expr(call(:new, cr(:Array), []), locals))
-        .to eq("(&Array_CLASS)->m_new()")
+        .to eq("(&Array_CLASS)->m_new(univ)")
     end
   end
 
@@ -229,7 +229,7 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
       foo = A::ConstantRead.new(:Foo)
       path = A::ConstantPath.new(foo, :Bar)
       call = A::MethodCall.new(:new, path, [int(7)], [], nil)
-      expect(cpp.from_expr(call, locals)).to eq("(&Foo_Bar_CLASS)->m_new((new Array({(&_f_i_7)})))")
+      expect(cpp.from_expr(call, locals)).to eq("(&Foo_Bar_CLASS)->m_new(univ, (new Array({(&_f_i_7)})))")
     end
   end
 
@@ -307,7 +307,7 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
       splat = A::SplatArg.new(arr)
       node = A::MethodCall.new(:collect, nil, [splat], [], nil)
       expect(cpp.from_expr(node, locals))
-        .to eq("this->m_collect(splat_to_array(l_arr))")
+        .to eq("this->m_collect(univ, splat_to_array(l_arr))")
     end
 
     it "mixed positional + splat flattens into a fresh Array via lambda" do
@@ -434,7 +434,7 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
       node = A::Case.new(subj, whens, int(0))
       result = cpp.from_expr(node, locals)
       expect(result).to include("auto* _subj = l_x")
-      expect(result).to include("(&_f_i_1)->op_case_eq(new Array({_subj}))")
+      expect(result).to include("(&_f_i_1)->op_case_eq(univ, new Array({_subj}))")
       expect(result).to include("return (&_f_i_10)")
       expect(result).to include("return (&_f_i_0)")
     end
@@ -485,7 +485,7 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
   describe "#from_expr — AttributeWrite (arr[k] = v)" do
     it "emits op_aset vtable call (defaults elided)" do
       expect(cpp.from_expr(aw(:[]=, lvr(:a), [int(0), int(99)]), locals))
-        .to eq("l_a->op_aset((new Array({(&_f_i_0), (&_f_i_99)})))")
+        .to eq("l_a->op_aset(univ, new Array({(&_f_i_0), (&_f_i_99)}))")
     end
   end
 

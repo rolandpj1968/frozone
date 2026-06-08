@@ -47,7 +47,7 @@ inline BasicObject* intrinsic_object_public_send(BasicObject* self_, BasicObject
   g_caller_self = PUBLIC_SEND_SENTINEL;
   Hash* _kw = (kwargs && typeid(*kwargs) == typeid(Hash)) ? static_cast<Hash*>(kwargs) : nullptr;
   Proc* _blk = (block && block->mm_is_a_q_direct(&Proc_CLASS)) ? static_cast<Proc*>(block) : nullptr;
-  return self_->m_send(_full, _kw, _blk);
+  return self_->m_send(univ, _full, _kw, _blk);
 }
 
 // `BasicObject#__send__(name, *args, **kwargs, &block)` — bypasses
@@ -63,7 +63,7 @@ inline BasicObject* intrinsic_basic_object___send__(BasicObject* self_, BasicObj
   g_caller_self = nullptr;
   Hash* _kw = (kwargs && typeid(*kwargs) == typeid(Hash)) ? static_cast<Hash*>(kwargs) : nullptr;
   Proc* _blk = (block && block->mm_is_a_q_direct(&Proc_CLASS)) ? static_cast<Proc*>(block) : nullptr;
-  return self_->m_send(_full, _kw, _blk);
+  return self_->m_send(univ, _full, _kw, _blk);
 }
 
 // `BasicObject#method_missing(name, *args)` — default impl raises
@@ -75,6 +75,6 @@ inline BasicObject* intrinsic_basic_object___send__(BasicObject* self_, BasicObj
   const char* _name = typeid(*name) == typeid(Symbol) ? static_cast<Symbol*>(name)->name_ : "<?>";
   std::string _msg = std::string("undefined method '") + _name + "'";
   throw static_cast<Exception*>(
-      (&NoMethodError_CLASS)->m_new(new Array({static_cast<BasicObject*>(new String(_msg.data(), _msg.size()))})));
+      (&NoMethodError_CLASS)->m_new(univ, new Array({static_cast<BasicObject*>(new String(_msg.data(), _msg.size()))})));
 }
 #endif  // FROZONE_OBJECT_INTRINSICS_HPP

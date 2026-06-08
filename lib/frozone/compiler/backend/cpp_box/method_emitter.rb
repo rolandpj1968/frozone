@@ -72,7 +72,7 @@ module Frozone
               blk = sig.has_block ? ["Proc* /*block*/"] : []
               emit.line "virtual BasicObject* #{cpp_name}(#{(pos + kw + blk).join(', ')}) {"
             else
-              emit.line "virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) {"
+              emit.line "virtual BasicObject* #{cpp_name}(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) {"
             end
             abort_body.call
           end
@@ -97,7 +97,7 @@ module Frozone
               emit_body_with_frame(emit, method.body, locals, needs_frame: needs_frame)
             end
             end
-            emit.line "virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) {"
+            emit.line "virtual BasicObject* #{cpp_name}(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) {"
             emit.indented { body_buf.each_line { |l| emit.line l.chomp } }
             emit.line "}"
           end
@@ -321,7 +321,7 @@ module Frozone
 
           # User-named locals/params live in the `l_*` namespace —
           # `def foo(args, block); args.length; end` lowers to
-          # `BasicObject* l_args = array_at(args, 0); l_args->m_length();`
+          # `BasicObject* l_args = array_at(args, 0); l_args->m_length(univ);`
           # so it can never collide with the universal-protocol slots
           # (`args`, `kwargs`, `block`) or with C++ keywords. C++ doesn't
           # reserve `l_class` / `l_enum` / etc., so the prefix subsumes
@@ -601,7 +601,7 @@ module Frozone
             when :protected
               # Protected bodies: public_send → raise; explicit-other →
               # kind_of? check; nullptr → allow.
-              "{ auto* _cs = g_caller_self; g_caller_self = nullptr; if (_cs == PUBLIC_SEND_SENTINEL || (_cs != nullptr && !truthy(_cs->mm_kind_of_q(new Array({this->m_class()}))))) raise_protected_call(this, #{name.to_s.inspect}); }\n"
+              "{ auto* _cs = g_caller_self; g_caller_self = nullptr; if (_cs == PUBLIC_SEND_SENTINEL || (_cs != nullptr && !truthy(_cs->mm_kind_of_q(univ, new Array({this->m_class(univ)}))))) raise_protected_call(this, #{name.to_s.inspect}); }\n"
             when :public
               # Public bodies still need to clear so internal C++ calls
               # to private methods see the privileged state. Bare store

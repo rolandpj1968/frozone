@@ -461,7 +461,7 @@ module Frozone
               %|([&]() -> BasicObject* { auto* _r = #{recv_str}; raise_private_call(_r, #{cpp_string_literal(@vis_check_name.to_s)}); }())|
             when :p3
               # All-protected: caller's self must kind_of? receiver's class.
-              %|([&]() -> BasicObject* { auto* _r = #{recv_str}; if (!truthy(this->mm_kind_of_q(new Array({_r->m_class()})))) raise_protected_call(_r, #{cpp_string_literal(@vis_check_name.to_s)}); return _r; }())|
+              %|([&]() -> BasicObject* { auto* _r = #{recv_str}; if (!truthy(this->mm_kind_of_q(univ, new Array({_r->m_class(univ)})))) raise_protected_call(_r, #{cpp_string_literal(@vis_check_name.to_s)}); return _r; }())|
             else
               recv_str
             end
@@ -788,7 +788,9 @@ module Frozone
           def call_tail(args_str, kwargs_str, block_str)
             parts = [args_str, kwargs_str, block_str]
             parts.pop while parts.size > 0 && DEFAULT_TRAILING_PARTS.include?(parts.last)
-            "(#{parts.join(", ")})"
+            # UnivTag fence: every universal-vtable call gets `univ` as
+            # first arg. Trailing positional defaults still drop.
+            "(univ#{parts.empty? ? '' : ', ' + parts.join(', ')})"
           end
 
           # Compose the full universal-protocol call expression.
@@ -816,11 +818,11 @@ module Frozone
           # explicit form disambiguates against the per-arity overloads
           # and keeps the gen output stable.
           def univ_call_explicit(recv_expr, method, args_str, kwargs_str, block_str)
-            "#{recv_expr}->#{method}(#{args_str}, #{kwargs_str}, #{block_str})"
+            "#{recv_expr}->#{method}(univ, #{args_str}, #{kwargs_str}, #{block_str})"
           end
 
           def univ_call_explicit_tail(method, args_str, kwargs_str, block_str)
-            "->#{method}(#{args_str}, #{kwargs_str}, #{block_str})"
+            "->#{method}(univ, #{args_str}, #{kwargs_str}, #{block_str})"
           end
 
           # Build the args Array for a call. Cases:
@@ -933,7 +935,7 @@ module Frozone
               return "_block->call2(#{args[0]}, #{args[1]})" if args.length == 2
             end
             args_expr = args.empty? ? "&EMPTY_ARGS" : "new Array({#{args.join(", ")}})"
-            return "_block->m_call(#{args_expr})" unless has_kw
+            return "_block->m_call(univ, #{args_expr})" unless has_kw
             # Use Hash::put rather than raw data[k] = v — keeps insertion-
             # order vector + order_idx in sync. Direct data[] bypasses
             # those, and downstream **rest extraction (which iterates
@@ -944,7 +946,7 @@ module Frozone
               "_kw->put(intern(#{key_lit}), #{from_expr(v_node, locals)});"
             end
             kw_expr = "[&]() -> Hash* { Hash* _kw = new Hash(); #{kw_pairs.join(' ')} return _kw; }()"
-            "_block->m_call(#{args_expr}, #{kw_expr})"
+            "_block->m_call(univ, #{args_expr}, #{kw_expr})"
           end
 
           # C++ argument-list string for a method-call lowering. NA-direct
@@ -962,8 +964,12 @@ module Frozone
             if na_sig && na_sig.arity_req == args.length && na_sig.required_kw_names.empty?
               args.join(", ")
             else
-              inner = "new Array({#{args.join(", ")}})"
-              wrap_parens ? "(#{inner})" : inner
+              # UnivTag fence: universal path emits `univ, new Array(...)`.
+              # wrap_parens kept as a no-op flag (the caller's own `()`
+              # provides the necessary parens; an extra wrap would create
+              # a comma-expression that silently drops `univ`).
+              _ = wrap_parens
+              "univ, new Array({#{args.join(", ")}})"
             end
           end
 
@@ -1015,7 +1021,7 @@ module Frozone
             # `recv->aref(idx) op val` → `recv->aset(idx, that)`. Op
             # arg shape via na_or_wrap_args.
             op_arg = na_or_wrap_args(op, [val_str])
-            "([&]() -> BasicObject* { auto* #{recv_t} = #{recv_str}; auto* _idx = #{idx_array}; return #{recv_t}->op_aset(new Array({#{idx_strs.join(", ")}, #{recv_t}->op_aref(_idx)->#{cpp_op}(#{op_arg})})); }())"
+            "([&]() -> BasicObject* { auto* #{recv_t} = #{recv_str}; auto* _idx = #{idx_array}; return #{recv_t}->op_aset(univ, new Array({#{idx_strs.join(", ")}, #{recv_t}->op_aref(univ, _idx)->#{cpp_op}(#{op_arg})})); }())"
           end
 
           # `recv[idx] ||= val` — read once, return if truthy, else
@@ -1031,7 +1037,7 @@ module Frozone
             cur_t = "__iorw_cur_#{tag}__"
             new_t = "__iorw_new_#{tag}__"
             idx_array = "(new Array({#{idx_strs.join(", ")}}))"
-            "([&]() -> BasicObject* { auto* #{recv_t} = #{recv_str}; auto* #{cur_t} = #{recv_t}->op_aref(#{idx_array}); if (truthy(#{cur_t})) return #{cur_t}; auto* #{new_t} = #{val_str}; #{recv_t}->op_aset(new Array({#{idx_strs.join(", ")}, #{new_t}})); return #{new_t}; }())"
+            "([&]() -> BasicObject* { auto* #{recv_t} = #{recv_str}; auto* #{cur_t} = #{recv_t}->op_aref(univ, #{idx_array}); if (truthy(#{cur_t})) return #{cur_t}; auto* #{new_t} = #{val_str}; #{recv_t}->op_aset(univ, new Array({#{idx_strs.join(", ")}, #{new_t}})); return #{new_t}; }())"
           end
 
           # `recv[idx] &&= val` — read once, return if falsy, else
@@ -1045,7 +1051,7 @@ module Frozone
             cur_t = "__iaw_cur_#{tag}__"
             new_t = "__iaw_new_#{tag}__"
             idx_array = "(new Array({#{idx_strs.join(", ")}}))"
-            "([&]() -> BasicObject* { auto* #{recv_t} = #{recv_str}; auto* #{cur_t} = #{recv_t}->op_aref(#{idx_array}); if (!truthy(#{cur_t})) return #{cur_t}; auto* #{new_t} = #{val_str}; #{recv_t}->op_aset(new Array({#{idx_strs.join(", ")}, #{new_t}})); return #{new_t}; }())"
+            "([&]() -> BasicObject* { auto* #{recv_t} = #{recv_str}; auto* #{cur_t} = #{recv_t}->op_aref(univ, #{idx_array}); if (!truthy(#{cur_t})) return #{cur_t}; auto* #{new_t} = #{val_str}; #{recv_t}->op_aset(univ, new Array({#{idx_strs.join(", ")}, #{new_t}})); return #{new_t}; }())"
           end
 
           # `recv.b ||= val` — read recv.b once; return it if truthy;
@@ -1199,9 +1205,9 @@ module Frozone
               part_str = if part.is_a?(Ast::StringLiteral)
                            from_string_literal(part)
                          else
-                           "#{from_expr(part, locals)}->m_to_s()"
+                           "#{from_expr(part, locals)}->m_to_s(univ)"
                          end
-              chain << "->op_plus(new Array({#{part_str}}))"
+              chain << "->op_plus(univ, new Array({#{part_str}}))"
             end
             "(#{chain})"
           end
@@ -1411,7 +1417,7 @@ module Frozone
               end
             # Direct C++ method call — bypasses the usual virtual
             # dispatch since we resolved the target at AOT time.
-            "this->#{qualifier_class}::#{cpp_name}(#{args_expr}, #{kwargs_expr}, #{block_expr})"
+            "this->#{qualifier_class}::#{cpp_name}(univ, #{args_expr}, #{kwargs_expr}, #{block_expr})"
           end
 
           # Box-first global variable reads. Match-data globals stay
@@ -1467,7 +1473,7 @@ module Frozone
           def from_regexp_literal(node)
             src_bytes = node.source.to_s.bytes
             literal = "(new String(#{cpp_string_literal(node.source.to_s)}, #{src_bytes.size}))"
-            "([&]() -> BasicObject* { Regexp* _re = new Regexp(); Array* _a = new Array({static_cast<BasicObject*>(#{literal}), static_cast<BasicObject*>(new Integer(#{node.flags.to_i}))}); _re->m_initialize(_a); return _re; }())"
+            "([&]() -> BasicObject* { Regexp* _re = new Regexp(); Array* _a = new Array({static_cast<BasicObject*>(#{literal}), static_cast<BasicObject*>(new Integer(#{node.flags.to_i}))}); _re->m_initialize(univ, _a); return _re; }())"
           end
 
           # `/foo#{bar}baz/` — build the source String at runtime by
@@ -1482,11 +1488,11 @@ module Frozone
               part_str = if part.is_a?(Ast::StringLiteral)
                            from_string_literal(part)
                          else
-                           "#{from_expr(part, locals)}->m_to_s()"
+                           "#{from_expr(part, locals)}->m_to_s(univ)"
                          end
-              chain << "->op_plus(new Array({#{part_str}}))"
+              chain << "->op_plus(univ, new Array({#{part_str}}))"
             end
-            "([&]() -> BasicObject* { Regexp* _re = new Regexp(); Array* _a = new Array({static_cast<BasicObject*>(#{chain}), static_cast<BasicObject*>(new Integer(#{node.flags.to_i}))}); _re->m_initialize(_a); return _re; }())"
+            "([&]() -> BasicObject* { Regexp* _re = new Regexp(); Array* _a = new Array({static_cast<BasicObject*>(#{chain}), static_cast<BasicObject*>(new Integer(#{node.flags.to_i}))}); _re->m_initialize(univ, _a); return _re; }())"
           end
 
           # Float literal — Ruby's Float::INFINITY / Float::NAN
@@ -1517,7 +1523,7 @@ module Frozone
             when Vm::RegexpObject
               src = val.raw.source
               flags = val.raw.options
-              "([&]() -> BasicObject* { Regexp* _re = new Regexp(); Array* _a = new Array({static_cast<BasicObject*>((new String(#{cpp_string_literal(src)}, #{src.bytesize}))), static_cast<BasicObject*>(new Integer(#{flags}))}); _re->m_initialize(_a); return _re; }())"
+              "([&]() -> BasicObject* { Regexp* _re = new Regexp(); Array* _a = new Array({static_cast<BasicObject*>((new String(#{cpp_string_literal(src)}, #{src.bytesize}))), static_cast<BasicObject*>(new Integer(#{flags}))}); _re->m_initialize(univ, _a); return _re; }())"
             when Vm::ClassObject, Vm::ModuleObject
               flat = class_object_to_flat(val)
               raise EmissionError, "emit_leaf: #{val.class.name.split('::').last} #{val.full_name} not in emitted set" unless flat
@@ -1577,7 +1583,7 @@ module Frozone
               # value's source + options (raw.source / raw.options).
               src = val.raw.source
               flags = val.raw.options
-              "([&]() -> BasicObject* { Regexp* _re = new Regexp(); Array* _a = new Array({static_cast<BasicObject*>((new String(#{cpp_string_literal(src)}, #{src.bytesize}))), static_cast<BasicObject*>(new Integer(#{flags}))}); _re->m_initialize(_a); return _re; }())"
+              "([&]() -> BasicObject* { Regexp* _re = new Regexp(); Array* _a = new Array({static_cast<BasicObject*>((new String(#{cpp_string_literal(src)}, #{src.bytesize}))), static_cast<BasicObject*>(new Integer(#{flags}))}); _re->m_initialize(univ, _a); return _re; }())"
             when Vm::ClassObject, Vm::ModuleObject
               flat = class_object_to_flat(val)
               raise EmissionError, "emit_vm_value: #{val.class.name.split('::').last} #{val.full_name} not in emitted set" unless flat

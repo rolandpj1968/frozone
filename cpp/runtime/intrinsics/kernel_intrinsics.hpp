@@ -12,7 +12,7 @@
 // receives the tag as its sole argument.
 inline BasicObject* intrinsic_kernel_catch(BasicObject* /*self_*/, BasicObject* tag, BasicObject* block) {
   try {
-    return static_cast<Proc*>(block)->m_call(new Array({tag}));
+    return static_cast<Proc*>(block)->m_call(univ, new Array({tag}));
   } catch (ThrownTag* _t) {
     if (_t->tag_ == tag) return _t->value_;
     throw;
@@ -75,9 +75,9 @@ inline BasicObject* intrinsic_kernel_rand(BasicObject* /*self_*/, BasicObject* n
   if (!_g) {
     _g = new Random();
     Integer _zero(0);
-    _g->m_initialize(new Array({static_cast<BasicObject*>(&_zero)}));
+    _g->m_initialize(univ, new Array({static_cast<BasicObject*>(&_zero)}));
   }
-  return _g->m_rand(n == nil_instance() ? &EMPTY_ARGS : new Array({n}));
+  return _g->m_rand(univ, n == nil_instance() ? &EMPTY_ARGS : new Array({n}));
 }
 
 // `Kernel#Integer(val, base = nil, exception: true)` — coerce to
@@ -92,7 +92,7 @@ inline BasicObject* intrinsic_kernel_integer(BasicObject* /*self_*/, BasicObject
 inline BasicObject* intrinsic_kernel_float(BasicObject* /*self_*/, BasicObject* val) {
   if (typeid(*val) == typeid(Integer)) return new Float(static_cast<double>(static_cast<Integer*>(val)->raw_));
   if (typeid(*val) == typeid(Float)) return val;
-  return val->m_to_f();
+  return val->m_to_f(univ);
 }
 
 // `Kernel#raise(msg, message, backtrace, cause)`. Common forms: 1-arg
@@ -103,11 +103,11 @@ inline BasicObject* intrinsic_kernel_float(BasicObject* /*self_*/, BasicObject* 
   BasicObject* _exc;
   if (msg->mm_is_a_q_direct(&Class_CLASS)) {
     auto* _k = static_cast<Class*>(msg);
-    _exc = (message == nil_instance()) ? _k->m_new() : _k->m_new(new Array({message}));
+    _exc = (message == nil_instance()) ? _k->m_new(univ) : _k->m_new(univ, new Array({message}));
   } else if (msg->mm_is_a_q_direct(&Exception_CLASS)) {
     _exc = msg;
   } else {
-    _exc = (&RuntimeError_CLASS)->m_new(new Array({msg}));
+    _exc = (&RuntimeError_CLASS)->m_new(univ, new Array({msg}));
   }
   throw static_cast<Exception*>(_exc);
 }
