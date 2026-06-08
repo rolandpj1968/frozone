@@ -237,6 +237,7 @@ module Frozone
             required_kw_for_elig = (block_node.respond_to?(:required_kw_params) ? block_node.required_kw_params : nil) || []
             optional_kw_for_elig = (block_node.respond_to?(:optional_kw_params) ? block_node.optional_kw_params : nil) || []
             kw_rest_for_elig = block_node.respond_to?(:kw_rest_param) ? block_node.kw_rest_param : nil
+            block_param = block_node.respond_to?(:block_param) ? block_node.block_param : nil
 
             # Arity-specialized Proc subclass eligibility — initial shape
             # gate. Final gate (capture check) needs `inner_captured`,
@@ -244,6 +245,7 @@ module Frozone
             specialized_kind = nil
             spec_shape_ok = optional_params.empty? && rest_param.nil? && post_params.empty? &&
                             required_kw_for_elig.empty? && optional_kw_for_elig.empty? && kw_rest_for_elig.nil? &&
+                            block_param.nil? &&
                             params.all? { |p| p.is_a?(Symbol) || p.is_a?(String) } &&
                             params.length <= 2
             # Hash-shaped params are destructure patterns:
@@ -268,6 +270,10 @@ module Frozone
               # itself). Only flat params register here.
               block_locals << p.to_s if p.is_a?(Symbol) || p.is_a?(String)
             end
+            # `|x, &inner_blk|` — block_param is owned by THIS block; track
+            # it in block_locals so the body's local-vs-outer-capture
+            # analysis sees it as a local, not as a captured outer.
+            block_locals << block_param.to_s if block_param
 
             body = block_node.body
 
@@ -280,6 +286,7 @@ module Frozone
             # Compute THIS block's own captured locals (its own params
             # and body decls referenced by its own inner blocks).
             block_param_names = (params + optional_params.map { |n, _| n } + (rest_param ? [rest_param] : []) + post_params).map(&:to_s)
+            block_param_names << block_param.to_s if block_param
             inner_own = Set.new(block_param_names) | Set.new((block_node.respond_to?(:locals) ? (block_node.locals || []) : []).map(&:to_s))
             inner_captured = LambdaEmitter.collect_captured_locals(body, inner_own)
 
@@ -444,6 +451,21 @@ module Frozone
                   # method_emitter.rb's raise_unknown_kw emission.
                   expected_set = (required_kw_params + optional_kw_params.map { |kn, _| kn }).map { |k| "intern(#{k.to_s.inspect})" }.join(", ")
                   emit.line %|for (auto& _kv : __blkkwargs__->data) { Symbol* _k = static_cast<Symbol*>(_kv.first); bool _ok = false; for (auto _e : {#{expected_set}}) { if (_k == _e) { _ok = true; break; } } if (!_ok) raise_unknown_kw(_k->name_); }|
+                end
+                if block_param
+                  # `|x, &inner_blk|` — inner block isn't plumbed through
+                  # the universal Proc call slot yet (would need a 3rd
+                  # param on `(Array*, Hash*)`). Bind to nil for now —
+                  # matches MRI semantics when no block is yielded to
+                  # the block. Sufficient to unblock parse of typical
+                  # `&blk = nil` capture patterns; real plumbing of an
+                  # inner block from yield/m_call is a follow-up.
+                  cpp = MethodEmitter.local_cpp_name(block_param)
+                  if emit.cpp.captured?(block_param)
+                    emit.line "BasicObject** #{cpp} = gc_box<BasicObject*>(static_cast<BasicObject*>(nil_instance()));"
+                  else
+                    emit.line "BasicObject* #{cpp} = nil_instance();"
+                  end
                 end
                 if body
                   emit.cpp.with_in_block do
