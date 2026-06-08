@@ -1057,12 +1057,12 @@ module Frozone
               # the yield site. Hash#each relies on this: it yields `[k, v]`
               # and the block sees `k, v` separately. Same logic as the
               # universal Proc's `__blkargs__` rebind in lambda_emitter.rb.
-              "BasicObject* call1(BasicObject* a) final { if (auto* _arr = dynamic_cast<Array*>(a)) { BasicObject* _x = _arr->data.size() > 0 ? _arr->data[0] : nil_instance(); BasicObject* _y = _arr->data.size() > 1 ? _arr->data[1] : nil_instance(); return fn2_(_x, _y); } return fn2_(a, nil_instance()); }",
+              "BasicObject* call1(BasicObject* a) final { if (typeid(*a) == typeid(Array)) { auto* _arr = static_cast<Array*>(a); BasicObject* _x = _arr->data.size() > 0 ? _arr->data[0] : nil_instance(); BasicObject* _y = _arr->data.size() > 1 ? _arr->data[1] : nil_instance(); return fn2_(_x, _y); } return fn2_(a, nil_instance()); }",
             ],
             overrides: {
               "m_call" => {
                 params: [],
-                body: "if (args->data.size() == 1) { if (auto* _arr = dynamic_cast<Array*>(args->data[0])) { BasicObject* _x = _arr->data.size() > 0 ? _arr->data[0] : nil_instance(); BasicObject* _y = _arr->data.size() > 1 ? _arr->data[1] : nil_instance(); return fn2_(_x, _y); } return fn2_(args->data[0], nil_instance()); } BasicObject* _a = args->data.size() > 0 ? args->data[0] : nil_instance(); BasicObject* _b = args->data.size() > 1 ? args->data[1] : nil_instance(); return fn2_(_a, _b);",
+                body: "if (args->data.size() == 1) { BasicObject* _a0 = args->data[0]; if (typeid(*_a0) == typeid(Array)) { auto* _arr = static_cast<Array*>(_a0); BasicObject* _x = _arr->data.size() > 0 ? _arr->data[0] : nil_instance(); BasicObject* _y = _arr->data.size() > 1 ? _arr->data[1] : nil_instance(); return fn2_(_x, _y); } return fn2_(_a0, nil_instance()); } BasicObject* _a = args->data.size() > 0 ? args->data[0] : nil_instance(); BasicObject* _b = args->data.size() > 1 ? args->data[1] : nil_instance(); return fn2_(_a, _b);",
               },
             },
           )
@@ -1731,7 +1731,7 @@ module Frozone
               if (o == nil_instance())                       { std::printf("\\n"); return; }
               // Class instance — eigenclass's ruby_class_name returns
               // the represented class's name, so this prints e.g. "Object".
-              if (dynamic_cast<Class*>(o))                   { std::printf("%s\\n", o->ruby_class_name()); return; }
+              if (o->mm_is_a_q_direct(&Class_CLASS))         { std::printf("%s\\n", o->ruby_class_name()); return; }
               std::printf("(unprintable: %s)\\n", o->ruby_class_name());
             CPP
           )
@@ -2215,7 +2215,8 @@ module Frozone
             body: <<~CPP.chomp,
               auto* self = static_cast<String*>(self_obj);
               if (!pat) return self;
-              if (auto* spat = dynamic_cast<String*>(pat)) {
+              if (typeid(*pat) == typeid(String)) {
+                auto* spat = static_cast<String*>(pat);
                 if (!repl || repl == nil_instance() || block != nullptr) {
                   std::fprintf(stderr, "[box-first] String#gsub block-form not supported yet\\n");
                   std::abort();
@@ -2244,7 +2245,8 @@ module Frozone
               // Regexp pattern + String replacement. First-cut: plain
               // substitution (no back-references like \\1, \\&). Block form
               // and \\<n> escapes deferred until a caller exercises them.
-              if (auto* re = dynamic_cast<Regexp*>(pat)) {
+              if (typeid(*pat) == typeid(Regexp)) {
+                auto* re = static_cast<Regexp*>(pat);
                 if (!repl || repl == nil_instance() || block != nullptr) {
                   std::fprintf(stderr, "[box-first] String#gsub Regexp block-form not supported yet\\n");
                   std::abort();
@@ -2303,7 +2305,8 @@ module Frozone
               Array* results = new Array();
 
               // String pattern: literal non-overlapping search.
-              if (auto* spat = dynamic_cast<String*>(pat_obj)) {
+              if (typeid(*pat_obj) == typeid(String)) {
+                auto* spat = static_cast<String*>(pat_obj);
                 if (spat->bytes.empty()) return has_block ? self_obj : static_cast<BasicObject*>(results);
                 const std::uint8_t* hay = self->bytes.data();
                 const std::uint8_t* nee = spat->bytes.data();
@@ -2327,7 +2330,8 @@ module Frozone
               }
 
               // Regexp pattern: onig_search loop.
-              if (auto* re = dynamic_cast<Regexp*>(pat_obj)) {
+              if (typeid(*pat_obj) == typeid(Regexp)) {
+                auto* re = static_cast<Regexp*>(pat_obj);
                 if (!re->compiled_) return has_block ? self_obj : static_cast<BasicObject*>(results);
                 const UChar* s = self->bytes.data();
                 std::size_t n = self->bytes.size();

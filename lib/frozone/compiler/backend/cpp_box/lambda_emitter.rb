@@ -330,8 +330,8 @@ module Frozone
                   if arity >= 2 || (params.length >= 1 && rest_param)
                     emit.line "if (__blkargs__->data.size() == 1) {"
                     emit.indented do
-                      emit.line "Array* _arr0 = dynamic_cast<Array*>(__blkargs__->data[0]);"
-                      emit.line "if (_arr0) __blkargs__ = _arr0;"
+                      emit.line "BasicObject* _a0 = __blkargs__->data[0];"
+                      emit.line "if (typeid(*_a0) == typeid(Array)) __blkargs__ = static_cast<Array*>(_a0);"
                     end
                     emit.line "}"
                   end

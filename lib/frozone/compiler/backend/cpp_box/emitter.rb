@@ -1502,7 +1502,7 @@ module Frozone
             [
               "std::size_t m_hash_value() const override {",
               "  BasicObject* _h = const_cast<#{cls_name}*>(this)->m_hash();",
-              "  if (auto* _i = dynamic_cast<Integer*>(_h)) return static_cast<std::size_t>(_i->raw_);",
+              "  if (_h && typeid(*_h) == typeid(Integer)) return static_cast<std::size_t>(static_cast<Integer*>(_h)->raw_);",
               "  return reinterpret_cast<std::size_t>(this);",
               "}",
             ]
@@ -3134,7 +3134,8 @@ module Frozone
               # binary ignores its command-line args entirely. argv[0]
               # is the program name (matches Ruby's $PROGRAM_NAME, not
               # ARGV), so start from argv[1].
-              line "if (auto* arr = dynamic_cast<Ruby::Array*>(Ruby::k_ARGV())) {"
+              line "if (auto* _argv = Ruby::k_ARGV(); _argv && typeid(*_argv) == typeid(Ruby::Array)) {"
+              indented { line "auto* arr = static_cast<Ruby::Array*>(_argv);" }
               indented do
                 line "for (int i = 1; i < argc; i++) arr->data.push_back(new Ruby::String(argv[i]));"
               end
@@ -3158,10 +3159,12 @@ module Frozone
                 # ivar set by Exception#initialize. Mirrors Ruby's
                 # `(uncaught exception)` shape.
                 line "std::fprintf(stderr, \"%s\", e->ruby_class_name());"
-                line "if (auto* exc = dynamic_cast<Ruby::Exception*>(e)) {"
+                line "if (e->mm_is_a_q_direct(&Ruby::Exception_CLASS)) {"
                 indented do
-                  line "if (auto* msg = dynamic_cast<Ruby::String*>(exc->iv_message)) {"
+                  line "auto* exc = static_cast<Ruby::Exception*>(e);"
+                  line "if (exc->iv_message && typeid(*exc->iv_message) == typeid(Ruby::String)) {"
                   indented do
+                    line "auto* msg = static_cast<Ruby::String*>(exc->iv_message);"
                     line "std::fputs(\": \", stderr);"
                     line "std::fwrite(msg->bytes.data(), 1, msg->bytes.size(), stderr);"
                   end

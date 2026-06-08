@@ -101,9 +101,10 @@ inline BasicObject* intrinsic_kernel_float(BasicObject* /*self_*/, BasicObject* 
 [[noreturn]] inline BasicObject* intrinsic_kernel_raise(BasicObject* /*self_*/, BasicObject* msg, BasicObject* message,
                                                        BasicObject* /*backtrace*/, BasicObject* /*cause*/) {
   BasicObject* _exc;
-  if (auto* _k = dynamic_cast<Class*>(msg)) {
+  if (msg->mm_is_a_q_direct(&Class_CLASS)) {
+    auto* _k = static_cast<Class*>(msg);
     _exc = (message == nil_instance()) ? _k->m_new() : _k->m_new(new Array({message}));
-  } else if (dynamic_cast<Exception*>(msg)) {
+  } else if (msg->mm_is_a_q_direct(&Exception_CLASS)) {
     _exc = msg;
   } else {
     _exc = (&RuntimeError_CLASS)->m_new(new Array({msg}));
