@@ -811,6 +811,21 @@ module Frozone
             end
             emit.line "}"
             emit.blank
+            # NA-shape direct accessor — same LUT lookup as mm_is_a_q
+            # but returns bool and skips the Array unpacking. Used by
+            # rescue-clause emission and non-leaf is_a? lowering.
+            emit.line "bool Object::mm_is_a_q_direct(BasicObject* target) {"
+            emit.indented do
+              emit.line "int my_id = this->__class_id__();"
+              emit.line "if (my_id < 0) return false;"
+              emit.line "if (target->m_class() != (&Class_CLASS)) return false;"
+              emit.line "auto* tc = static_cast<Class*>(target);"
+              emit.line "int target_id = tc->instance_class_id_;"
+              emit.line "if (target_id < 0 || target_id >= N_CLASSES) return false;"
+              emit.line "return IS_A[my_id][target_id];"
+            end
+            emit.line "}"
+            emit.blank
           end
 
           # Add m_class + mm_respond_to_q + __class_id__ to every
