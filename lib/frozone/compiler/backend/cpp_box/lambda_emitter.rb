@@ -107,20 +107,21 @@ module Frozone
             buf
           end
 
-          # Build the dynamic_cast-based condition for one rescue clause.
-          # Bare rescue (no exception_nodes) catches StandardError per
-          # Ruby semantics. ConstantRead/ConstantPath specs emit a
-          # dynamic_cast; Ast::SplatArg specs (`rescue *exprs => e`)
-          # defer to the rescue_splat_matches kernel helper which
-          # walks the array at runtime.
+          # Build the LUT-based condition for one rescue clause. Bare
+          # rescue (no exception_nodes) catches StandardError per Ruby
+          # semantics. ConstantRead/ConstantPath specs emit a typeid+
+          # LUT check via mm_is_a_q_direct (matches Ruby's is_a?
+          # subclass-tolerance, alloc-free, no RTTI walk). Ast::SplatArg
+          # specs (`rescue *exprs => e`) still defer to
+          # rescue_splat_matches, which walks the array at runtime.
           def rescue_clause_condition(clause, locals)
-            return "dynamic_cast<StandardError*>(e_) != nullptr" if clause.exception_nodes.empty?
+            return "e_->mm_is_a_q_direct(&StandardError_CLASS)" if clause.exception_nodes.empty?
             clause.exception_nodes.map { |n|
               if n.is_a?(Ast::SplatArg)
                 "rescue_splat_matches(e_, #{from_expr(n.value_node, locals)})"
               else
                 cls = exception_class_name(n)
-                "dynamic_cast<#{cls}*>(e_) != nullptr"
+                "e_->mm_is_a_q_direct(&#{cls}_CLASS)"
               end
             }.join(" || ")
           end
