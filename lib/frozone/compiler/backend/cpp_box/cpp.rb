@@ -695,12 +695,13 @@ module Frozone
             if (na_sig || mu_family || kw_sig) && recv
               if node.safe_nav
                 recv_str = from_expr(recv, locals)  # safe_nav: visibility check deferred — would need to fold into the nil short-circuit IIFE
-                return "([&]() -> BasicObject* { auto* _r = #{recv_str}; return (_r == nil_instance()) ? nil_instance() : _r->#{Cpp.method_name(name)}(#{args_array}, #{kwargs_arg}, #{block_arg}); }())"
+                tail = univ_call_explicit_tail(Cpp.method_name(name), args_array, kwargs_arg, block_arg)
+                return "([&]() -> BasicObject* { auto* _r = #{recv_str}; return (_r == nil_instance()) ? nil_instance() : _r#{tail}; }())"
               else
-                return "#{recv_with_visibility_check(recv, locals)}->#{Cpp.method_name(name)}(#{args_array}, #{kwargs_arg}, #{block_arg})"
+                return univ_call_explicit(recv_with_visibility_check(recv, locals), Cpp.method_name(name), args_array, kwargs_arg, block_arg)
               end
             elsif (na_sig || mu_family || kw_sig) && !recv
-              return "this->#{Cpp.method_name(name)}(#{args_array}, #{kwargs_arg}, #{block_arg})"
+              return univ_call_explicit("this", Cpp.method_name(name), args_array, kwargs_arg, block_arg)
             end
 
             call_expr =
@@ -799,6 +800,20 @@ module Frozone
           # `recv->method` prefix constructed (e.g. the safe-nav IIFE).
           def univ_call_tail(method, args_str = "(&EMPTY_ARGS)", kwargs_str = "(&EMPTY_KWARGS)", block_str = "nil_instance()")
             "->#{method}#{call_tail(args_str, kwargs_str, block_str)}"
+          end
+
+          # Universal-call emit for sites that keep the explicit
+          # (args, kwargs, block) shape regardless of default values —
+          # used by NA-bearing trampoline dispatch where the universal-
+          # sig overload exists alongside per-arity overloads. The
+          # explicit form disambiguates against the per-arity overloads
+          # and keeps the gen output stable.
+          def univ_call_explicit(recv_expr, method, args_str, kwargs_str, block_str)
+            "#{recv_expr}->#{method}(#{args_str}, #{kwargs_str}, #{block_str})"
+          end
+
+          def univ_call_explicit_tail(method, args_str, kwargs_str, block_str)
+            "->#{method}(#{args_str}, #{kwargs_str}, #{block_str})"
           end
 
           # Build the args Array for a call. Cases:
