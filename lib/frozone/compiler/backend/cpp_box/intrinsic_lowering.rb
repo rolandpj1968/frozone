@@ -457,7 +457,7 @@ module Frozone
               # include_all (private methods always visible in
               # box-first today; respond_to_q doesn't gate by
               # visibility either).
-              "(#{self_})->mm_respond_to_q(new Array({#{name}}))"
+              "(#{self_})->mm_respond_to_q(univ, new Array({#{name}}))"
             },
             object_instance_of: ->(self_, klass) {
               "boxed_bool(#{self_}->m_class(univ) == (#{klass}))"

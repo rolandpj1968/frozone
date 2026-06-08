@@ -1081,8 +1081,9 @@ module Frozone
             cur_t = "__csw_cur_#{tag}__"
             new_t = "__csw_new_#{tag}__"
             safe_guard = node.safe_nav ? "if (#{recv_t} == nil_instance()) return nil_instance(); " : ""
+            read_args = na_or_wrap_args(node.read_name, [], wrap_parens: false)
             write_args = na_or_wrap_args(node.write_name, [new_t], wrap_parens: false)
-            "([&]() -> BasicObject* { auto* #{recv_t} = #{recv_str}; #{safe_guard}auto* #{cur_t} = #{recv_t}->#{read_cpp}(); if (#{condition}(#{cur_t})) return #{cur_t}; auto* #{new_t} = #{val_str}; #{recv_t}->#{write_cpp}(#{write_args}); return #{new_t}; }())"
+            "([&]() -> BasicObject* { auto* #{recv_t} = #{recv_str}; #{safe_guard}auto* #{cur_t} = #{recv_t}->#{read_cpp}(#{read_args}); if (#{condition}(#{cur_t})) return #{cur_t}; auto* #{new_t} = #{val_str}; #{recv_t}->#{write_cpp}(#{write_args}); return #{new_t}; }())"
           end
 
           # `recv.b += val` (and -=/*=/etc.) — read once, compute
@@ -1099,9 +1100,10 @@ module Frozone
             cur_t = "__cop_cur_#{tag}__"
             new_t = "__cop_new_#{tag}__"
             safe_guard = node.safe_nav ? "if (#{recv_t} == nil_instance()) return nil_instance(); " : ""
+            read_args = na_or_wrap_args(node.read_name, [], wrap_parens: false)
             op_args = na_or_wrap_args(node.operator, [val_str], wrap_parens: false)
             write_args = na_or_wrap_args(node.write_name, [new_t], wrap_parens: false)
-            "([&]() -> BasicObject* { auto* #{recv_t} = #{recv_str}; #{safe_guard}auto* #{cur_t} = #{recv_t}->#{read_cpp}(); auto* #{new_t} = #{cur_t}->#{op_cpp}(#{op_args}); #{recv_t}->#{write_cpp}(#{write_args}); return #{new_t}; }())"
+            "([&]() -> BasicObject* { auto* #{recv_t} = #{recv_str}; #{safe_guard}auto* #{cur_t} = #{recv_t}->#{read_cpp}(#{read_args}); auto* #{new_t} = #{cur_t}->#{op_cpp}(#{op_args}); #{recv_t}->#{write_cpp}(#{write_args}); return #{new_t}; }())"
           end
 
           # Ruby's `&&` returns the last truthy value or the first falsy.
