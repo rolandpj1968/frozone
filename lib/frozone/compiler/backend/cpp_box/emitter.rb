@@ -29,7 +29,7 @@ module Frozone
     module Backend
       module CppBox
         class Emitter
-          attr_reader :cpp, :top_level_scope, :user_classes, :user_constants, :natural_arity_names, :multi_arity_table, :kw_unset_table, :leaf_dispatch_table, :visibility_survey
+          attr_reader :cpp, :top_level_scope, :user_classes, :user_constants, :natural_arity_names, :multi_arity_table, :kw_unset_table, :leaf_dispatch_table, :visibility_survey, :non_escaping_block_names
           # When true, emission errors inside method bodies re-raise
           # under FROZONE_BOX_HARD_FAIL=1 instead of graceful-skipping.
           # Toggled true while emitting user-class bodies + the
@@ -2733,6 +2733,23 @@ module Frozone
               next unless @call_surface.key?(Cpp.method_name(name))
               method_walkable_roots(method).each { |r| walk_calls.call(r, name) }
             end
+
+            # Block-escape analysis. Per-def → aggregate per-name → fixed
+            # point. The result feeds `maybe_stack_alloc_block` at call
+            # sites: a name is stack-alloc-safe iff no def of it escapes
+            # the block, transitively across &-forwards.
+            local_escapes_by_name = Hash.new { |h, k| h[k] = false }
+            forwards_by_name = Hash.new { |h, k| h[k] = Set.new }
+            each_reachable_def.call do |name, method, _cls|
+              next unless @call_surface.key?(Cpp.method_name(name))
+              local, fwd = MethodShapeSurvey.analyze_def_block_escape(method)
+              local_escapes_by_name[name] ||= local
+              forwards_by_name[name].merge(fwd)
+            end
+            all_names = agg.all_names.to_set | local_escapes_by_name.keys.to_set
+            @non_escaping_block_names = MethodShapeSurvey.non_escaping_block_names(
+              local_escapes_by_name, forwards_by_name, all_names,
+            )
 
             agg
           end

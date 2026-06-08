@@ -483,6 +483,204 @@ module Frozone
               io.puts "    :#{n.to_s.ljust(40)} #{defs_n} defs: #{shapes_summary} — #{total} calls"
             end
           end
+
+          # Block-escape analysis. For a method def to be "block non-
+          # escaping" we need every use of its block_param (or implicit
+          # yield-block) to be: an invoke (block.call / block.[] /
+          # yield), a truthy check (if/unless/!/&&/||), or a forward
+          # (&block) to a method itself non-escaping. Anything else is
+          # escape (return, assign to ivar, pass as positional arg, capture
+          # by an inner closure, …).
+          #
+          # Returns [local_escapes:bool, forwards_to:Set[Symbol]].
+          # local_escapes=true means the body has a non-deferrable escape;
+          # forwards_to is the set of names this def forwards the block to
+          # (so the caller can resolve recursively via fixed-point).
+          INVOKE_METHOD_NAMES = %i[call [] === yield_self then].to_set.freeze
+          NOT_METHOD_NAMES = %i[! not].to_set.freeze
+
+          def analyze_def_block_escape(method)
+            block_param = method.respond_to?(:block_param) ? method.block_param : nil
+            # No named block_param: the block is only accessible via
+            # yield (non-escape) or block_given? (query, non-escape).
+            # Proc.new in Ruby 3+ requires a block arg, so it doesn't
+            # capture the implicit block. Safe to treat as non-escaping.
+            return [false, Set.new] unless block_param
+            bn = block_param.to_sym
+            local_escapes = false
+            forwards_to = Set.new
+            mark_esc = ->(_reason) { local_escapes = true }
+
+            walk = nil
+            walk = lambda do |node, role|
+              return unless node.is_a?(Frozone::Ast::Node)
+              case node
+              when Frozone::Ast::LocalVariableRead
+                if node.name == bn && role != :safe
+                  mark_esc.call("LVR(#{bn}) in :#{role}")
+                end
+              when Frozone::Ast::LocalVariableWrite
+                # Reassigning block_param itself is escape (alias tracking
+                # is hard); also walk value normally.
+                mark_esc.call("LVW(#{bn})") if node.name == bn
+                walk.call(node.value_node, :unsafe) if node.respond_to?(:value_node)
+              when Frozone::Ast::If
+                walk.call(node.pred_node, :safe)
+                walk.call(node.then_node, :unsafe)
+                walk.call(node.else_node, :unsafe)
+              when Frozone::Ast::And, Frozone::Ast::Or
+                # Short-circuit ops — operands as truthy values, safe ctx
+                # for block_param truthy check.
+                walk.call(node.left_node, :safe)
+                walk.call(node.right_node, :safe)
+              when Frozone::Ast::MethodCall
+                recv = node.receiver_node
+                # `!block`, `not block` — unary boolean inverse, truthy.
+                if NOT_METHOD_NAMES.include?(node.name) && recv.is_a?(Frozone::Ast::LocalVariableRead) && recv.name == bn && (node.arg_nodes || []).empty?
+                  # Safe LVR; skip the rest of walk on recv.
+                else
+                  # `block.call(...)`, `block[...]` — invoke pattern.
+                  if recv.is_a?(Frozone::Ast::LocalVariableRead) && recv.name == bn && INVOKE_METHOD_NAMES.include?(node.name)
+                    # Receiver LVR is consumed by invoke — skip walking it.
+                  elsif recv
+                    walk.call(recv, :unsafe)
+                  end
+                  # Positional / kw args: if a top-level arg is an LVR
+                  # of block_param, it's a positional pass of the block
+                  # to `node.name`. Whether THAT escapes depends on the
+                  # target — record as a forward so the fixed-point can
+                  # resolve recursively. Anything deeper (e.g. `f([block])`
+                  # — block wrapped in an Array) → walk normally and the
+                  # inner LVR triggers escape.
+                  (node.arg_nodes || []).each do |a|
+                    if a.is_a?(Frozone::Ast::LocalVariableRead) && a.name == bn
+                      forwards_to << node.name
+                    else
+                      walk.call(a, :unsafe)
+                    end
+                  end
+                  (node.kw_arg_nodes || {}).each do |_, v|
+                    if v.is_a?(Frozone::Ast::LocalVariableRead) && v.name == bn
+                      forwards_to << node.name
+                    else
+                      walk.call(v, :unsafe)
+                    end
+                  end
+                  (node.kw_splat_nodes || []).each { |s| walk.call(s, :unsafe) }
+                end
+                # block_node: BlockArg(LVR(bn)) or bare ForwardBlock for
+                # the __forward_block__ case — forwarding.
+                blk = node.block_node
+                if blk.is_a?(Frozone::Ast::BlockArg)
+                  v = blk.value_node
+                  if v.is_a?(Frozone::Ast::LocalVariableRead) && v.name == bn
+                    forwards_to << node.name
+                  elsif v.is_a?(Frozone::Ast::ForwardBlock) && bn == :__forward_block__
+                    forwards_to << node.name
+                  else
+                    walk.call(v, :unsafe)
+                  end
+                elsif blk.is_a?(Frozone::Ast::ForwardBlock)
+                  # `f(&)` bare forward — semantically forwards the
+                  # method's implicit block (= __forward_block__).
+                  forwards_to << node.name
+                elsif blk.is_a?(Frozone::Ast::Block)
+                  # `f { ... }` — caller passes a literal block; not a
+                  # forward of block_param. Inner block must be walked
+                  # — any LVR(bn) inside is captured by closure → escape.
+                  walk.call(blk, :unsafe)
+                end
+              when Frozone::Ast::Block
+                # Inside an inner block: walk the body with the SAME
+                # invoke/forward rules. Common pattern is `r.each { |c|
+                # block.call(c) }` — the inner block uses block_param
+                # for invocation only; it doesn't escape the inner
+                # block's environment, so it's safe as long as the
+                # outer iterator (`r.each`) is itself non-escaping
+                # (resolved later by fixed-point). Walk in :unsafe so
+                # any non-invoke/non-forward use still triggers escape.
+                node.children.each { |c| walk.call(c, :unsafe) }
+              when Frozone::Ast::IntrinsicCall
+                # `Intrinsics.foo(...)` — positional pass of block_param
+                # is a forward to the named intrinsic (same logic as
+                # MethodCall). Intrinsics are not in agg.defs so they
+                # default to non-escaping at fixed-point — appropriate
+                # for the iterator-shaped intrinsics (hash_each, etc.).
+                (node.param_nodes || []).each do |p|
+                  if p.is_a?(Frozone::Ast::LocalVariableRead) && p.name == bn
+                    forwards_to << node.name
+                  else
+                    walk.call(p, :unsafe)
+                  end
+                end
+              when Frozone::Ast::Yield
+                # Yield is always non-escape (it invokes the method's
+                # block). Args still walked normally.
+                (node.arg_nodes || []).each { |a| walk.call(a, :unsafe) }
+              when Frozone::Ast::Super
+                # `super(&block)` — forwarding via super. Treat block
+                # like a MethodCall block_node: BlockArg(LVR(bn)) is a
+                # forward to the super method (which has the SAME name
+                # as the enclosing method). We don't know the name
+                # statically here, but we record the forward as the
+                # enclosing method's name — same name will be its own
+                # def, recursive forward = no-op for fixed-point.
+                (node.arg_nodes || []).each do |a|
+                  if a.is_a?(Frozone::Ast::LocalVariableRead) && a.name == bn
+                    forwards_to << method.name
+                  else
+                    walk.call(a, :unsafe)
+                  end
+                end
+                blk = node.block_node
+                if blk.is_a?(Frozone::Ast::BlockArg)
+                  v = blk.value_node
+                  if v.is_a?(Frozone::Ast::LocalVariableRead) && v.name == bn
+                    forwards_to << method.name
+                  elsif v.is_a?(Frozone::Ast::ForwardBlock) && bn == :__forward_block__
+                    forwards_to << method.name
+                  else
+                    walk.call(v, :unsafe)
+                  end
+                elsif blk.is_a?(Frozone::Ast::ForwardBlock)
+                  forwards_to << method.name
+                elsif blk
+                  walk.call(blk, :unsafe)
+                end
+              else
+                # Default: walk children in :unsafe context.
+                node.children.each { |c| walk.call(c, :unsafe) }
+              end
+            end
+
+            walk.call(method.body, :unsafe) if method.body
+            [local_escapes, forwards_to]
+          end
+          module_function :analyze_def_block_escape
+
+          # Fixed-point: given per-name local-escape booleans and
+          # forwards_to sets, compute the set of names whose block does
+          # not escape. Closed-world: any defined name with no escape
+          # path is non-escaping; names not in the survey (no defs
+          # observed) are conservatively NON-escaping too — those are
+          # likely C++-hand-coded methods, and the call site can still
+          # over-approximate. (External annotation can shrink this set.)
+          def non_escaping_block_names(local_escapes_by_name, forwards_by_name, all_names)
+            escaping = local_escapes_by_name.each_with_object(Set.new) { |(n, esc), s| s << n if esc }
+            loop do
+              changed = false
+              (all_names - escaping).each do |n|
+                fwd = forwards_by_name[n] || Set.new
+                if fwd.any? { |fn| escaping.include?(fn) }
+                  escaping << n
+                  changed = true
+                end
+              end
+              break unless changed
+            end
+            (all_names - escaping).to_set
+          end
+          module_function :non_escaping_block_names
         end
       end
     end

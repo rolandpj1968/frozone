@@ -601,14 +601,24 @@ module Frozone
                 all_parts << (has_block ? block_arg : "nullptr")
               end
               all_csv = all_parts.join(', ')
-              if recv && node.safe_nav
-                recv_str = from_expr(recv, locals)
-                return "([&]() -> BasicObject* { auto* _r = #{recv_str}; return (_r == nil_instance()) ? nil_instance() : _r->#{Cpp.method_name(name)}(#{all_csv}); }())"
-              elsif recv
-                return "#{recv_with_visibility_check(recv, locals)}->#{Cpp.method_name(name)}(#{all_csv})"
-              else
-                return "this->#{Cpp.method_name(name)}(#{all_csv})"
+              call_expr =
+                if recv && node.safe_nav
+                  recv_str = from_expr(recv, locals)
+                  "([&]() -> BasicObject* { auto* _r = #{recv_str}; return (_r == nil_instance()) ? nil_instance() : _r->#{Cpp.method_name(name)}(#{all_csv}); }())"
+                elsif recv
+                  "#{recv_with_visibility_check(recv, locals)}->#{Cpp.method_name(name)}(#{all_csv})"
+                else
+                  "this->#{Cpp.method_name(name)}(#{all_csv})"
+                end
+              # NA-with-block path: also try stack-alloc when target
+              # is non-escaping. No break-catch wrap here — yield-driven
+              # NA-with-block bodies don't currently throw BreakException
+              # at the iterator boundary; if they ever do (#168 follow-up),
+              # add wrap_break_catch around call_expr first.
+              if has_block
+                return maybe_stack_alloc_block(call_expr, block_arg, name) || call_expr
               end
+              return call_expr
             end
 
             # Multi-arity dispatch — same shape as natural-arity but
@@ -765,16 +775,15 @@ module Frozone
           # substitute the heap form with a pointer-to-stack ref.
           # Returns nil (caller falls back to the original heap form) on
           # any mismatch — safety first.
-          STACK_BLOCK_SAFE_NAMES = %i[
-            each times each_with_index each_with_object each_pair each_key each_value
-            map collect flat_map collect_concat select filter reject inject reduce
-            find detect any? all? none? count sort_by min_by max_by group_by
-            upto downto step partition each_slice each_cons tap then yield_self
-          ].to_set.freeze
+          #
+          # Non-escape eligibility comes from the closed-world escape
+          # analysis in MethodShapeSurvey (per-def block-param tracking
+          # + recursive forwards fixed-point). Stored on the emitter as
+          # `non_escaping_block_names`.
 
           def maybe_stack_alloc_block(call_expr, block_arg, name)
             return nil unless ENV['FROZONE_STACK_BLOCKS'] == '1'
-            return nil unless STACK_BLOCK_SAFE_NAMES.include?(name)
+            return nil unless emit&.non_escaping_block_names&.include?(name)
             return nil unless block_arg.is_a?(String) && block_arg.start_with?('(new Proc') && block_arg.end_with?('))')
             m = /\A\(new (Proc\d?)\(/.match(block_arg)
             return nil unless m
