@@ -1015,9 +1015,9 @@ module Frozone
               "std::function<BasicObject*()> fn0_;",
               "Proc0() = default;",
               "explicit Proc0(std::function<BasicObject*()> f) : fn0_(std::move(f)) {}",
-              "BasicObject* call0() final { return fn0_(); }",
-              "BasicObject* call1(BasicObject*) final { return fn0_(); }",
-              "BasicObject* call2(BasicObject*, BasicObject*) final { return fn0_(); }",
+              "BasicObject* call0() override { return fn0_(); }",
+              "BasicObject* call1(BasicObject*) override { return fn0_(); }",
+              "BasicObject* call2(BasicObject*, BasicObject*) override { return fn0_(); }",
             ],
             overrides: {
               "m_call" => { params: [], body: "return fn0_();" },
@@ -1031,9 +1031,9 @@ module Frozone
               "std::function<BasicObject*(BasicObject*)> fn1_;",
               "Proc1() = default;",
               "explicit Proc1(std::function<BasicObject*(BasicObject*)> f) : fn1_(std::move(f)) {}",
-              "BasicObject* call1(BasicObject* a) final { return fn1_(a); }",
-              "BasicObject* call0() final { return fn1_(nil_instance()); }",
-              "BasicObject* call2(BasicObject* a, BasicObject*) final { return fn1_(a); }",
+              "BasicObject* call1(BasicObject* a) override { return fn1_(a); }",
+              "BasicObject* call0() override { return fn1_(nil_instance()); }",
+              "BasicObject* call2(BasicObject* a, BasicObject*) override { return fn1_(a); }",
             ],
             overrides: {
               "m_call" => {
@@ -1050,14 +1050,14 @@ module Frozone
               "std::function<BasicObject*(BasicObject*, BasicObject*)> fn2_;",
               "Proc2() = default;",
               "explicit Proc2(std::function<BasicObject*(BasicObject*, BasicObject*)> f) : fn2_(std::move(f)) {}",
-              "BasicObject* call2(BasicObject* a, BasicObject* b) final { return fn2_(a, b); }",
-              "BasicObject* call0() final { return fn2_(nil_instance(), nil_instance()); }",
+              "BasicObject* call2(BasicObject* a, BasicObject* b) override { return fn2_(a, b); }",
+              "BasicObject* call0() override { return fn2_(nil_instance(), nil_instance()); }",
               # procarg0 (auto-splat): `yield array_of_pair` into a 2-param
               # block destructures the Array as if `*` had been splatted at
               # the yield site. Hash#each relies on this: it yields `[k, v]`
               # and the block sees `k, v` separately. Same logic as the
               # universal Proc's `__blkargs__` rebind in lambda_emitter.rb.
-              "BasicObject* call1(BasicObject* a) final { if (typeid(*a) == typeid(Array)) { auto* _arr = static_cast<Array*>(a); BasicObject* _x = _arr->data.size() > 0 ? _arr->data[0] : nil_instance(); BasicObject* _y = _arr->data.size() > 1 ? _arr->data[1] : nil_instance(); return fn2_(_x, _y); } return fn2_(a, nil_instance()); }",
+              "BasicObject* call1(BasicObject* a) override { if (typeid(*a) == typeid(Array)) { auto* _arr = static_cast<Array*>(a); BasicObject* _x = _arr->data.size() > 0 ? _arr->data[0] : nil_instance(); BasicObject* _y = _arr->data.size() > 1 ? _arr->data[1] : nil_instance(); return fn2_(_x, _y); } return fn2_(a, nil_instance()); }",
             ],
             overrides: {
               "m_call" => {

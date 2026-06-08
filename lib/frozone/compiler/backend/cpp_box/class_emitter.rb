@@ -991,7 +991,12 @@ module Frozone
             inherits = klass.parent ? " : #{klass.parent}" : ""
             # `final` keyword goes BEFORE the base-class colon in C++:
             #   struct Foo final : Parent { ... };
-            final = (@cpp_leaf_set && @cpp_leaf_set.include?(klass.name) && klass.name != "BasicObject") ? " final" : ""
+            # Proc0/Proc1/Proc2/Proc are NOT marked final so per-block
+            # local subclasses (FROZONE_BLOCK_SUBCLASS) can inherit them
+            # at call sites — concrete-typed callN overrides let LTO
+            # devirtualize + inline the block body.
+            proc_subclassable = %w[Proc Proc0 Proc1 Proc2].include?(klass.name)
+            final = (!proc_subclassable && @cpp_leaf_set && @cpp_leaf_set.include?(klass.name) && klass.name != "BasicObject") ? " final" : ""
             emit.line "struct #{klass.name}#{final}#{inherits} {"
             emit.indented do
               klass.members&.each { |m| emit.line m }

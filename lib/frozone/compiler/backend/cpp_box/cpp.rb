@@ -781,6 +781,33 @@ module Frozone
           # + recursive forwards fixed-point). Stored on the emitter as
           # `non_escaping_block_names`.
 
+          # Local-subclass overrides (per-block, callN forwards to the
+          # captured lambda by its concrete decltype — no std::function).
+          # Indexed by proc_cls.
+          PROC_SUBCLASS_OVERRIDES = {
+            'Proc0' => [
+              "BasicObject* call0() override { return fn_(); }",
+              "BasicObject* call1(BasicObject*) override { return fn_(); }",
+              "BasicObject* call2(BasicObject*, BasicObject*) override { return fn_(); }",
+              "BasicObject* m_call(UnivTag, Array*, Hash*, BasicObject*) override { return fn_(); }",
+            ],
+            'Proc1' => [
+              "BasicObject* call0() override { return fn_(nil_instance()); }",
+              "BasicObject* call1(BasicObject* a) override { return fn_(a); }",
+              "BasicObject* call2(BasicObject* a, BasicObject*) override { return fn_(a); }",
+              "BasicObject* m_call(UnivTag, Array* args, Hash*, BasicObject*) override { return fn_(args->data.empty() ? nil_instance() : args->data[0]); }",
+            ],
+            'Proc2' => [
+              "BasicObject* call0() override { return fn_(nil_instance(), nil_instance()); }",
+              "BasicObject* call1(BasicObject* a) override { if (typeid(*a) == typeid(Array)) { auto* _arr = static_cast<Array*>(a); BasicObject* _x = _arr->data.size() > 0 ? _arr->data[0] : nil_instance(); BasicObject* _y = _arr->data.size() > 1 ? _arr->data[1] : nil_instance(); return fn_(_x, _y); } return fn_(a, nil_instance()); }",
+              "BasicObject* call2(BasicObject* a, BasicObject* b) override { return fn_(a, b); }",
+              "BasicObject* m_call(UnivTag, Array* args, Hash*, BasicObject*) override { BasicObject* a = args->data.size() > 0 ? args->data[0] : nil_instance(); BasicObject* b = args->data.size() > 1 ? args->data[1] : nil_instance(); return fn_(a, b); }",
+            ],
+            'Proc' => [
+              "BasicObject* m_call(UnivTag, Array* args, Hash* kwargs, BasicObject*) override { return fn_(args, kwargs); }",
+            ],
+          }.freeze
+
           def maybe_stack_alloc_block(call_expr, block_arg, name)
             return nil unless ENV['FROZONE_STACK_BLOCKS'] == '1'
             return nil unless emit&.non_escaping_block_names&.include?(name)
@@ -794,7 +821,33 @@ module Frozone
             # match means we can't safely rewrite.
             return nil unless call_expr.scan(block_arg).length == 1
             ref_form = call_expr.sub(block_arg, '&__blk__')
-            "([&, this]() -> BasicObject* { #{proc_cls} __blk__(#{ctor}); return #{ref_form}; }())"
+
+            if ENV['FROZONE_BLOCK_SUBCLASS'] == '1'
+              # Per-block local subclass. fn_ has the lambda's concrete
+              # type via decltype — no std::function indirection, so LTO
+              # can devirtualize call_N and inline the body. The `ctor`
+              # here is the lambda expression itself, since Proc1's ctor
+              # took a std::function-convertible — for our subclass we
+              # bind it as a typed member, but to do that we first name
+              # it (auto __lam__ = ...) so decltype works.
+              overrides = PROC_SUBCLASS_OVERRIDES[proc_cls]
+              return nil unless overrides
+              ovr_lines = overrides.join(' ')
+              <<~CPP.gsub(/\n+/, ' ').strip
+                ([&, this]() -> BasicObject* {
+                  auto __blk_lam__ = #{ctor};
+                  struct __blk_t__ : #{proc_cls} {
+                    decltype(__blk_lam__) fn_;
+                    __blk_t__(decltype(__blk_lam__) f) : fn_(std::move(f)) {}
+                    #{ovr_lines}
+                  };
+                  __blk_t__ __blk__(__blk_lam__);
+                  return #{ref_form};
+                }())
+              CPP
+            else
+              "([&, this]() -> BasicObject* { #{proc_cls} __blk__(#{ctor}); return #{ref_form}; }())"
+            end
           end
 
           # Build the kwargs Hash for a call. Empty kw list AND no
