@@ -372,44 +372,46 @@ module Frozone
             ],
             overrides: {
               # Integer arithmetic — Float operands promote to Float (Ruby
-              # numeric coercion). Without the dynamic_cast, `1 + 1.5`
+              # numeric coercion). Without the typeid gate, `1 + 1.5`
               # would reinterpret Float's bits as int64 and silently
-              # corrupt. Same for ==, <, etc.
-              "op_plus"     => { params: ["BasicObject* other"], body: "if (auto* f = dynamic_cast<Float*>(other)) return new Float(static_cast<double>(raw_) + f->raw_); return new Integer(raw_ + static_cast<Integer*>(other)->raw_);" },
-              "op_minus"    => { params: ["BasicObject* other"], body: "if (auto* f = dynamic_cast<Float*>(other)) return new Float(static_cast<double>(raw_) - f->raw_); return new Integer(raw_ - static_cast<Integer*>(other)->raw_);" },
-              "op_mul"      => { params: ["BasicObject* other"], body: "if (auto* f = dynamic_cast<Float*>(other)) return new Float(static_cast<double>(raw_) * f->raw_); return new Integer(raw_ * static_cast<Integer*>(other)->raw_);" },
-              "op_div"      => { params: ["BasicObject* other"], body: "if (auto* f = dynamic_cast<Float*>(other)) return new Float(static_cast<double>(raw_) / f->raw_); return new Integer(raw_ / static_cast<Integer*>(other)->raw_);" },
-              "op_mod"      => { params: ["BasicObject* other"], body: "return new Integer(raw_ % static_cast<Integer*>(other)->raw_);" },
-              "op_lt"       => { params: ["BasicObject* other"], body: "if (auto* f = dynamic_cast<Float*>(other)) return boxed_bool(static_cast<double>(raw_) <  f->raw_); return boxed_bool(raw_ <  static_cast<Integer*>(other)->raw_);" },
-              "op_gt"       => { params: ["BasicObject* other"], body: "if (auto* f = dynamic_cast<Float*>(other)) return boxed_bool(static_cast<double>(raw_) >  f->raw_); return boxed_bool(raw_ >  static_cast<Integer*>(other)->raw_);" },
-              "op_le"       => { params: ["BasicObject* other"], body: "if (auto* f = dynamic_cast<Float*>(other)) return boxed_bool(static_cast<double>(raw_) <= f->raw_); return boxed_bool(raw_ <= static_cast<Integer*>(other)->raw_);" },
-              "op_ge"       => { params: ["BasicObject* other"], body: "if (auto* f = dynamic_cast<Float*>(other)) return boxed_bool(static_cast<double>(raw_) >= f->raw_); return boxed_bool(raw_ >= static_cast<Integer*>(other)->raw_);" },
-              "op_eq_q"     => { params: ["BasicObject* other"], body: "if (auto* i = dynamic_cast<Integer*>(other)) return boxed_bool(raw_ == i->raw_); if (auto* f = dynamic_cast<Float*>(other)) return boxed_bool(static_cast<double>(raw_) == f->raw_); return false_instance();" },
-              "op_ne_q"     => { params: ["BasicObject* other"], body: "if (auto* i = dynamic_cast<Integer*>(other)) return boxed_bool(raw_ != i->raw_); if (auto* f = dynamic_cast<Float*>(other)) return boxed_bool(static_cast<double>(raw_) != f->raw_); return true_instance();" },
-              "op_lshift"   => { params: ["BasicObject* other"], body: "return new Integer(raw_ << static_cast<Integer*>(other)->raw_);" },
-              "op_rshift"   => { params: ["BasicObject* other"], body: "return new Integer(raw_ >> static_cast<Integer*>(other)->raw_);" },
-              "op_bit_and"  => { params: ["BasicObject* other"], body: "return new Integer(raw_ &  static_cast<Integer*>(other)->raw_);" },
-              "op_bit_or"   => { params: ["BasicObject* other"], body: "return new Integer(raw_ |  static_cast<Integer*>(other)->raw_);" },
-              "op_bit_xor"  => { params: ["BasicObject* other"], body: "return new Integer(raw_ ^  static_cast<Integer*>(other)->raw_);" },
+              # corrupt. `1 + "abc"` raises TypeError via throw_type_error
+              # instead of UB through an unchecked static_cast. Same for
+              # ==, <, etc.
+              "op_plus"     => { params: ["BasicObject* other"], body: "if (typeid(*other) == typeid(Float)) return new Float(static_cast<double>(raw_) + static_cast<Float*>(other)->raw_); if (typeid(*other) == typeid(Integer)) return new Integer(raw_ + static_cast<Integer*>(other)->raw_); throw_type_error(\"can't coerce into Integer\");" },
+              "op_minus"    => { params: ["BasicObject* other"], body: "if (typeid(*other) == typeid(Float)) return new Float(static_cast<double>(raw_) - static_cast<Float*>(other)->raw_); if (typeid(*other) == typeid(Integer)) return new Integer(raw_ - static_cast<Integer*>(other)->raw_); throw_type_error(\"can't coerce into Integer\");" },
+              "op_mul"      => { params: ["BasicObject* other"], body: "if (typeid(*other) == typeid(Float)) return new Float(static_cast<double>(raw_) * static_cast<Float*>(other)->raw_); if (typeid(*other) == typeid(Integer)) return new Integer(raw_ * static_cast<Integer*>(other)->raw_); throw_type_error(\"can't coerce into Integer\");" },
+              "op_div"      => { params: ["BasicObject* other"], body: "if (typeid(*other) == typeid(Float)) return new Float(static_cast<double>(raw_) / static_cast<Float*>(other)->raw_); if (typeid(*other) == typeid(Integer)) return new Integer(raw_ / static_cast<Integer*>(other)->raw_); throw_type_error(\"can't coerce into Integer\");" },
+              "op_mod"      => { params: ["BasicObject* other"], body: "if (typeid(*other) == typeid(Integer)) return new Integer(raw_ % static_cast<Integer*>(other)->raw_); throw_type_error(\"can't coerce into Integer\");" },
+              "op_lt"       => { params: ["BasicObject* other"], body: "if (typeid(*other) == typeid(Float)) return boxed_bool(static_cast<double>(raw_) <  static_cast<Float*>(other)->raw_); if (typeid(*other) == typeid(Integer)) return boxed_bool(raw_ <  static_cast<Integer*>(other)->raw_); throw_type_error(\"can't coerce into Integer\");" },
+              "op_gt"       => { params: ["BasicObject* other"], body: "if (typeid(*other) == typeid(Float)) return boxed_bool(static_cast<double>(raw_) >  static_cast<Float*>(other)->raw_); if (typeid(*other) == typeid(Integer)) return boxed_bool(raw_ >  static_cast<Integer*>(other)->raw_); throw_type_error(\"can't coerce into Integer\");" },
+              "op_le"       => { params: ["BasicObject* other"], body: "if (typeid(*other) == typeid(Float)) return boxed_bool(static_cast<double>(raw_) <= static_cast<Float*>(other)->raw_); if (typeid(*other) == typeid(Integer)) return boxed_bool(raw_ <= static_cast<Integer*>(other)->raw_); throw_type_error(\"can't coerce into Integer\");" },
+              "op_ge"       => { params: ["BasicObject* other"], body: "if (typeid(*other) == typeid(Float)) return boxed_bool(static_cast<double>(raw_) >= static_cast<Float*>(other)->raw_); if (typeid(*other) == typeid(Integer)) return boxed_bool(raw_ >= static_cast<Integer*>(other)->raw_); throw_type_error(\"can't coerce into Integer\");" },
+              "op_eq_q"     => { params: ["BasicObject* other"], body: "if (typeid(*other) == typeid(Integer)) return boxed_bool(raw_ == static_cast<Integer*>(other)->raw_); if (typeid(*other) == typeid(Float)) return boxed_bool(static_cast<double>(raw_) == static_cast<Float*>(other)->raw_); return false_instance();" },
+              "op_ne_q"     => { params: ["BasicObject* other"], body: "if (typeid(*other) == typeid(Integer)) return boxed_bool(raw_ != static_cast<Integer*>(other)->raw_); if (typeid(*other) == typeid(Float)) return boxed_bool(static_cast<double>(raw_) != static_cast<Float*>(other)->raw_); return true_instance();" },
+              "op_lshift"   => { params: ["BasicObject* other"], body: "if (typeid(*other) == typeid(Integer)) return new Integer(raw_ << static_cast<Integer*>(other)->raw_); throw_type_error(\"can't coerce into Integer\");" },
+              "op_rshift"   => { params: ["BasicObject* other"], body: "if (typeid(*other) == typeid(Integer)) return new Integer(raw_ >> static_cast<Integer*>(other)->raw_); throw_type_error(\"can't coerce into Integer\");" },
+              "op_bit_and"  => { params: ["BasicObject* other"], body: "if (typeid(*other) == typeid(Integer)) return new Integer(raw_ &  static_cast<Integer*>(other)->raw_); throw_type_error(\"can't coerce into Integer\");" },
+              "op_bit_or"   => { params: ["BasicObject* other"], body: "if (typeid(*other) == typeid(Integer)) return new Integer(raw_ |  static_cast<Integer*>(other)->raw_); throw_type_error(\"can't coerce into Integer\");" },
+              "op_bit_xor"  => { params: ["BasicObject* other"], body: "if (typeid(*other) == typeid(Integer)) return new Integer(raw_ ^  static_cast<Integer*>(other)->raw_); throw_type_error(\"can't coerce into Integer\");" },
               "op_neg"      => { params: [],                     body: "return new Integer(-raw_);" },
               # Integer ** Integer with non-negative exponent stays Integer
               # (small) — anything bigger or Float exponent → Float via std::pow.
               "op_pow"      => {
                 params: ["BasicObject* other"],
                 body: <<~CPP.chomp,
-                  if (auto* i = dynamic_cast<Integer*>(other)) {
-                    int64_t e = i->raw_;
+                  if (typeid(*other) == typeid(Integer)) {
+                    int64_t e = static_cast<Integer*>(other)->raw_;
                     if (e >= 0 && e < 32) {
                       int64_t r = 1, b = raw_;
                       while (e > 0) { if (e & 1) r *= b; b *= b; e >>= 1; }
                       return new Integer(r);
                     }
-                    return new Float(std::pow(static_cast<double>(raw_), static_cast<double>(i->raw_)));
+                    return new Float(std::pow(static_cast<double>(raw_), static_cast<double>(e)));
                   }
-                  if (auto* f = dynamic_cast<Float*>(other)) {
-                    return new Float(std::pow(static_cast<double>(raw_), f->raw_));
+                  if (typeid(*other) == typeid(Float)) {
+                    return new Float(std::pow(static_cast<double>(raw_), static_cast<Float*>(other)->raw_));
                   }
-                  return nil_instance();
+                  throw_type_error("can't coerce into Integer");
                 CPP
               },
               "m_to_s"     => {
@@ -443,9 +445,9 @@ module Frozone
               "// Float * Integer / Integer * Float mixed-arithmetic case",
               "// without falling back to Ruby-level coercion.",
               "static double as_double(BasicObject* o) {",
-              "  if (auto* f = dynamic_cast<Float*>(o))   return f->raw_;",
-              "  if (auto* i = dynamic_cast<Integer*>(o)) return static_cast<double>(i->raw_);",
-              "  return 0.0;",
+              "  if (typeid(*o) == typeid(Float))   return static_cast<Float*>(o)->raw_;",
+              "  if (typeid(*o) == typeid(Integer)) return static_cast<double>(static_cast<Integer*>(o)->raw_);",
+              "  throw_type_error(\"can't coerce into Float\");",
               "}",
             ],
             overrides: {
@@ -457,8 +459,8 @@ module Frozone
               "op_gt"       => { params: ["BasicObject* other"], body: "return boxed_bool(raw_ >  as_double(other));" },
               "op_le"       => { params: ["BasicObject* other"], body: "return boxed_bool(raw_ <= as_double(other));" },
               "op_ge"       => { params: ["BasicObject* other"], body: "return boxed_bool(raw_ >= as_double(other));" },
-              "op_eq_q"     => { params: ["BasicObject* other"], body: "if (auto* f = dynamic_cast<Float*>(other)) return boxed_bool(raw_ == f->raw_); if (auto* i = dynamic_cast<Integer*>(other)) return boxed_bool(raw_ == static_cast<double>(i->raw_)); return false_instance();" },
-              "op_ne_q"     => { params: ["BasicObject* other"], body: "if (auto* f = dynamic_cast<Float*>(other)) return boxed_bool(raw_ != f->raw_); if (auto* i = dynamic_cast<Integer*>(other)) return boxed_bool(raw_ != static_cast<double>(i->raw_)); return true_instance();" },
+              "op_eq_q"     => { params: ["BasicObject* other"], body: "if (typeid(*other) == typeid(Float)) return boxed_bool(raw_ == static_cast<Float*>(other)->raw_); if (typeid(*other) == typeid(Integer)) return boxed_bool(raw_ == static_cast<double>(static_cast<Integer*>(other)->raw_)); return false_instance();" },
+              "op_ne_q"     => { params: ["BasicObject* other"], body: "if (typeid(*other) == typeid(Float)) return boxed_bool(raw_ != static_cast<Float*>(other)->raw_); if (typeid(*other) == typeid(Integer)) return boxed_bool(raw_ != static_cast<double>(static_cast<Integer*>(other)->raw_)); return true_instance();" },
               "op_neg"      => { params: [],                     body: "return new Float(-raw_);" },
               "op_pow"       => { params: ["BasicObject* other"], body: "return new Float(std::pow(raw_, as_double(other)));" },
               # ceil/floor/round/truncate live in core/4.0/float.rb, which
