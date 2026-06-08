@@ -1477,8 +1477,10 @@ module Frozone
               "BasicObject* op_eq_q(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
               "  if (args->data.empty()) return false_instance();",
               "  if (this == args->data[0]) return true_instance();",
-              "  auto* o = dynamic_cast<#{cls_name}*>(args->data[0]);",
-              "  if (!o || !iv_raw || !o->iv_raw) return false_instance();",
+              "  BasicObject* _other = args->data[0];",
+              "  if (typeid(*_other) != typeid(#{cls_name})) return false_instance();",
+              "  auto* o = static_cast<#{cls_name}*>(_other);",
+              "  if (!iv_raw || !o->iv_raw) return false_instance();",
               "  return iv_raw->op_eq_q(new Array({o->iv_raw}));",
               "}",
             ]

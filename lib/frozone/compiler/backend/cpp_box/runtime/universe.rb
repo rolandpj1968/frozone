@@ -2300,7 +2300,7 @@ module Frozone
             body: <<~CPP.chomp,
               auto* self = static_cast<String*>(self_obj);
               bool has_block = (block_obj && block_obj != nil_instance());
-              Proc* block_proc = has_block ? dynamic_cast<Proc*>(block_obj) : nullptr;
+              Proc* block_proc = (has_block && block_obj && block_obj->mm_is_a_q_direct(&Proc_CLASS)) ? static_cast<Proc*>(block_obj) : nullptr;
               if (has_block && !block_proc) has_block = false;  // defensive
               Array* results = new Array();
 

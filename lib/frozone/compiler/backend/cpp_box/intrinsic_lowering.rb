@@ -376,7 +376,7 @@ module Frozone
             string_unpack: ->(self_, fmt, _offset) { "string_unpack_helper(#{self_}, #{fmt})" },
 
             string_gsub: ->(self_, pat, repl, block) {
-              "string_gsub_helper(#{self_}, #{pat}, #{repl}, dynamic_cast<Proc*>(#{block}))"
+              "string_gsub_helper(#{self_}, #{pat}, #{repl}, ((#{block}) && (#{block})->mm_is_a_q_direct(&Proc_CLASS) ? static_cast<Proc*>(#{block}) : nullptr))"
             },
             string_scan: ->(self_, pat, block) {
               "string_scan_helper(#{self_}, #{pat}, #{block})"
@@ -385,7 +385,7 @@ module Frozone
             # matches once. WQ doesn't call sub yet, so an exact `sub`
             # impl can wait.
             string_sub: ->(self_, pat, repl, block) {
-              "string_gsub_helper(#{self_}, #{pat}, #{repl}, dynamic_cast<Proc*>(#{block}))"
+              "string_gsub_helper(#{self_}, #{pat}, #{repl}, ((#{block}) && (#{block})->mm_is_a_q_direct(&Proc_CLASS) ? static_cast<Proc*>(#{block}) : nullptr))"
             },
 
             # MatchData accessors. md[N] (Integer N) routes here.

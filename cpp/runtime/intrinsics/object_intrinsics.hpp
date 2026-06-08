@@ -46,7 +46,8 @@ inline BasicObject* intrinsic_object_public_send(BasicObject* self_, BasicObject
   for (auto* _e : _a->data) _full->data.push_back(_e);
   g_caller_self = PUBLIC_SEND_SENTINEL;
   Hash* _kw = (kwargs && typeid(*kwargs) == typeid(Hash)) ? static_cast<Hash*>(kwargs) : nullptr;
-  return self_->m_send(_full, _kw, dynamic_cast<Proc*>(block));
+  Proc* _blk = (block && block->mm_is_a_q_direct(&Proc_CLASS)) ? static_cast<Proc*>(block) : nullptr;
+  return self_->m_send(_full, _kw, _blk);
 }
 
 // `BasicObject#__send__(name, *args, **kwargs, &block)` — bypasses
@@ -61,7 +62,8 @@ inline BasicObject* intrinsic_basic_object___send__(BasicObject* self_, BasicObj
   for (auto* _e : _a->data) _full->data.push_back(_e);
   g_caller_self = nullptr;
   Hash* _kw = (kwargs && typeid(*kwargs) == typeid(Hash)) ? static_cast<Hash*>(kwargs) : nullptr;
-  return self_->m_send(_full, _kw, dynamic_cast<Proc*>(block));
+  Proc* _blk = (block && block->mm_is_a_q_direct(&Proc_CLASS)) ? static_cast<Proc*>(block) : nullptr;
+  return self_->m_send(_full, _kw, _blk);
 }
 
 // `BasicObject#method_missing(name, *args)` — default impl raises
