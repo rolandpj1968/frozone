@@ -526,6 +526,13 @@ module Frozone
               flat = resolve_constant(parts)
               if flat && cpp_leaf_names.include?(flat.to_s)
                 return "boxed_bool(#{from_expr(recv, locals)}->typeid_eq_q<#{flat}>())"
+              elsif flat && %i[is_a? kind_of?].include?(name)
+                # Non-leaf is_a?/kind_of? — direct LUT lookup via
+                # mm_is_a_q_direct skips the universal-protocol Array
+                # allocation. instance_of? falls through to universal
+                # dispatch (mm_instance_of_q does exact-class match,
+                # not LUT lookup).
+                return "boxed_bool(#{from_expr(recv, locals)}->mm_is_a_q_direct(&#{flat}_CLASS))"
               end
             end
 
