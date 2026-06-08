@@ -3,26 +3,41 @@
 Audit of every C++ cast emitted by the second backend, classifying each
 by safety category and recommending which can be eliminated.
 
-Casts counted (as of the audit pass):
+**Status (2026-06-08): the `dynamic_cast` goal is achieved.** Zero
+`dynamic_cast` statements remain across `lib/frozone/compiler/backend/
+cpp_box/` and `cpp/runtime/`; the only matches in those trees are
+comments referencing the removed pattern. `-fno-rtti` is unblocked
+from this side; what remains before flipping it is verifying the C++
+runtime doesn't depend on RTTI through `std::any` / `typeid` info
+strings / etc.
 
-| Cast type        | Sites in `lib/frozone/compiler/backend/cpp_box/` |
-|------------------|--:|
-| `static_cast`    | 277 |
-| `dynamic_cast`   | 62  |
-| `reinterpret_cast` | ~25 |
+Casts counted at the start of the audit pass (kept for context):
+
+| Cast type        | Sites in `lib/frozone/compiler/backend/cpp_box/` | After cleanup |
+|------------------|--:|--:|
+| `static_cast`    | 277 | 277+ (impl-internal narrowings + new typeid-guarded paths) |
+| `dynamic_cast`   | 62  | **0** |
+| `reinterpret_cast` | ~25 | ~25 (all legitimate) |
 
 The bar:
 
-- **No `dynamic_cast`** anywhere — long-term goal.
+- **No `dynamic_cast`** anywhere — long-term goal. **Achieved.**
 - **No `reinterpret_cast`** except for well-defined pointer-as-integer
   and `unsigned char* ↔ char*` for stdlib APIs.
 - **`static_cast`** only for proven impl-internals (the canonical case:
   the universal-vtable's `BasicObject* block` arg narrowed to `Proc*`
   inside the body).
 
-The current state hits the `reinterpret_cast` bar; `static_cast`
-mostly meets the bar with a few BasicObject* upcast disambiguations
-that are harmless; `dynamic_cast` is the active gap — split between
+The current state hits all three bars: `dynamic_cast` is zero,
+`reinterpret_cast` is bounded to the legitimate use cases, and
+`static_cast` is either upcast disambiguation or impl-internal
+narrowing.
+
+(Below is the original audit doc preserved for context.)
+
+---
+
+`dynamic_cast` was the active gap — split between
 eliminable exact-type checks and legitimate value-protocol narrowing
 that genuinely needs RTTI.
 
