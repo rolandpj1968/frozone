@@ -479,13 +479,13 @@ module Frozone
             # String-typed paths print the path; non-string gets a
             # generic message.
             kernel_require: ->(_self_, path) {
-              %|([&]() -> BasicObject* { auto* _s = dynamic_cast<String*>(#{path}); std::fprintf(stderr, "[box-first] kernel_require called at runtime \xe2\x80\x94 closed-world AOT can't dynamically load (%.*s)\\n", _s ? (int)_s->bytes.size() : 18, _s ? reinterpret_cast<const char*>(_s->bytes.data()) : "<non-string path>"); return false_instance(); }())|
+              %|([&]() -> BasicObject* { auto* _s = ((#{path}) && typeid(*(#{path})) == typeid(String)) ? static_cast<String*>(#{path}) : nullptr; std::fprintf(stderr, "[box-first] kernel_require called at runtime \xe2\x80\x94 closed-world AOT can't dynamically load (%.*s)\\n", _s ? (int)_s->bytes.size() : 18, _s ? reinterpret_cast<const char*>(_s->bytes.data()) : "<non-string path>"); return false_instance(); }())|
             },
             kernel_require_relative: ->(_self_, path) {
-              %|([&]() -> BasicObject* { auto* _s = dynamic_cast<String*>(#{path}); std::fprintf(stderr, "[box-first] kernel_require_relative called at runtime \xe2\x80\x94 closed-world AOT can't dynamically load (%.*s)\\n", _s ? (int)_s->bytes.size() : 18, _s ? reinterpret_cast<const char*>(_s->bytes.data()) : "<non-string path>"); return false_instance(); }())|
+              %|([&]() -> BasicObject* { auto* _s = ((#{path}) && typeid(*(#{path})) == typeid(String)) ? static_cast<String*>(#{path}) : nullptr; std::fprintf(stderr, "[box-first] kernel_require_relative called at runtime \xe2\x80\x94 closed-world AOT can't dynamically load (%.*s)\\n", _s ? (int)_s->bytes.size() : 18, _s ? reinterpret_cast<const char*>(_s->bytes.data()) : "<non-string path>"); return false_instance(); }())|
             },
             kernel_load: ->(_self_, path, _wrap) {
-              %|([&]() -> BasicObject* { auto* _s = dynamic_cast<String*>(#{path}); std::fprintf(stderr, "[box-first] kernel_load called at runtime \xe2\x80\x94 closed-world AOT can't dynamically load (%.*s)\\n", _s ? (int)_s->bytes.size() : 18, _s ? reinterpret_cast<const char*>(_s->bytes.data()) : "<non-string path>"); return false_instance(); }())|
+              %|([&]() -> BasicObject* { auto* _s = ((#{path}) && typeid(*(#{path})) == typeid(String)) ? static_cast<String*>(#{path}) : nullptr; std::fprintf(stderr, "[box-first] kernel_load called at runtime \xe2\x80\x94 closed-world AOT can't dynamically load (%.*s)\\n", _s ? (int)_s->bytes.size() : 18, _s ? reinterpret_cast<const char*>(_s->bytes.data()) : "<non-string path>"); return false_instance(); }())|
             },
             # `Frozone::Vm::Vm#initialize(options)` — synthetic stub set
             # up by setup_frozone_land for self-hosting. In box-first AOT
@@ -539,11 +539,11 @@ module Frozone
             # the *args rest_param which MethodEmitter.unpack_params
             # types BasicObject* even though it's always Array at
             # runtime — splat_to_array's m_class() fast-path is the
-            # safe coercion (no static_cast). dynamic_cast<Hash*> on
-            # kwargs is dynamic_cast'd; if cast fails (somehow not a Hash)
-            # fall back to &EMPTY_KWARGS so we never pass nullptr.
+            # safe coercion (no static_cast). Hash narrowing on kwargs
+            # uses typeid (Hash is a leaf class); fall back to
+            # &EMPTY_KWARGS so we never pass nullptr.
             proc_call: ->(self_, args, kwargs) {
-              "((#{self_})->m_call(splat_to_array(#{args}), [&]() -> Hash* { auto* _h = dynamic_cast<Hash*>(#{kwargs}); return _h ? _h : &EMPTY_KWARGS; }()))"
+              "((#{self_})->m_call(splat_to_array(#{args}), [&]() -> Hash* { return ((#{kwargs}) && typeid(*(#{kwargs})) == typeid(Hash)) ? static_cast<Hash*>(#{kwargs}) : &EMPTY_KWARGS; }()))"
             },
             # `Proc#arity` — stub returning -1 (variable-arity). We don't
             # track block arity at AOT time; -1 is MRI's default for

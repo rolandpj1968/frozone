@@ -315,9 +315,9 @@ module Frozone
               if c.is_a?(Ast::SplatArg)
                 arr_str = emit.cpp.from_expr(c.value_node, locals)
                 if subj
-                  "([&]() -> bool { Array* _spl = dynamic_cast<Array*>(#{arr_str}); if (!_spl) return false; for (auto* _e : _spl->data) { if (truthy(_e->op_case_eq(new Array({#{subj}})))) return true; } return false; }())"
+                  "([&]() -> bool { BasicObject* _sp = #{arr_str}; if (!_sp || typeid(*_sp) != typeid(Array)) return false; for (auto* _e : static_cast<Array*>(_sp)->data) { if (truthy(_e->op_case_eq(new Array({#{subj}})))) return true; } return false; }())"
                 else
-                  "([&]() -> bool { Array* _spl = dynamic_cast<Array*>(#{arr_str}); if (!_spl) return false; for (auto* _e : _spl->data) { if (truthy(_e)) return true; } return false; }())"
+                  "([&]() -> bool { BasicObject* _sp = #{arr_str}; if (!_sp || typeid(*_sp) != typeid(Array)) return false; for (auto* _e : static_cast<Array*>(_sp)->data) { if (truthy(_e)) return true; } return false; }())"
                 end
               else
                 c_str = emit.cpp.from_expr(c, locals)
@@ -422,7 +422,7 @@ module Frozone
             # nil` was reading garbage out of nil_instance()->data,
             # making the lexer state machine never transition.
             emit.line "BasicObject* #{raw} = #{rhs_expr};"
-            emit.line "Array* #{rhs} = dynamic_cast<Array*>(#{raw});"
+            emit.line "Array* #{rhs} = (#{raw} && typeid(*#{raw}) == typeid(Array)) ? static_cast<Array*>(#{raw}) : nullptr;"
             emit.line "if (!#{rhs}) { #{rhs} = new Array(); if (#{raw} != nil_instance()) #{rhs}->data.push_back(#{raw}); }"
             emit.line "std::size_t #{n} = #{rhs}->data.size();"
             targets[0...pre_count].each_with_index do |t, i|
