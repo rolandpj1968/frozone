@@ -30,20 +30,19 @@ EXEC_MODES =
     # Diagnostic axis — surface NA-vs-leaf interactions individually.
     # Opt-in only; full cross-product is combinatorial pain. Use this
     # only when triaging a specific suspected interaction.
-    # NA + leaf default ON since #160; baseline must explicitly disable.
     {
-      baseline: { 'FROZONE_NATURAL_ARGS' => '0', 'FROZONE_LEAF_DISPATCH' => '0' },
-      natural:  { 'FROZONE_NATURAL_ARGS' => '1', 'FROZONE_LEAF_DISPATCH' => '0' },
-      leaf:     { 'FROZONE_NATURAL_ARGS' => '0', 'FROZONE_LEAF_DISPATCH' => '1' },
-      shipped:  {},
+      baseline: {},
+      natural:  { 'FROZONE_NATURAL_ARGS' => '1' },
+      leaf:     { 'FROZONE_LEAF_DISPATCH' => '1' },
+      shipped:  { 'FROZONE_NATURAL_ARGS' => '1', 'FROZONE_LEAF_DISPATCH' => '1' },
     }.freeze
   else
     # Default: only baseline (opts off — ground truth) and shipped
     # (the actual user-facing default config). The other two modes
     # are intermediate diagnostics that aren't ship configurations.
     {
-      baseline: { 'FROZONE_NATURAL_ARGS' => '0', 'FROZONE_LEAF_DISPATCH' => '0' },
-      shipped:  {},
+      baseline: {},
+      shipped:  { 'FROZONE_NATURAL_ARGS' => '1', 'FROZONE_LEAF_DISPATCH' => '1' },
     }.freeze
   end
 
@@ -486,7 +485,7 @@ RSpec.describe 'box-first leaf-dispatch codegen' do
 
   context 'with LEAF=1 only (natural-args off)' do
     it 'emits single-def and K-way leaf gateways; skips non-leaf' do
-      cpp = gen_leaf_test('FROZONE_LEAF_DISPATCH' => '1', 'FROZONE_NATURAL_ARGS' => '0')
+      cpp = gen_leaf_test('FROZONE_LEAF_DISPATCH' => '1')
       expect(gateway_target(cpp, 'm_double')).to eq('LeafCalc')      # single-def leaf — positive
       expect(gateway_target(cpp, 'm_greet')).to eq('Greeter')        # single-def leaf — positive (NA off)
       # Phase B: multi-def-all-leaf → K-way OR-chain. Order is
@@ -515,7 +514,7 @@ RSpec.describe 'box-first leaf-dispatch codegen' do
 
   context 'with LEAF=0 (baseline)' do
     it 'emits no leaf-dispatch gateways at all' do
-      cpp = gen_leaf_test('FROZONE_LEAF_DISPATCH' => '0', 'FROZONE_NATURAL_ARGS' => '0')
+      cpp = gen_leaf_test({})
       expect(cpp).not_to include('Leaf-dispatch gateways')
       expect(gateway_target(cpp, 'm_double')).to be_nil
       expect(gateway_target(cpp, 'm_greet')).to be_nil
