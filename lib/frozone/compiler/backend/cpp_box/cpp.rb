@@ -746,12 +746,46 @@ module Frozone
             # — caught here so the iterator's call expression evaluates
             # to v. Wrap only when a block was actually passed; non-block
             # calls can't break-out (no Proc → no BreakException).
-            return wrap_break_catch(call_expr) if has_block
+            if has_block
+              wrapped = wrap_break_catch(call_expr)
+              return maybe_stack_alloc_block(wrapped, block_arg, name) || wrapped
+            end
             call_expr
           end
 
           def wrap_break_catch(call_expr)
             "([&]() -> BasicObject* { try { return #{call_expr}; } catch (BreakException& e_) { return e_.value; } }())"
+          end
+
+          # Stack-alloc the Proc instance when the call target is a known
+          # non-escaping iterator. block_arg has the shape
+          # `(new ProcN([CAP](ARGS)->BasicObject*{BODY}))` — strip the
+          # `new`+`)` to get the ctor body, declare a stack ProcN inside
+          # a self-invoking lambda whose frame outlives the call,
+          # substitute the heap form with a pointer-to-stack ref.
+          # Returns nil (caller falls back to the original heap form) on
+          # any mismatch — safety first.
+          STACK_BLOCK_SAFE_NAMES = %i[
+            each times each_with_index each_with_object each_pair each_key each_value
+            map collect flat_map collect_concat select filter reject inject reduce
+            find detect any? all? none? count sort_by min_by max_by group_by
+            upto downto step partition each_slice each_cons tap then yield_self
+          ].to_set.freeze
+
+          def maybe_stack_alloc_block(call_expr, block_arg, name)
+            return nil unless ENV['FROZONE_STACK_BLOCKS'] == '1'
+            return nil unless STACK_BLOCK_SAFE_NAMES.include?(name)
+            return nil unless block_arg.is_a?(String) && block_arg.start_with?('(new Proc') && block_arg.end_with?('))')
+            m = /\A\(new (Proc\d?)\(/.match(block_arg)
+            return nil unless m
+            proc_cls = m[1]
+            ctor = block_arg[m[0].length...-2]
+            # Replace the heap form with &__blk__. block_arg strings are
+            # long and unlikely to repeat — but verify uniqueness; ambiguous
+            # match means we can't safely rewrite.
+            return nil unless call_expr.scan(block_arg).length == 1
+            ref_form = call_expr.sub(block_arg, '&__blk__')
+            "([&, this]() -> BasicObject* { #{proc_cls} __blk__(#{ctor}); return #{ref_form}; }())"
           end
 
           # Build the kwargs Hash for a call. Empty kw list AND no
