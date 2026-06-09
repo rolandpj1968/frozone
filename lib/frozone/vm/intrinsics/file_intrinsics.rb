@@ -21,8 +21,6 @@ module Frozone
         def os_readlink(_, path) = n2f_str(::File.readlink(path.raw)) rescue FNIL
         def os_euid(_) = n2f_int(Process.euid)
         def os_egid(_) = n2f_int(Process.egid)
-        def file_absolute_path(_, path, base = FNIL) = n2f_str(File.absolute_path(path.raw, f2n_raw(base)))
-        def file_absolute_path_q(_, path) = n2f_bool(File.absolute_path?(path.raw))
         def file_ftype(_, path) = reraise(Errno::ENOENT) { n2f_str(File.ftype(path.raw)) }
         def file_atime(_, path) = reraise(Errno::ENOENT) { n2f_time(File.atime(path.raw)) }
         def file_mtime(_, path) = reraise(Errno::ENOENT) { n2f_time(File.mtime(path.raw)) }
@@ -95,11 +93,6 @@ module Frozone
         def process_euid(_) = n2f_int(Process.euid)
         def process_egid(_) = n2f_int(Process.egid)
         def process_groups(_) = n2f_arr(Process.groups.map { |g| n2f_int(g) })
-        def file_join(_, parts) = n2f_str(File.join(*parts.raw.flat_map { |p| farray?(p) ? p.raw.map(&:raw) : p.raw }))
-        def file_split(_, path) = n2f_arr(File.split(path.raw).map { |p| n2f_str(p) })
-        def file_dirname(_, path, level = FNIL) = n2f_str(File.dirname(path.raw, fnil?(level) ? 1 : level.raw))
-        def file_realpath(_, path, base = FNIL) = reraise(Errno::ENOENT) { n2f_str(File.realpath(path.raw, f2n_raw(base))) }
-        def file_realdirpath(_, path, base = FNIL) = reraise(Errno::ENOENT) { n2f_str(File.realdirpath(path.raw, f2n_raw(base))) }
         def file_birthtime(_, path) = reraise(Errno::ENOENT, NotImplementedError) { n2f_time(File.birthtime(path.raw)) }
 
         def file_lutime(_, atime, mtime, paths)
@@ -107,10 +100,6 @@ module Frozone
           m = mtime.is_a?(TimeObject) ? mtime.raw : (fnil?(mtime) ? Time.now : Time.at(mtime.raw.to_f))
           paths.raw.each { |p| File.lutime(a, m, p.raw) rescue nil }
           n2f_int(paths.raw.length)
-        end
-
-        def file_expand_path(_, path, base = FNIL) = reraise(ArgumentError) do
-          n2f_str(File.expand_path(path.raw, f2n_raw(base)))
         end
 
         def file_umask(context, new_mask)

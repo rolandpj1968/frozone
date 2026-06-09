@@ -203,8 +203,8 @@ class File < IO
     def executable?(path) = Intrinsics.os_access(_coerce_path(path), X_OK)
     def executable_real?(path) = Intrinsics.os_access(_coerce_path(path), X_OK)
     def split(path) = [dirname(_coerce_path(path)), basename(_coerce_path(path))]
-    def absolute_path(path, base = nil) = Intrinsics.file_absolute_path(_coerce_path(path), base.nil? ? nil : _coerce_path(base))
-    def absolute_path?(path) = Intrinsics.file_absolute_path_q(_coerce_path(path))
+    def absolute_path(path, base = nil) = expand_path(path, base)
+    def absolute_path?(path) = _coerce_path(path).start_with?('/')
     def ftype(path) = Intrinsics.file_ftype(_coerce_path(path))
     def atime(path) = Intrinsics.file_atime(_coerce_path(path))
     def mtime(path) = Intrinsics.file_mtime(_coerce_path(path))
