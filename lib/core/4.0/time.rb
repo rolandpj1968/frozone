@@ -203,42 +203,6 @@ class Time
       _build_calendar_time_with_tz(y, mo, d, h, mi, s, effective_tz)
     end
 
-    def _now_with_tz(tz)
-      arr = Intrinsics.os_time_now
-      if tz.nil?
-        Intrinsics.time_make(arr[0], arr[1], arr[2], false)
-      elsif tz.is_a?(Integer)
-        Intrinsics.time_make(arr[0], arr[1], tz, false)
-      else
-        Intrinsics.time_at_raw(now.to_r, tz)
-      end
-    end
-
-    def _build_time_with_offset(epoch_sec, nsec, offset)
-      Intrinsics.time_make(epoch_sec, nsec, offset, false)
-    end
-
-    # Build a Time from calendar fields when an explicit UTC-offset (or
-    # Rational/Float-typed tz fallback) is supplied. Integer offset goes
-    # through os_mktime as UTC (fields interpreted as UTC, then tagged
-    # with the requested offset); other tz values fall back to time_at_raw.
-    def _build_calendar_time_with_offset(y, mo, d, h, mi, s, offset)
-      sec_int = s.to_i
-      sec_frac = s.is_a?(Integer) ? 0 : (s - sec_int)
-      epoch = Intrinsics.os_mktime(y.to_i, mo.to_i, d.to_i, h.to_i, mi.to_i, sec_int, true) - offset.to_i
-      ns = (sec_frac * 1_000_000_000).to_i
-      Intrinsics.time_make(epoch, ns, offset, false)
-    end
-
-    def _build_calendar_time_with_tz(y, mo, d, h, mi, s, tz)
-      return _build_calendar_time(y, mo, d, h, mi, s, 0, false) if tz.nil?
-      return _build_calendar_time(y, mo, d, h, mi, s, 0, true)  if tz.is_a?(String) && _time_zone_utc?(tz)
-      return _build_calendar_time_with_offset(y, mo, d, h, mi, s, tz) if tz.is_a?(Integer)
-      # Rational/Float/other: delegate to time_at_raw via a UTC base.
-      base = _build_calendar_time(y, mo, d, h, mi, s, 0, true)
-      Intrinsics.time_at_raw(base.to_r, tz)
-    end
-
     def zone_offset(zone, year = now.year)
       off = nil
       zone = zone.upcase
@@ -424,6 +388,35 @@ class Time
       offset = use_utc ? 0 : Intrinsics.os_localtime(epoch)[9]
       Intrinsics.time_make(epoch, ns, offset, use_utc)
     end
+
+    # Build a Time from calendar fields when an explicit UTC-offset is
+    # supplied. Integer offset goes through os_mktime as UTC (fields
+    # interpreted as UTC, then tagged with the requested offset); other
+    # tz values fall back to time_at_raw.
+    def _build_calendar_time_with_offset(y, mo, d, h, mi, s, offset)
+      sec_int = s.to_i
+      sec_frac = s.is_a?(Integer) ? 0 : (s - sec_int)
+      epoch = Intrinsics.os_mktime(y.to_i, mo.to_i, d.to_i, h.to_i, mi.to_i, sec_int, true) - offset.to_i
+      ns = (sec_frac * 1_000_000_000).to_i
+      Intrinsics.time_make(epoch, ns, offset, false)
+    end
+
+    def _build_calendar_time_with_tz(y, mo, d, h, mi, s, tz)
+      return _build_calendar_time(y, mo, d, h, mi, s, 0, false) if tz.nil?
+      return _build_calendar_time(y, mo, d, h, mi, s, 0, true)  if tz.is_a?(String) && _time_zone_utc?(tz)
+      return _build_calendar_time_with_offset(y, mo, d, h, mi, s, tz) if tz.is_a?(Integer)
+      base = _build_calendar_time(y, mo, d, h, mi, s, 0, true)
+      Intrinsics.time_at_raw(base.to_r, tz)
+    end
+
+    def _now_with_tz(tz)
+      arr = Intrinsics.os_time_now
+      return Intrinsics.time_make(arr[0], arr[1], arr[2], false) if tz.nil?
+      return Intrinsics.time_make(arr[0], arr[1], tz, false) if tz.is_a?(Integer)
+      Intrinsics.time_at_raw(now.to_r, tz)
+    end
+
+    def _build_time_with_offset(epoch_sec, nsec, offset) = Intrinsics.time_make(epoch_sec, nsec, offset, false)
 
     def _load(str) = Intrinsics.time_load(str)
 
