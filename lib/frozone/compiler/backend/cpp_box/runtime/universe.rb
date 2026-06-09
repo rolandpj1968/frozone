@@ -1693,11 +1693,19 @@ module Frozone
             # C++ nullptr. Positional args default to &EMPTY_ARGS,
             # kwargs to &EMPTY_KWARGS, block to nil_instance().
             #
+            # Exception: NA-with-block dispatch uses `Proc* block` with
+            # nullptr == "no block". When such a body aliases the param
+            # to BasicObject* (e.g. `BasicObject* l_block = block;` for
+            # the named &block in `def chars(&block)`), `if (truthy(l_block))`
+            # would treat nullptr as truthy — wrong, would dispatch
+            # `m_each(univ, ..., nullptr)` and SIGSEGV. Treat nullptr as
+            # falsy here so the body sees it as "no block".
+            #
             # Singleton invariant: Frozone::Vm::NilObject / FalseObject /
             # TrueObject fuse with the runtime nil/false/true classes,
             # so there's exactly one of each. truthy() can therefore stay
-            # a simple two-pointer-compare.
-            body: "return o != nil_instance() && o != false_instance();",
+            # a simple three-pointer-compare.
+            body: "return o && o != nil_instance() && o != false_instance();",
           )
 
           RUBY_PUTS = KernelFn.new(
