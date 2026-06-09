@@ -37,16 +37,6 @@ module Frozone
         def basic_object___id__(_, v) = n2f_int(v.__id__)
         def basic_object__equal_equal_(_, v1, v2) = n2f_bool(v1.equal?(v2))
         def kernel_float(_, _receiver, val) = n2f_float(ffloat?(val) ? val.raw : Float(val.raw))
-        def env_get(_, key) = (v = ENV[key.raw]) ? n2f_str(v) : FNIL
-        def env_set(_, key, val) = (ENV[key.raw] = f2n_raw(val); val)
-        def env_delete(_, key) = (v = ENV.delete(key.raw)) ? n2f_str(v) : FNIL
-        def env_key?(_, key) = n2f_bool(ENV.key?(key.raw))
-        def env_keys(_) = n2f_arr(ENV.keys.map { |k| n2f_str(k) })
-        def env_values(_) = n2f_arr(ENV.values.map { |v| n2f_str(v) })
-        def env_size(_) = n2f_int(ENV.size)
-        def env_clear(_) = (ENV.clear; FNIL)
-        def env_pairs(_) = n2f_arr(ENV.map { |k, v| n2f_arr([n2f_str(k), n2f_str(v)]) })
-        def env_to_hash(_) = n2f_hash(ENV.to_h { |k, v| [n2f_str(k), n2f_str(v)] })
 
         def file_realpath_cached(_, path_str)
           expanded = fstr?(path_str) ? path_str.raw : path_str.to_s

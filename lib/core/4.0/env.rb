@@ -2,20 +2,26 @@
 # ENV is a special singleton that wraps the process environment.
 # It is not a Hash subclass, but it includes Enumerable and supports
 # many Hash-like methods with proper key/value coercion and validation.
+#
+# Built entirely on four primitives:
+#   Intrinsics.os_getenv(name)         -> String or nil
+#   Intrinsics.os_setenv(name, value)  -> nil
+#   Intrinsics.os_unsetenv(name)       -> nil
+#   Intrinsics.os_environ_pairs        -> [[k, v], ...]
 
 class ENVClass
   include Enumerable
 
   def to_s = "ENV"
-  def inspect = Intrinsics.env_to_hash.inspect
+  def inspect = to_hash.inspect
   def rehash = nil
-  def empty? = Intrinsics.env_size == 0
-  def size = Intrinsics.env_size
+  def empty? = Intrinsics.os_environ_pairs.empty?
+  def size = Intrinsics.os_environ_pairs.size
   alias length size
-  def keys = Intrinsics.env_keys.map { |k| ENVClass.__enc(k) }
-  def values = Intrinsics.env_values.map { |v| ENVClass.__enc(v) }
-  def to_a = Intrinsics.env_pairs.map { |pair| [ENVClass.__enc(pair[0]), ENVClass.__enc(pair[1])] }
-  def key?(key) = Intrinsics.env_key?(ENVClass.__coerce_key(key))
+  def keys = Intrinsics.os_environ_pairs.map { |pair| ENVClass.__enc(pair[0]) }
+  def values = Intrinsics.os_environ_pairs.map { |pair| ENVClass.__enc(pair[1]) }
+  def to_a = Intrinsics.os_environ_pairs.map { |pair| [ENVClass.__enc(pair[0]), ENVClass.__enc(pair[1])] }
+  def key?(key) = !Intrinsics.os_getenv(ENVClass.__coerce_key(key)).nil?
   alias has_key? key?
   alias include? key?
   alias member? key?
@@ -38,8 +44,7 @@ class ENVClass
   end
 
   def [](key)
-    key = ENVClass.__coerce_key(key)
-    val = Intrinsics.env_get(key)
+    val = Intrinsics.os_getenv(ENVClass.__coerce_key(key))
     val.nil? ? nil : ENVClass.__enc(val)
   end
 
@@ -51,24 +56,24 @@ class ENVClass
       rescue TypeError, Errno::EINVAL
         return nil
       end
-      Intrinsics.env_delete(key)
+      Intrinsics.os_unsetenv(key)
       return nil
     end
     key = ENVClass.__coerce_key(key)
     value = ENVClass.__coerce_value(value)
     ENVClass.__validate_key(key)
-    Intrinsics.env_set(key, value)
+    Intrinsics.os_setenv(key, value)
     value
   end
   alias store []=
 
   def delete(key, &block)
     key = ENVClass.__coerce_key(key)
-    val = Intrinsics.env_get(key)
+    val = Intrinsics.os_getenv(key)
     if val.nil?
       block ? block.call(key) : nil
     else
-      Intrinsics.env_delete(key)
+      Intrinsics.os_unsetenv(key)
       ENVClass.__enc(val)
     end
   end
@@ -76,7 +81,7 @@ class ENVClass
   def fetch(key, *args, &block)
     key = ENVClass.__coerce_key(key)
     warn "block supersedes default value argument" if block && args.size > 0
-    val = Intrinsics.env_get(key)
+    val = Intrinsics.os_getenv(key)
     if val.nil?
       if block
         block.call(key)
@@ -93,13 +98,13 @@ class ENVClass
   def value?(val)
     val = ENVClass.__soft_coerce_string__(val)
     return nil if val.nil?
-    Intrinsics.env_value?(val)
+    Intrinsics.os_environ_pairs.any? { |pair| pair[1] == val }
   end
   alias has_value? value?
 
   def each(&block)
     return to_enum(:each) { size } unless block
-    Intrinsics.env_pairs.each do |pair|
+    Intrinsics.os_environ_pairs.each do |pair|
       block.call(ENVClass.__enc(pair[0]), ENVClass.__enc(pair[1]))
     end
     self
@@ -108,20 +113,20 @@ class ENVClass
 
   def each_key(&block)
     return to_enum(:each_key) { size } unless block
-    Intrinsics.env_keys.each { |k| block.call(ENVClass.__enc(k)) }
+    Intrinsics.os_environ_pairs.each { |pair| block.call(ENVClass.__enc(pair[0])) }
     self
   end
 
   def each_value(&block)
     return to_enum(:each_value) { size } unless block
-    Intrinsics.env_values.each { |v| block.call(ENVClass.__enc(v)) }
+    Intrinsics.os_environ_pairs.each { |pair| block.call(ENVClass.__enc(pair[1])) }
     self
   end
 
   def to_h(&block)
-    if block
-      result = {}
-      Intrinsics.env_pairs.each do |pair|
+    return to_hash unless block
+    {}.tap do |result|
+      Intrinsics.os_environ_pairs.each do |pair|
         pair_result = block.call(ENVClass.__enc(pair[0]), ENVClass.__enc(pair[1]))
         unless pair_result.respond_to?(:to_ary)
           raise TypeError, "wrong element type #{pair_result.class} (expected Array)"
@@ -130,28 +135,21 @@ class ENVClass
         raise ArgumentError, "element has wrong array length (expected 2, was #{arr.length})" unless arr.length == 2
         result[arr[0]] = arr[1]
       end
-      result
-    else
-      to_hash
     end
   end
 
-  def to_hash
-    h = {}
-    Intrinsics.env_pairs.each { |pair| h[ENVClass.__enc(pair[0])] = ENVClass.__enc(pair[1]) }
-    h
-  end
+  def to_hash = {}.tap { |h| Intrinsics.os_environ_pairs.each { |pair| h[ENVClass.__enc(pair[0])] = ENVClass.__enc(pair[1]) } }
 
   def assoc(key)
     key = ENVClass.__coerce_key(key)
-    val = Intrinsics.env_get(key)
+    val = Intrinsics.os_getenv(key)
     val.nil? ? nil : [ENVClass.__enc(key), ENVClass.__enc(val)]
   end
 
   def rassoc(value)
     value = ENVClass.__soft_coerce_string__(value)
     return nil if value.nil?
-    Intrinsics.env_pairs.each do |pair|
+    Intrinsics.os_environ_pairs.each do |pair|
       return [ENVClass.__enc(pair[0]), ENVClass.__enc(pair[1])] if pair[1] == value
     end
     nil
@@ -159,12 +157,14 @@ class ENVClass
 
   def key(value)
     value = ENVClass.__coerce_key(value)
-    k = Intrinsics.env_key(value)
-    k.nil? ? nil : ENVClass.__enc(k)
+    Intrinsics.os_environ_pairs.each do |pair|
+      return ENVClass.__enc(pair[0]) if pair[1] == value
+    end
+    nil
   end
 
   def clear
-    Intrinsics.env_clear
+    Intrinsics.os_environ_pairs.each { |pair| Intrinsics.os_unsetenv(pair[0]) }
     self
   end
 
@@ -177,8 +177,8 @@ class ENVClass
       ENVClass.__validate_key(k_str)
       validated << [k_str, v_str]
     end
-    Intrinsics.env_clear
-    validated.each { |k_str, v_str| Intrinsics.env_set(k_str, v_str) }
+    clear
+    validated.each { |k_str, v_str| Intrinsics.os_setenv(k_str, v_str) }
     self
   end
 
@@ -188,11 +188,11 @@ class ENVClass
         k_str = ENVClass.__coerce_key(k)
         v_str = ENVClass.__coerce_value(v)
         ENVClass.__validate_key(k_str)
-        if block && Intrinsics.env_key?(k_str)
-          old = Intrinsics.env_get(k_str)
-          v_str = ENVClass.__coerce_value(block.call(k_str, ENVClass.__enc(old), ENVClass.__enc(v_str)))
+        if block
+          old = Intrinsics.os_getenv(k_str)
+          v_str = ENVClass.__coerce_value(block.call(k_str, ENVClass.__enc(old), ENVClass.__enc(v_str))) unless old.nil?
         end
-        Intrinsics.env_set(k_str, v_str)
+        Intrinsics.os_setenv(k_str, v_str)
       end
     end
     self
@@ -200,47 +200,44 @@ class ENVClass
   alias merge! update
 
   def shift
-    all = Intrinsics.env_pairs
+    all = Intrinsics.os_environ_pairs
     return nil if all.empty?
     first = all[0]
     k = first[0]
     v = first[1]
-    Intrinsics.env_delete(k)
+    Intrinsics.os_unsetenv(k)
     [ENVClass.__enc(k), ENVClass.__enc(v)]
   end
 
   def slice(*keys)
-    result = {}
-    keys.each do |key|
-      k_str = ENVClass.__coerce_key(key)
-      val = Intrinsics.env_get(k_str)
-      result[key] = ENVClass.__enc(val) unless val.nil?
+    {}.tap do |result|
+      keys.each do |key|
+        k_str = ENVClass.__coerce_key(key)
+        val = Intrinsics.os_getenv(k_str)
+        result[key] = ENVClass.__enc(val) unless val.nil?
+      end
     end
-    result
   end
 
   def except(*keys)
     excluded = keys.map { |k| ENVClass.__coerce_key(k) }
-    h = {}
-    Intrinsics.env_pairs.each do |pair|
-      h[ENVClass.__enc(pair[0])] = ENVClass.__enc(pair[1]) unless excluded.include?(pair[0])
+    {}.tap do |h|
+      Intrinsics.os_environ_pairs.each do |pair|
+        h[ENVClass.__enc(pair[0])] = ENVClass.__enc(pair[1]) unless excluded.include?(pair[0])
+      end
     end
-    h
   end
 
   def values_at(*keys)
     keys.map do |key|
-      key = ENVClass.__coerce_key(key)
-      val = Intrinsics.env_get(key)
+      val = Intrinsics.os_getenv(ENVClass.__coerce_key(key))
       val.nil? ? nil : ENVClass.__enc(val)
     end
   end
 
   def select(&block)
     return to_enum(:select) { size } unless block
-    h = {}
-    each { |k, v| h[k] = v if block.call(k, v) }
-    h
+    {}.tap { |h| each { |k, v| h[k] = v if block.call(k, v) } }
   end
   alias filter select
 
@@ -250,7 +247,7 @@ class ENVClass
     to_delete = []
     each { |k, v| to_delete << k unless block.call(k, v) }
     to_delete.each do |k|
-      Intrinsics.env_delete(k)
+      Intrinsics.os_unsetenv(k)
       changed = true
     end
     changed ? self : nil
@@ -259,9 +256,7 @@ class ENVClass
 
   def reject(&block)
     return to_enum(:reject) { size } unless block
-    h = {}
-    each { |k, v| h[k] = v unless block.call(k, v) }
-    h
+    {}.tap { |h| each { |k, v| h[k] = v unless block.call(k, v) } }
   end
 
   def reject!(&block)
@@ -270,7 +265,7 @@ class ENVClass
     to_delete = []
     each { |k, v| to_delete << k if block.call(k, v) }
     to_delete.each do |k|
-      Intrinsics.env_delete(k)
+      Intrinsics.os_unsetenv(k)
       changed = true
     end
     changed ? self : nil
@@ -280,7 +275,7 @@ class ENVClass
     return to_enum(:keep_if) { size } unless block
     to_delete = []
     each { |k, v| to_delete << k unless block.call(k, v) }
-    to_delete.each { |k| Intrinsics.env_delete(k) }
+    to_delete.each { |k| Intrinsics.os_unsetenv(k) }
     self
   end
 
@@ -288,28 +283,24 @@ class ENVClass
     return to_enum(:delete_if) { size } unless block
     to_delete = []
     each { |k, v| to_delete << k if block.call(k, v) }
-    to_delete.each { |k| Intrinsics.env_delete(k) }
+    to_delete.each { |k| Intrinsics.os_unsetenv(k) }
     self
   end
 
-  def invert
-    h = {}
-    each { |k, v| h[v] = k }
-    h
-  end
+  def invert = {}.tap { |h| each { |k, v| h[v] = k } }
 
   def merge(*hashes, &block)
-    result = to_hash
-    hashes.each do |hash|
-      hash.each do |k, v|
-        if block && result.key?(k)
-          result[k] = block.call(k, result[k], v)
-        else
-          result[k] = v
+    to_hash.tap do |result|
+      hashes.each do |hash|
+        hash.each do |k, v|
+          result[k] = if block && result.key?(k)
+            block.call(k, result[k], v)
+          else
+            v
+          end
         end
       end
     end
-    result
   end
 
   class << self

@@ -122,8 +122,7 @@ module Frozone
             file_owned file_grpowned file_zero
             file_chardev file_blockdev file_pipe file_socket file_symlink
             file_setuid file_setgid file_sticky file_identical
-            env_get env_set env_delete env_key_q env_value_q env_key
-            env_keys env_values env_size env_pairs env_to_hash env_clear
+            os_getenv os_setenv os_unsetenv os_environ_pairs
             random_new random_new_seed random_seed random_state
             random_rand random_bytes random_urandom random_marshal_load
             process_pid process_uid process_euid process_gid process_egid

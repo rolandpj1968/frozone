@@ -905,40 +905,14 @@ module Frozone
           FNIL
         end
 
-        # ENV intrinsics — direct MRI ENV access
+        # ENV primitives — thin wrappers around MRI ENV / libc environ.
+        # All Hash-shape logic (keys, value?, key, clear, …) lives in
+        # lib/core/4.0/env.rb on top of these four calls.
 
-        def env_key?(_, key) = n2f_bool(ENV.key?(key.raw))
-        def env_value?(_, value) = n2f_bool(ENV.value?(value.raw))
-        def env_keys(_) = n2f_arr(ENV.keys.map { |k| n2f_str(k) })
-        def env_values(_) = n2f_arr(ENV.values.map { |v| n2f_str(v) })
-        def env_size(_) = n2f_int(ENV.size)
-        def env_pairs(_) = n2f_arr(ENV.map { |k, v| n2f_arr([n2f_str(k), n2f_str(v)]) })
-        def env_to_hash(_) = n2f_hash(ENV.to_h { |k, v| [n2f_str(k), n2f_str(v)] })
-
-        def env_get(_, key)
-          val = ENV[key.raw]
-          val.nil? ? FNIL : n2f_str(val)
-        end
-
-        def env_set(_, key, value)
-          ENV[key.raw] = value.raw
-          value
-        end
-
-        def env_delete(_, key)
-          val = ENV.delete(key.raw)
-          val.nil? ? FNIL : n2f_str(val)
-        end
-
-        def env_key(_, value)
-          k = ENV.key(value.raw)
-          k.nil? ? FNIL : n2f_str(k)
-        end
-
-        def env_clear(_)
-          ENV.clear
-          FNIL
-        end
+        def os_getenv(_, key) = (v = ENV[key.raw]) ? n2f_str(v) : FNIL
+        def os_setenv(_, key, value) = (ENV[key.raw] = value.raw; FNIL)
+        def os_unsetenv(_, key) = (ENV.delete(key.raw); FNIL)
+        def os_environ_pairs(_) = n2f_arr(ENV.map { |k, v| n2f_arr([n2f_str(k), n2f_str(v)]) })
       end
     end
   end
