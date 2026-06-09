@@ -33,3 +33,33 @@ puts h["bar"]            # 2
 # String#empty?
 puts "".empty?           # true
 puts "x".empty?          # false
+
+# ASCII-only fast path + cache-invalidation behaviour. has_non_ascii()
+# is cached on String for perf (#161 fix); ensure the cache invalidates
+# correctly on `<<` mutation, including the ASCII→non-ASCII transition
+# that would otherwise silently keep using the bytewise indexing path.
+
+# Codepoint indexing on multibyte: lib/core/4.0/string.rb's String#[]
+# routes via has_non_ascii() to pick byte- vs codepoint-aware index.
+puts "héllo"[0]                # h
+puts "héllo"[1]                # é (codepoint at index 1, bytes 1–2)
+puts "héllo"[2]                # l
+puts "héllo".length            # 5 codepoints
+
+# Mutate an ASCII string with a non-ASCII byte sequence — cache must
+# invalidate so subsequent indexing uses codepoint semantics.
+m = "abc"
+m[0]                            # warm the cache via an ASCII access
+m << "é"
+puts m[3]                       # é (NOT a stray utf-8 continuation byte)
+puts m.length                   # 4 codepoints
+
+# ASCII << ASCII keeps the fast path correct (invalidate-to-unknown,
+# next has_non_ascii recompute returns ASCII-only again).
+asc = "x"
+asc[0]                          # warm cache
+asc << "y"
+asc << "z"
+puts asc[1]                     # y
+puts asc[2]                     # z
+puts asc.length                 # 3

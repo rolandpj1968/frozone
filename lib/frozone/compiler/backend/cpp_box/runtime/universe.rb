@@ -791,6 +791,12 @@ module Frozone
               "std::vector<std::uint8_t, GcAllocator<std::uint8_t>> bytes;",
               "Enc enc = UTF8;",
               "mutable std::int64_t length_cache_ = -1;",
+              # 0 = unknown, 1 = pure ASCII, 2 = has non-ASCII byte.
+              # Cached because has_non_ascii() is called per String#[]
+              # slice in the WQ lexer — without caching it's an O(N)
+              # scan of the whole source buffer per token (~9.7% of
+              # bin/frozone_box startup wall-time, profiled).
+              "mutable std::int8_t ascii_cache_ = 0;",
               "",
               "String() = default;",
               "String(const char* s) { if (s) { auto n = std::strlen(s); bytes.assign(s, s + n); } }",
@@ -809,7 +815,16 @@ module Frozone
               "  }",
               "  return length_cache_;",
               "}",
-              "bool has_non_ascii() const { for (auto b : bytes) if (b >= 0x80) return true; return false; }",
+              <<~CPP.chomp,
+                bool has_non_ascii() const {
+                  if (ascii_cache_ == 0) {
+                    bool nonascii = false;
+                    for (auto b : bytes) { if (b >= 0x80) { nonascii = true; break; } }
+                    ascii_cache_ = nonascii ? 2 : 1;
+                  }
+                  return ascii_cache_ == 2;
+                }
+              CPP
               "",
               "// Hash on byte sequence — equal byte sequences hash equal.",
               "std::size_t m_hash_value() const override {",
@@ -876,12 +891,14 @@ module Frozone
                       bytes.push_back(static_cast<std::uint8_t>(0x80 | (cp & 0x3F)));
                     }
                     length_cache_ = -1;
+                    ascii_cache_ = 0;
                     return this;
                   }
                   auto* o = static_cast<String*>(other);
                   if (enc == BINARY && o->enc == UTF8 && o->has_non_ascii()) enc = UTF8;
                   bytes.insert(bytes.end(), o->bytes.begin(), o->bytes.end());
                   length_cache_ = -1;
+                  ascii_cache_ = 0;
                   return this;
                 CPP
               },
