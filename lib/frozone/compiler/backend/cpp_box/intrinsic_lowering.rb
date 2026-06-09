@@ -114,14 +114,8 @@ module Frozone
             kernel_rand kernel_integer kernel_float kernel_raise kernel_exit
             process_clock_gettime
             fiber_storage_get fiber_storage_set
-            file_expand_path file_dirname file_basename file_split
-            file_exist file_directory file_file file_size file_size_exact
-            file_realpath file_realdirpath file_read
-            file_readable file_readable_real file_writable file_writable_real
-            file_executable file_executable_real
-            file_owned file_grpowned file_zero
-            file_chardev file_blockdev file_pipe file_socket file_symlink
-            file_setuid file_setgid file_sticky file_identical
+            os_stat os_lstat os_access os_realpath os_readlink os_euid os_egid
+            file_read
             os_getenv os_setenv os_unsetenv os_environ_pairs
             random_new random_new_seed random_seed random_state
             random_rand random_bytes random_urandom random_marshal_load

@@ -63,6 +63,32 @@ class File < IO
 
   NULL = '/dev/null'
 
+  # stat-mode bit masks. POSIX values; mirrored in os_stat field layout.
+  S_IFMT   = 0o170000
+  S_IFREG  = 0o100000
+  S_IFDIR  = 0o040000
+  S_IFLNK  = 0o120000
+  S_IFCHR  = 0o020000
+  S_IFBLK  = 0o060000
+  S_IFIFO  = 0o010000
+  S_IFSOCK = 0o140000
+  S_ISUID  = 0o004000
+  S_ISGID  = 0o002000
+  S_ISVTX  = 0o001000
+
+  # access(2) mode bits
+  R_OK = 4
+  W_OK = 2
+  X_OK = 1
+
+  # os_stat field indices
+  OS_STAT_MODE = 0
+  OS_STAT_SIZE = 1
+  OS_STAT_UID  = 2
+  OS_STAT_GID  = 3
+  OS_STAT_DEV  = 4
+  OS_STAT_INO  = 5
+
   class Stat
     include Comparable
 
@@ -153,48 +179,43 @@ class File < IO
   end
 
   class << self
-    def expand_path(path, base = nil) = Intrinsics.file_expand_path(_coerce_path(path), base.nil? ? nil : _coerce_path(base))
+    def exist?(path) = !Intrinsics.os_stat(_coerce_path(path)).nil?
+    def exists?(path) = exist?(path)
+    def directory?(path) = __stat_type?(path, S_IFDIR)
+    def file?(path) = __stat_type?(path, S_IFREG)
+    def chardev?(path) = __stat_type?(path, S_IFCHR)
+    def blockdev?(path) = __stat_type?(path, S_IFBLK)
+    def pipe?(path) = __stat_type?(path, S_IFIFO)
+    def socket?(path) = __stat_type?(path, S_IFSOCK)
+    def symlink?(path) = (st = Intrinsics.os_lstat(_coerce_path(path))) && (st[OS_STAT_MODE] & S_IFMT) == S_IFLNK || false
+    def setuid?(path) = __stat_bit?(path, S_ISUID)
+    def setgid?(path) = __stat_bit?(path, S_ISGID)
+    def sticky?(path) = __stat_bit?(path, S_ISVTX)
+    def size?(path) = (st = Intrinsics.os_stat(_coerce_path(path))) && st[OS_STAT_SIZE] > 0 ? st[OS_STAT_SIZE] : nil
+    def zero?(path) = (st = Intrinsics.os_stat(_coerce_path(path))) && st[OS_STAT_SIZE] == 0 || false
+    def empty?(path) = zero?(path)
+    def owned?(path) = (st = Intrinsics.os_stat(_coerce_path(path))) && st[OS_STAT_UID] == Intrinsics.os_euid || false
+    def grpowned?(path) = (st = Intrinsics.os_stat(_coerce_path(path))) && st[OS_STAT_GID] == Intrinsics.os_egid || false
+    def readable?(path) = Intrinsics.os_access(_coerce_path(path), R_OK)
+    def readable_real?(path) = Intrinsics.os_access(_coerce_path(path), R_OK)
+    def writable?(path) = Intrinsics.os_access(_coerce_path(path), W_OK)
+    def writable_real?(path) = Intrinsics.os_access(_coerce_path(path), W_OK)
+    def executable?(path) = Intrinsics.os_access(_coerce_path(path), X_OK)
+    def executable_real?(path) = Intrinsics.os_access(_coerce_path(path), X_OK)
+    def split(path) = [dirname(_coerce_path(path)), basename(_coerce_path(path))]
     def absolute_path(path, base = nil) = Intrinsics.file_absolute_path(_coerce_path(path), base.nil? ? nil : _coerce_path(base))
     def absolute_path?(path) = Intrinsics.file_absolute_path_q(_coerce_path(path))
-    def exist?(path) = Intrinsics.file_exist(_coerce_path(path))
-    def exists?(path) = Intrinsics.file_exist(_coerce_path(path))
-    def directory?(path) = Intrinsics.file_directory(_coerce_path(path))
-    def file?(path) = Intrinsics.file_file(_coerce_path(path))
-    def readable?(path) = Intrinsics.file_readable(_coerce_path(path))
-    def readable_real?(path) = Intrinsics.file_readable_real(_coerce_path(path))
-    def executable?(path) = Intrinsics.file_executable(_coerce_path(path))
-    def executable_real?(path) = Intrinsics.file_executable_real(_coerce_path(path))
-    def writable?(path) = Intrinsics.file_writable(_coerce_path(path))
-    def writable_real?(path) = Intrinsics.file_writable_real(_coerce_path(path))
-    def owned?(path) = Intrinsics.file_owned(_coerce_path(path))
-    def grpowned?(path) = Intrinsics.file_grpowned(_coerce_path(path))
-    def size(path) = Intrinsics.file_size_exact(_coerce_path(path))
-    def size?(path) = Intrinsics.file_size(_coerce_path(path))
-    def zero?(path) = Intrinsics.file_zero(_coerce_path(path))
-    def empty?(path) = Intrinsics.file_zero(_coerce_path(path))
-    def symlink?(path) = Intrinsics.file_symlink(_coerce_path(path))
-    def blockdev?(path) = Intrinsics.file_blockdev(_coerce_path(path))
-    def chardev?(path) = Intrinsics.file_chardev(_coerce_path(path))
-    def pipe?(path) = Intrinsics.file_pipe(_coerce_path(path))
-    def socket?(path) = Intrinsics.file_socket(_coerce_path(path))
-    def setuid?(path) = Intrinsics.file_setuid(_coerce_path(path))
-    def setgid?(path) = Intrinsics.file_setgid(_coerce_path(path))
-    def sticky?(path) = Intrinsics.file_sticky(_coerce_path(path))
-    def identical?(a, b) = Intrinsics.file_identical(_coerce_path(a), _coerce_path(b))
     def ftype(path) = Intrinsics.file_ftype(_coerce_path(path))
     def atime(path) = Intrinsics.file_atime(_coerce_path(path))
     def mtime(path) = Intrinsics.file_mtime(_coerce_path(path))
     def ctime(path) = Intrinsics.file_ctime(_coerce_path(path))
     def birthtime(path) = Intrinsics.file_birthtime(_coerce_path(path))
-    def realpath(path, base = nil) = Intrinsics.file_realpath(_coerce_path(path), base)
-    def realdirpath(path, base = nil) = Intrinsics.file_realdirpath(_coerce_path(path), base)
-    def split(path) = Intrinsics.file_split(_coerce_path(path))
     def delete(*paths) = Intrinsics.file_delete_strict(paths)
     def unlink(*paths) = Intrinsics.file_delete_strict(paths)
     def rename(from, to) = Intrinsics.file_rename(_coerce_path(from), _coerce_path(to))
     def symlink(target, link) = Intrinsics.file_symlink_create(_coerce_path(target), _coerce_path(link))
     def link(target, link) = Intrinsics.file_link(_coerce_path(target), _coerce_path(link))
-    def readlink(path) = Intrinsics.file_readlink(_coerce_path(path))
+    def readlink(path) = Intrinsics.os_readlink(_coerce_path(path)) || raise(Errno::ENOENT, "No such file or directory @ rb_readlink - #{path}")
     def lchown(uid, gid, *paths) = paths.length
     def lchmod(mode, *paths) = paths.length
     def lutime(atime, mtime, *paths) = Intrinsics.file_lutime(atime, mtime, paths.map { |p| _coerce_path(p) })
@@ -208,6 +229,43 @@ class File < IO
     def utime(atime, mtime, *paths) = Intrinsics.file_utime(atime, mtime, paths.map { |p| _coerce_path(p) })
     def truncate(path, length) = Intrinsics.file_truncate(_coerce_path(path), __coerce_to_int__(length))
     def fnmatch(pattern, path, flags = 0) = Intrinsics.file_fnmatch(pattern, _coerce_path(path), __coerce_to_int__(flags))
+
+    def size(path)
+      st = Intrinsics.os_stat(_coerce_path(path))
+      raise Errno::ENOENT, "No such file or directory @ rb_file_s_size - #{path}" unless st
+      st[OS_STAT_SIZE]
+    end
+
+    def identical?(a, b)
+      sa = Intrinsics.os_stat(_coerce_path(a))
+      sb = Intrinsics.os_stat(_coerce_path(b))
+      return false unless sa && sb
+      sa[OS_STAT_DEV] == sb[OS_STAT_DEV] && sa[OS_STAT_INO] == sb[OS_STAT_INO]
+    end
+
+    def expand_path(path, base = nil)
+      p = _coerce_path(path)
+      p = ENV['HOME'] + p[1..] if p.start_with?('~/') || p == '~'
+      unless p.start_with?('/')
+        b = base.nil? ? Intrinsics.dir_pwd : _coerce_path(base)
+        b = Intrinsics.dir_pwd + '/' + b unless b.start_with?('/')
+        p = b + '/' + p
+      end
+      __normalize_path__(p)
+    end
+
+    def realpath(path, base = nil)
+      p = expand_path(path, base)
+      r = Intrinsics.os_realpath(p)
+      raise Errno::ENOENT, "No such file or directory @ rb_file_s_realpath - #{path}" unless r
+      r
+    end
+
+    def realdirpath(path, base = nil)
+      p = expand_path(path, base)
+      r = Intrinsics.os_realpath(p)
+      r || p
+    end
 
     def write(path, content, offset = nil, **opts)
       IO.write(_coerce_path(path), content, offset, **opts)
@@ -236,7 +294,21 @@ class File < IO
 
     def dirname(path, level = 1)
       l = level.is_a?(Integer) ? level : __coerce_to_int__(level)
-      Intrinsics.file_dirname(_coerce_path(path), l)
+      s = _coerce_path(path)
+      while l > 0 && !s.empty?
+        slash = s.rindex('/')
+        if slash.nil?
+          s = ''
+          break
+        elsif slash == 0
+          s = '/'
+          break
+        else
+          s = s[0, slash]
+        end
+        l -= 1
+      end
+      s.empty? ? '.' : s
     end
 
     def read(path, length = nil, offset = nil, **opts)
@@ -329,8 +401,18 @@ class File < IO
     end
 
     def basename(path, suffix = nil)
-      p = _coerce_path(path)
-      suffix.nil? ? Intrinsics.file_basename(p, nil) : Intrinsics.file_basename(p, suffix)
+      s = _coerce_path(path)
+      slash = s.rindex('/')
+      base = slash.nil? ? s : s[(slash + 1)..]
+      return base if suffix.nil?
+      sfx = _coerce_path(suffix)
+      if sfx == '.*'
+        dot = base.rindex('.')
+        return base[0, dot] if dot && dot > 0
+      elsif sfx.size < base.size && base.end_with?(sfx)
+        return base[0, base.size - sfx.size]
+      end
+      base
     end
 
     def chmod(mode, *paths)
@@ -358,6 +440,28 @@ class File < IO
     end
 
     private
+
+    def __stat_type?(path, type_bits) = (st = Intrinsics.os_stat(_coerce_path(path))) && (st[OS_STAT_MODE] & S_IFMT) == type_bits || false
+    def __stat_bit?(path, mask) = (st = Intrinsics.os_stat(_coerce_path(path))) && (st[OS_STAT_MODE] & mask) != 0 || false
+
+    # Lexical normalisation: split on '/', skip '.', pop on '..'. Keeps
+    # everything in plain Ruby; no realpath, no symlink follow.
+    def __normalize_path__(path)
+      absolute = path.start_with?('/')
+      parts = []
+      path.split('/').each do |seg|
+        next if seg.empty? || seg == '.'
+        if seg == '..'
+          parts.pop if !parts.empty? && parts.last != '..'
+          parts.push('..') if !absolute && (parts.empty? || parts.last == '..')
+        else
+          parts.push(seg)
+        end
+      end
+      out = absolute ? '/' + parts.join('/') : parts.join('/')
+      out = '.' if out.empty?
+      out
+    end
 
     # Recursive helper for File.join -- populates segs with string segments.
     # seen is an array used for cycle detection (identity comparison).

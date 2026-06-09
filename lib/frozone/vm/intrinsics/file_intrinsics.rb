@@ -4,35 +4,32 @@ module Frozone
   module Vm
     module Intrinsics
       class << self
-        # File / Dir
-        def file_basename(_, path, suffix = FNIL) = fnil?(suffix) ? n2f_str(File.basename(path.raw)) : n2f_str(File.basename(path.raw, suffix.raw))
+        # OS primitives — stat/lstat return [mode, size, uid, gid, dev, ino] or nil.
+        def os_stat(_, path) = stat_array(::File.stat(path.raw)) rescue FNIL
+        def os_lstat(_, path) = stat_array(::File.lstat(path.raw)) rescue FNIL
+        def os_access(_, path, mode_bits)
+          require 'etc'
+          ok = case mode_bits.raw
+               when 4 then ::File.readable_real?(path.raw)
+               when 2 then ::File.writable_real?(path.raw)
+               when 1 then ::File.executable_real?(path.raw)
+               else ::File.readable?(path.raw) && ::File.writable?(path.raw) && ::File.executable?(path.raw)
+               end
+          n2f_bool(ok)
+        end
+        def os_realpath(_, path) = n2f_str(::File.realpath(path.raw)) rescue FNIL
+        def os_readlink(_, path) = n2f_str(::File.readlink(path.raw)) rescue FNIL
+        def os_euid(_) = n2f_int(Process.euid)
+        def os_egid(_) = n2f_int(Process.egid)
         def file_absolute_path(_, path, base = FNIL) = n2f_str(File.absolute_path(path.raw, f2n_raw(base)))
         def file_absolute_path_q(_, path) = n2f_bool(File.absolute_path?(path.raw))
-        def file_exist(_, path) = n2f_bool(File.exist?(path.raw))
-        def file_directory(_, path) = n2f_bool(File.directory?(path.raw))
-        def file_file(_, path) = n2f_bool(File.file?(path.raw))
-        def file_readable(_, path) = n2f_bool(File.readable?(path.raw))
-        def file_readable_real(_, path) = n2f_bool(File.readable_real?(path.raw))
-        def file_executable(_, path) = n2f_bool(File.executable?(path.raw))
-        def file_executable_real(_, path) = n2f_bool(File.executable_real?(path.raw))
-        def file_writable(_, path) = n2f_bool(File.writable?(path.raw))
-        def file_writable_real(_, path) = n2f_bool(File.writable_real?(path.raw))
-        def file_owned(_, path) = n2f_bool(File.owned?(path.raw)) rescue FFALSE
-        def file_grpowned(_, path) = n2f_bool(File.grpowned?(path.raw)) rescue FFALSE
-        def file_blockdev(_, path) = n2f_bool(File.blockdev?(path.raw)) rescue FFALSE
-        def file_chardev(_, path) = n2f_bool(File.chardev?(path.raw)) rescue FFALSE
-        def file_pipe(_, path) = n2f_bool(File.pipe?(path.raw)) rescue FFALSE
-        def file_socket(_, path) = n2f_bool(File.socket?(path.raw)) rescue FFALSE
-        def file_setuid(_, path) = n2f_bool(File.setuid?(path.raw)) rescue FFALSE
-        def file_setgid(_, path) = n2f_bool(File.setgid?(path.raw)) rescue FFALSE
-        def file_sticky(_, path) = n2f_bool(File.sticky?(path.raw)) rescue FFALSE
-        def file_identical(_, a, b) = n2f_bool(File.identical?(a.raw, b.raw)) rescue FFALSE
         def file_ftype(_, path) = reraise(Errno::ENOENT) { n2f_str(File.ftype(path.raw)) }
-        def file_size_exact(_, path) = reraise(Errno::ENOENT) { n2f_int(File.size(path.raw)) }
         def file_atime(_, path) = reraise(Errno::ENOENT) { n2f_time(File.atime(path.raw)) }
         def file_mtime(_, path) = reraise(Errno::ENOENT) { n2f_time(File.mtime(path.raw)) }
         def file_ctime(_, path) = reraise(Errno::ENOENT) { n2f_time(File.ctime(path.raw)) }
         def file_read(_, path) = n2f_str(File.read(path.raw))
+
+        def file_fnmatch(_, pattern, path, flags) = n2f_bool(File.fnmatch(pattern.raw, path.raw, flags.raw))
 
         def file_binread(_, path, len_obj, offset_obj)
           path_s = path.raw
@@ -42,10 +39,6 @@ module Frozone
             n2f_str(File.binread(path_s, *[len, offset].compact))
           end
         end
-        def file_symlink(_, path) = n2f_bool(File.symlink?(path.raw))
-        def file_readlink(_, path) = reraise(Errno::ENOENT) { n2f_str(File.readlink(path.raw)) }
-        def file_zero(_, path) = n2f_bool(File.zero?(path.raw))
-        def file_fnmatch(_, pattern, path, flags) = n2f_bool(File.fnmatch(pattern.raw, path.raw, flags.raw))
         # Validate path exists; stat info is accessed lazily via individual methods (path-based)
         def file_stat_native(_, path)
           reraise(Errno::ENOENT, Errno::ENOTDIR) { File.stat(path.raw) }
@@ -420,6 +413,15 @@ module Frozone
 
 
         private
+
+        def stat_array(stat) = n2f_arr([
+          n2f_int(stat.mode),
+          n2f_int(stat.size),
+          n2f_int(stat.uid),
+          n2f_int(stat.gid),
+          n2f_int(stat.dev),
+          n2f_int(stat.ino),
+        ])
 
         def stat_int_field(path, default: 0)
           n2f_int(yield File.stat(path.raw))
