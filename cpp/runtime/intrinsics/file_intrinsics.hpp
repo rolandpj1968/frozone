@@ -10,34 +10,30 @@
 #define FROZONE_FILE_INTRINSICS_HPP
 
 
-// stat(2) — returns nil on failure, else Array
-//   [mode, size, uid, gid, dev, ino]
-// Field order is mirrored in lib/core/4.0/file.rb (OS_STAT_*).
+namespace fs_detail {
+  inline BasicObject* stat_array(const struct stat& st) {
+    return new Array({
+      static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_mode))),
+      static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_size))),
+      static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_uid))),
+      static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_gid))),
+      static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_dev))),
+      static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_ino))),
+    });
+  }
+}
+
+// stat(2) — returns nil on failure, else Array [mode, size, uid, gid,
+// dev, ino]. Field order is mirrored in lib/core/4.0/file.rb (OS_STAT_*).
 inline BasicObject* intrinsic_os_stat(BasicObject* path) {
   struct stat st;
-  if (::stat(fs_detail::str_of(path).c_str(), &st) != 0) return nil_instance();
-  return new Array({
-    static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_mode))),
-    static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_size))),
-    static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_uid))),
-    static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_gid))),
-    static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_dev))),
-    static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_ino))),
-  });
+  return ::stat(fs_detail::str_of(path).c_str(), &st) == 0 ? fs_detail::stat_array(st) : nil_instance();
 }
 
 // lstat(2) — same shape as os_stat but does not follow symlinks.
 inline BasicObject* intrinsic_os_lstat(BasicObject* path) {
   struct stat st;
-  if (::lstat(fs_detail::str_of(path).c_str(), &st) != 0) return nil_instance();
-  return new Array({
-    static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_mode))),
-    static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_size))),
-    static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_uid))),
-    static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_gid))),
-    static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_dev))),
-    static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_ino))),
-  });
+  return ::lstat(fs_detail::str_of(path).c_str(), &st) == 0 ? fs_detail::stat_array(st) : nil_instance();
 }
 
 // access(2) — mode_bits is R_OK|W_OK|X_OK (any combination of 4/2/1).
