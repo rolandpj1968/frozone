@@ -64,17 +64,17 @@ class File < IO
   NULL = '/dev/null'
 
   # stat-mode bit masks. POSIX values; mirrored in os_stat field layout.
-  S_IFMT   = 0o170000
-  S_IFREG  = 0o100000
-  S_IFDIR  = 0o040000
-  S_IFLNK  = 0o120000
-  S_IFCHR  = 0o020000
-  S_IFBLK  = 0o060000
-  S_IFIFO  = 0o010000
+  S_IFMT = 0o170000
+  S_IFREG = 0o100000
+  S_IFDIR = 0o040000
+  S_IFLNK = 0o120000
+  S_IFCHR = 0o020000
+  S_IFBLK = 0o060000
+  S_IFIFO = 0o010000
   S_IFSOCK = 0o140000
-  S_ISUID  = 0o004000
-  S_ISGID  = 0o002000
-  S_ISVTX  = 0o001000
+  S_ISUID = 0o004000
+  S_ISGID = 0o002000
+  S_ISVTX = 0o001000
 
   # access(2) mode bits
   R_OK = 4
@@ -84,10 +84,10 @@ class File < IO
   # os_stat field indices
   OS_STAT_MODE = 0
   OS_STAT_SIZE = 1
-  OS_STAT_UID  = 2
-  OS_STAT_GID  = 3
-  OS_STAT_DEV  = 4
-  OS_STAT_INO  = 5
+  OS_STAT_UID = 2
+  OS_STAT_GID = 3
+  OS_STAT_DEV = 4
+  OS_STAT_INO = 5
 
   class Stat
     include Comparable
