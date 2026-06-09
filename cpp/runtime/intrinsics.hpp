@@ -62,11 +62,12 @@ struct SystemExitException { std::int64_t status; };
 // onig_search via regexp_match_helper. Negative offset counts from
 // end; offset > size returns nil. Empty needle matches at offset.
 
-// ---- File ----------------------------------------------------------
+// ---- File-system shared helpers -----------------------------------
 //
-// Enough of `File.*` to let load_core resolve core/4.0/*.rb paths and
-// for evaluate_file to read sources. Heavier ops (chmod, link, stat)
-// are still abort-stubs — add as needed.
+// String <-> BasicObject* conversion used by every category that takes
+// path arguments (file_, dir_, env_). File predicates and path ops live
+// in lib/core/4.0/file.rb on top of os_stat/os_access/os_realpath
+// primitives in intrinsics/file_intrinsics.hpp.
 
 namespace fs_detail {
   inline std::string str_of(BasicObject* o) {

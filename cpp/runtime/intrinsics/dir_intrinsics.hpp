@@ -9,12 +9,11 @@
 //
 // POSIX opendir/readdir/stat instead of std::filesystem — the latter
 // crashes at -O2 when libstdc++.so's internal free() runs on a Boehm-
-// allocated buffer (see fs_detail::expand in intrinsics.hpp for the
-// full rationale). dir_open/read/close/seek hold a per-instance DIR*
-// off the generated `Dir` struct (no @dir_handle ivar yet) so those
-// abort loudly. dir_glob, dir_chdir, dir_pwd, dir_home, dir_entries,
-// dir_mkdir/rmdir, dir_exist/empty cover the path-based queries that
-// frozone itself uses.
+// allocated buffer (see box_first.hpp for the full rationale).
+// dir_open/read/close/seek hold a per-instance DIR* off the generated
+// `Dir` struct (no @dir_handle ivar yet) so those abort loudly.
+// dir_glob, dir_chdir, dir_pwd, dir_home, dir_entries, dir_mkdir/rmdir,
+// dir_exist/empty cover the path-based queries that frozone itself uses.
 
 inline BasicObject* intrinsic_dir_pwd() {
   char cwd[4096];
