@@ -259,15 +259,6 @@ module Frozone
               "int instance_class_id_ = -1;",
             ],
             overrides: {
-              # Module#to_s returns the module name. Inherited by Class.
-              "m_to_s" => {
-                params: [],
-                body: "const char* _n = ruby_class_name(); return new String(_n, std::strlen(_n));",
-              },
-              "m_inspect" => {
-                params: [],
-                body: "const char* _n = ruby_class_name(); return new String(_n, std::strlen(_n));",
-              },
               # Module#ancestors — closed-world: walk the IS_A LUT row
               # for our class id, return matching CLASS_BY_ID entries.
               # Fwd-decl'd by class_emitter so this inline body can see
@@ -288,7 +279,7 @@ module Frozone
                 CPP
               },
             },
-            hand_coded_method_names: %w[m_to_s m_inspect m_ancestors].freeze,
+            hand_coded_method_names: %w[m_ancestors].freeze,
           )
 
           CLASS_TYPE = RubyClass.new(
@@ -321,10 +312,7 @@ module Frozone
             parent: "Object",
             members: [%(const char* ruby_class_name() const override { return "NilClass"; })],
             singleton: "NIL_INSTANCE",
-            overrides: {
-              "m_to_s"  => { params: [], body: %(return new String("", 0);) },
-              "mm_nil_q" => { params: [], body: "return true_instance();" },
-            },
+            overrides: {},
           )
 
           TRUE_CLASS = RubyClass.new(
@@ -332,9 +320,7 @@ module Frozone
             parent: "Object",
             members: [%(const char* ruby_class_name() const override { return "TrueClass"; })],
             singleton: "TRUE_INSTANCE",
-            overrides: {
-              "m_to_s" => { params: [], body: %(return new String("true", 4);) },
-            },
+            overrides: {},
           )
 
           FALSE_CLASS = RubyClass.new(
@@ -342,9 +328,7 @@ module Frozone
             parent: "Object",
             members: [%(const char* ruby_class_name() const override { return "FalseClass"; })],
             singleton: "FALSE_INSTANCE",
-            overrides: {
-              "m_to_s" => { params: [], body: %(return new String("false", 5);) },
-            },
+            overrides: {},
           )
 
           # Internal sentinel for "this optional positional / kw arg
@@ -429,18 +413,6 @@ module Frozone
               %(const char* ruby_class_name() const override { return "Array"; }),
             ],
             overrides: {
-              "m_size" => {
-                params: [],
-                body: "return new Integer(static_cast<int64_t>(data.size()));",
-              },
-              "m_length" => {
-                params: [],
-                body: "return new Integer(static_cast<int64_t>(data.size()));",
-              },
-              "mm_empty_q" => {
-                params: [],
-                body: "return boxed_bool(data.empty());",
-              },
               "m_first" => {
                 params: [],
                 body: "return data.empty() ? nil_instance() : data.front();",
@@ -645,10 +617,7 @@ module Frozone
               "public:",
               %(const char* ruby_class_name() const override { return "Symbol"; }),
             ],
-            overrides: {
-              "m_to_s"  => { params: [], body: "return new String(name_);" },
-              "m_to_sym" => { params: [], body: "return this;" },
-            },
+            overrides: {},
             # Symbol's ctor is private — `Symbol.new` / `Symbol.allocate`
             # are meaningless in Ruby anyway. Override both eigenclass
             # auto-emits with an explicit abort. (The default auto-emit
@@ -1133,9 +1102,6 @@ module Frozone
               %(const char* ruby_class_name() const override { return "Hash"; }),
             ],
             overrides: {
-              "m_size"   => { params: [], body: "return new Integer(static_cast<int64_t>(live));" },
-              "m_length" => { params: [], body: "return new Integer(static_cast<int64_t>(live));" },
-              "mm_empty_q"=> { params: [], body: "return boxed_bool(live == 0);" },
               "op_aref"   => {
                 params: ["BasicObject* k"],
                 body: <<~CPP.chomp,
