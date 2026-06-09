@@ -63,3 +63,24 @@ asc << "z"
 puts asc[1]                     # y
 puts asc[2]                     # z
 puts asc.length                 # 3
+
+# UTF-8 char→byte search cache (#161): same lifecycle, but for the
+# str_char_to_byte position cache (cp_cache_idx_, cp_cache_byte_).
+# Sequential forward access is the hot case; backward and post-mutation
+# must reset cleanly.
+seq = "abéde"
+puts seq[0]                     # a  (cache → (0, 0))
+puts seq[1]                     # b  (cache → (1, 1) — advance from prior)
+puts seq[2]                     # é  (cache → (2, 2) — advance through ASCII)
+puts seq[3]                     # d  (cache → (3, 4) — é spans bytes 2–3)
+puts seq[4]                     # e  (cache → (4, 5))
+# Now go backward — cache idx > requested, must restart from 0.
+puts seq[1]                     # b   (cache reset → (1, 1))
+puts seq[3]                     # d   (forward advance from (1,1) → (3, 4))
+# Mutation must invalidate cp_cache so post-mutation indexing is correct.
+mut2 = "ab"
+mut2[1]                         # b   (warm cache to something past 0)
+mut2 << "éde"
+puts mut2[2]                    # é   (cache invalidated → walk from 0)
+puts mut2[4]                    # e   (forward from cache)
+puts mut2.length                # 5

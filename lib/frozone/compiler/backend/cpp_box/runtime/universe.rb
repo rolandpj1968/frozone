@@ -797,6 +797,16 @@ module Frozone
               # scan of the whole source buffer per token (~9.7% of
               # bin/frozone_box startup wall-time, profiled).
               "mutable std::int8_t ascii_cache_ = 0;",
+              # MRI-style char↔byte search cache for UTF-8 indexing.
+              # The lexer does sequential forward String#[] on the
+              # source buffer (s[i], s[i+1], …). Without a cache each
+              # call walks bytes from 0 → O(N²) per file. With cache,
+              # adjacent lookups start from the prior position and the
+              # series is O(N) overall. Backward / random access just
+              # rescans from 0 (no win, no loss). Reset to (0,0) on
+              # mutation.
+              "mutable std::int64_t cp_cache_idx_ = 0;",
+              "mutable std::size_t  cp_cache_byte_ = 0;",
               "",
               "String() = default;",
               "String(const char* s) { if (s) { auto n = std::strlen(s); bytes.assign(s, s + n); } }",
@@ -892,6 +902,8 @@ module Frozone
                     }
                     length_cache_ = -1;
                     ascii_cache_ = 0;
+                    cp_cache_idx_ = 0;
+                    cp_cache_byte_ = 0;
                     return this;
                   }
                   auto* o = static_cast<String*>(other);

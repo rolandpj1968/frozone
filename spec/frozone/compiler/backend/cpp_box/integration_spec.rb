@@ -225,7 +225,7 @@ RSpec.describe 'box-first end-to-end' do
     )
   end
 
-  it 'concatenates Strings, indexes, hashes by content, queries empty?, honours ascii_cache invalidation across mutation' do
+  it 'concatenates Strings, indexes, hashes by content, queries empty?, honours ascii_cache + cp_cache invalidation across mutation' do
     expect(unified_stub_out('string_test', env_extras: env_extras).split("\n")).to eq([
       'hello world',
       'hello there',
@@ -234,10 +234,14 @@ RSpec.describe 'box-first end-to-end' do
       'h', 'o',
       '1', '2',
       'true', 'false',
-      # has_non_ascii cache lifecycle (#161 perf fix correctness)
+      # has_non_ascii cache lifecycle (#161)
       'h', 'é', 'l', '5',     # codepoint indexing on multibyte source
       'é', '4',                # ASCII << non-ASCII → cache invalidates → codepoint indexing
       'y', 'z', '3',           # ASCII << ASCII → cache invalidates → recomputes back to ASCII
+      # str_char_to_byte cp_cache lifecycle (#161)
+      'a', 'b', 'é', 'd', 'e', # sequential forward — cache advances each step
+      'b', 'd',                # backward then forward again — cache resets and re-advances correctly
+      'é', 'e', '5',           # post-mutation indexing — cp_cache invalidated, walks from 0
     ])
   end
 

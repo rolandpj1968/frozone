@@ -13,13 +13,24 @@ inline std::size_t str_char_to_byte(const String* s, std::int64_t char_idx) {
   std::int64_t n = static_cast<std::int64_t>(s->bytes.size());
   if (char_idx <= 0) return 0;
   if (s->enc == String::BINARY) return static_cast<std::size_t>(char_idx > n ? n : char_idx);
+  // Search cache (MRI's pattern). The WQ lexer accesses the same source
+  // string with monotonically increasing codepoint indices; without the
+  // cache each call walks bytes from 0 → O(N²) per file. For backward /
+  // random access (cached idx > requested), the seed (0,0) starting
+  // point reproduces the original behaviour at no cost.
   std::size_t bo = 0;
   std::int64_t ci = 0;
+  if (s->cp_cache_idx_ > 0 && s->cp_cache_idx_ <= char_idx && s->cp_cache_byte_ <= s->bytes.size()) {
+    ci = s->cp_cache_idx_;
+    bo = s->cp_cache_byte_;
+  }
   while (bo < s->bytes.size() && ci < char_idx) {
     bo++;
     while (bo < s->bytes.size() && (s->bytes[bo] & 0xC0) == 0x80) bo++;
     ci++;
   }
+  s->cp_cache_idx_ = ci;
+  s->cp_cache_byte_ = bo;
   return bo;
 }
 
