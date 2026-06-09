@@ -1457,23 +1457,7 @@ module Frozone
             members: [
               %(const char* ruby_class_name() const override { return "Math"; }),
             ],
-            eigenclass_overrides: {
-              "m_sqrt" => { params: ["BasicObject* x"], body: "return new Float(std::sqrt(Float::as_double(x)));" },
-              "m_log"  => { params: ["BasicObject* x"], body: "return new Float(std::log(Float::as_double(x)));" },
-              "m_log2" => { params: ["BasicObject* x"], body: "return new Float(std::log2(Float::as_double(x)));" },
-              "m_log10"=> { params: ["BasicObject* x"], body: "return new Float(std::log10(Float::as_double(x)));" },
-              "m_exp"  => { params: ["BasicObject* x"], body: "return new Float(std::exp(Float::as_double(x)));" },
-              "m_sin"  => { params: ["BasicObject* x"], body: "return new Float(std::sin(Float::as_double(x)));" },
-              "m_cos"  => { params: ["BasicObject* x"], body: "return new Float(std::cos(Float::as_double(x)));" },
-              "m_tan"  => { params: ["BasicObject* x"], body: "return new Float(std::tan(Float::as_double(x)));" },
-              "m_asin" => { params: ["BasicObject* x"], body: "return new Float(std::asin(Float::as_double(x)));" },
-              "m_acos" => { params: ["BasicObject* x"], body: "return new Float(std::acos(Float::as_double(x)));" },
-              "m_atan" => { params: ["BasicObject* x"], body: "return new Float(std::atan(Float::as_double(x)));" },
-              "m_atan2"=> { params: ["BasicObject* y", "BasicObject* x"], body: "return new Float(std::atan2(Float::as_double(y), Float::as_double(x)));" },
-              "op_pow"  => { params: ["BasicObject* x", "BasicObject* y"], body: "return new Float(std::pow(Float::as_double(x), Float::as_double(y)));" },
-              "m_hypot"=> { params: ["BasicObject* x", "BasicObject* y"], body: "return new Float(std::hypot(Float::as_double(x), Float::as_double(y)));" },
-              "m_cbrt" => { params: ["BasicObject* x"], body: "return new Float(std::cbrt(Float::as_double(x)));" },
-            },
+            eigenclass_overrides: {},
           )
 
           # Inheritance order. The emitter walks this list to produce
