@@ -2105,7 +2105,18 @@ module Frozone
                   line "Proc* _block = block;"
                   user_block = MethodEmitter.user_block_name(method)
                   if user_block
-                    line MethodEmitter.decl_local_line(self, user_block, "block")
+                    # Keep user_block typed as Proc* so `if block`
+                    # resolves to truthy(Proc*) — nullptr check only.
+                    # Erasing to BasicObject* would silently absorb
+                    # the nullptr-as-truthy bug. See method_emitter.rb
+                    # for the same change in the parallel NA-with-block
+                    # emission path.
+                    cpp = MethodEmitter.local_cpp_name(user_block)
+                    if @cpp.captured?(user_block)
+                      line "BasicObject** #{cpp} = gc_box<BasicObject*>(block ? static_cast<BasicObject*>(block) : nil_instance());"
+                    else
+                      line "Proc* #{cpp} = block;"
+                    end
                     locals << user_block
                   end
                 end

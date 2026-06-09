@@ -1693,19 +1693,31 @@ module Frozone
             # C++ nullptr. Positional args default to &EMPTY_ARGS,
             # kwargs to &EMPTY_KWARGS, block to nil_instance().
             #
-            # Exception: NA-with-block dispatch uses `Proc* block` with
-            # nullptr == "no block". When such a body aliases the param
-            # to BasicObject* (e.g. `BasicObject* l_block = block;` for
-            # the named &block in `def chars(&block)`), `if (truthy(l_block))`
-            # would treat nullptr as truthy — wrong, would dispatch
-            # `m_each(univ, ..., nullptr)` and SIGSEGV. Treat nullptr as
-            # falsy here so the body sees it as "no block".
+            # No nullptr check here on purpose — if nullptr reaches a
+            # BasicObject*-typed truthy(), the codegen has erased a
+            # typed pointer (e.g. NA-with-block Proc*) somewhere it
+            # shouldn't have, and we want the bug to surface (UB / wrong
+            # branch) rather than silently absorb it. The Proc* overload
+            # below handles the NA-with-block nullptr-as-absent case.
             #
             # Singleton invariant: Frozone::Vm::NilObject / FalseObject /
             # TrueObject fuse with the runtime nil/false/true classes,
-            # so there's exactly one of each. truthy() can therefore stay
-            # a simple three-pointer-compare.
-            body: "return o && o != nil_instance() && o != false_instance();",
+            # so there's exactly one of each. truthy() stays a simple
+            # two-pointer-compare.
+            body: "return o != nil_instance() && o != false_instance();",
+          )
+
+          # NA-with-block-aware overload: `Proc*` can only point to a
+          # real Proc(0/1/2) instance or be nullptr. By C++ type
+          # construction it can never equal nil_instance() (NilObject*)
+          # or false_instance() (FalseObject*), so the only "falsy"
+          # value for a Proc* is nullptr. Used inside NA-with-block
+          # bodies where the user's `&block` local stays typed as Proc*
+          # (see method_emitter.rb).
+          TRUTHY_PROC = KernelFn.new(
+            name: "truthy",
+            signature: "bool truthy(Proc* p)",
+            body: "return p != nullptr;",
           )
 
           RUBY_PUTS = KernelFn.new(
@@ -2505,7 +2517,7 @@ module Frozone
 
           ALL_KERNEL_FNS = [
             NIL_INSTANCE_FN, TRUE_INSTANCE_FN, FALSE_INSTANCE_FN, UNSET_INSTANCE_FN,
-            BOXED_BOOL, TRUTHY, RUBY_PUTS, INTERN_FN, ARRAY_AT_FN,
+            BOXED_BOOL, TRUTHY, TRUTHY_PROC, RUBY_PUTS, INTERN_FN, ARRAY_AT_FN,
             SPLAT_TO_ARRAY_FN, RESCUE_SPLAT_MATCHES_FN,
             BUILD_INT_ARRAY_FN, INT_BOX_FN,
             COERCE_TO_INT_FN,

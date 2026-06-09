@@ -164,7 +164,22 @@ module Frozone
                 emit.line "Proc* _block = block;"
                 user_block = user_block_name(method)
                 if user_block
-                  emit.line decl_local_line(emit, user_block, "block")
+                  # Keep the user's named `&block` local typed as Proc*
+                  # (not erased to BasicObject*) so `if block` resolves
+                  # to the truthy(Proc*) overload — just a nullptr check
+                  # — and bug-finding nullptr-as-truthy issues stay
+                  # surfaced rather than getting silently absorbed by
+                  # the BO* truthy. Captured case falls back to BO** cell
+                  # at the gc_box boundary; the cell write converts the
+                  # nullptr-or-Proc* to nil_instance-or-Proc* so the
+                  # cell stays a valid BasicObject* per the universal
+                  # protocol invariant.
+                  cpp = MethodEmitter.local_cpp_name(user_block)
+                  if emit.cpp.captured?(user_block)
+                    emit.line "BasicObject** #{cpp} = gc_box<BasicObject*>(block ? static_cast<BasicObject*>(block) : nil_instance());"
+                  else
+                    emit.line "Proc* #{cpp} = block;"
+                  end
                   locals << user_block
                 end
               end
