@@ -1380,10 +1380,12 @@ module Frozone
           # Time — Unix epoch seconds + nanoseconds + UTC offset.
           # is_utc_ true means the timezone is explicit UTC (so utc?
           # returns true and utc_offset is 0). Localtime breakdown
-          # (year/month/day/etc.) happens on demand via localtime_r /
-          # gmtime_r inside the Time intrinsics. iv_frozone_timezone
-          # holds the Ruby-managed timezone object (`@frozone_timezone`
-          # set by core/4.0/time.rb for non-UTC, non-local zones).
+          # (year/month/day/etc.) happens on demand via os_localtime /
+          # os_gmtime inside core/4.0/time.rb, caching the 11-tuple
+          # Array in iv_bdt until utc/localtime invalidates it.
+          # iv_frozone_timezone holds the Ruby-managed timezone object
+          # (`@frozone_timezone` set by core/4.0/time.rb for non-UTC,
+          # non-local zones).
           TIME = RubyClass.new(
             name: "Time",
             parent: "Object",
@@ -1393,6 +1395,7 @@ module Frozone
               "int32_t utc_offset_ = 0;",
               "bool is_utc_ = false;",
               "BasicObject* iv_frozone_timezone = nil_instance();",
+              "BasicObject* iv_bdt = nil_instance();",
               "Time() = default;",
               %(const char* ruby_class_name() const override { return "Time"; }),
             ],

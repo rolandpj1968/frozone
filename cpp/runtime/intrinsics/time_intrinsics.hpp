@@ -183,6 +183,7 @@ inline BasicObject* intrinsic_time_dup(BasicObject* self_) {
   out->utc_offset_ = t->utc_offset_;
   out->is_utc_ = t->is_utc_;
   out->iv_frozone_timezone = t->iv_frozone_timezone;
+  out->iv_bdt = t->iv_bdt;
   return out;
 }
 
