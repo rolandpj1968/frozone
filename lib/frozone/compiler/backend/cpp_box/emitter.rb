@@ -338,7 +338,7 @@ module Frozone
             by_name = universe_classes.each_with_object({}) { |k, h| h[k.name] = k }
             universe_classes.map do |klass|
               cls = top[klass.name.to_sym]
-              next klass unless cls.is_a?(Vm::ClassObject)
+              next klass unless cls.is_a?(Vm::ModuleObject)
               hand_coded = ancestor_hand_coded_names(klass, by_name)
               # Ivars referenced by overlaid methods need fields on the
               # struct or `this->iv_X` won't compile. Collect them the
@@ -1387,7 +1387,7 @@ module Frozone
             top = @top_level_scope.constants_table || {}
             Runtime::ALL_CLASSES.each do |universe_klass|
               cls = top[universe_klass.name.to_sym]
-              next unless cls.is_a?(Vm::ClassObject)
+              next unless cls.is_a?(Vm::ModuleObject)
               class_methods(cls).each_value { |m| walk_method.call(m) }
               eigenclass_methods(cls).each_value { |m| walk_method.call(m) }
             end

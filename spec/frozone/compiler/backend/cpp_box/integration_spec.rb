@@ -56,7 +56,7 @@ UNIFIED_STUBS = %w[
   arity_test array_test attrw_test block_kw_test block_opt_test
   block_specialization_test block_test box_test case_test
   class_method_test fib float_test getivar hash_test iow_test
-  kw_test kw_unset_test leaf_dispatch_test multi_arity_test
+  kw_test kw_unset_test leaf_dispatch_test math_test multi_arity_test
   nqueens_small random_test splat_test string_test super_test
   ternary_test visibility_test
 ].freeze
@@ -223,6 +223,10 @@ RSpec.describe 'box-first end-to-end' do
     expect(unified_stub_out('float_test', env_extras: env_extras).strip.split("\n")).to eq(
       %w[4.0 3.75 1.0 1.6666666666666667 true true -1.5 half one_tenth]
     )
+  end
+
+  it 'dispatches Math eigenclass methods (sqrt/log/sin/cos/atan2/hypot, PI, E)' do
+    expect(unified_stub_out('math_test', env_extras: env_extras).strip.split("\n")).to eq(['true'] * 15)
   end
 
   it 'concatenates Strings, indexes, hashes by content, queries empty?, honours ascii_cache + cp_cache invalidation across mutation' do
