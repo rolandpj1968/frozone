@@ -138,16 +138,22 @@ module Frozone
               "// lowering (avoids the Array wrap for universal-sig",
               "// dispatch). Body emitted out-of-line alongside mm_is_a_q.",
               "bool mm_is_a_q_direct(BasicObject* target);",
-              "// Leaf is_a?: typeid(*this) == typeid(T). Used by",
-              "// cpp.rb when it sees `recv.is_a?(LeafClass)` — typeid",
-              "// match is sufficient for leaves (no subclasses by",
+              "// Leaf is_a?: pointer compare on the type_info instances.",
+              "// Used by cpp.rb when it sees `recv.is_a?(LeafClass)` —",
+              "// typeid match is sufficient for leaves (no subclasses by",
               "// definition). Templated inline so T's full type is",
-              "// resolved at the call site's TU, where the per-TU",
-              "// pruner has already #include'd class/T.hpp via",
-              "// host_class_refs. One typeid compare vs the universal",
-              "// mm_is_a_q's IS_A LUT lookup + Array allocation.",
+              "// resolved at the call site's TU, where the per-TU pruner",
+              "// has already #include'd class/T.hpp via host_class_refs.",
+              "// Pointer-compare on the type_info instances skips",
+              "// libstdc++'s strcmp fallback in `operator==`, which",
+              "// exists for cross-DSO type-identity portability. Our",
+              "// single-binary AOT has one type_info per type, so",
+              "// pointer-equality is sound. Single-DSO assumption: if",
+              "// we ever ship as multiple .so files, revisit (either",
+              "// back to typeid value-compare with strcmp cost, or move",
+              "// identity off std::typeid onto our own class_id scheme).",
               "template<typename T> bool typeid_eq_q() const {",
-              "  return typeid(*this) == typeid(T);",
+              "  return &typeid(*this) == &typeid(T);",
               "}",
             ],
             # Genuine BasicObject methods. Other intrinsic-style methods
@@ -2461,17 +2467,10 @@ module Frozone
             CPP
           )
 
-          # Global variable accessors — back GlobalVariableRead /
-          # GlobalVariableWrite. Storage is a static Hash* local to the
-          # universe TU, lazily allocated on first access so static-init
-          # order doesn't matter. Earlier this routed through
-          # k_Frozone_Vm_GLOBALS() (a Frozone-Ruby Hash constant
-          # accessor), but that only existed when frozone-AOT was the
-          # build root. Sub-stubs (fib.rb etc.) compiled to a TU that
-          # referenced the missing accessor — same architectural smell
-          # as the C-form fusion: gen depending on Frozone-internal
-          # types. Match-data globals stay special-cased
-          # (g_last_match()); everything else routes through these.
+          # Backs GlobalVariableRead / GlobalVariableWrite. The store
+          # is a static Hash* local to the universe TU, lazily allocated
+          # on first access. Match-data globals stay special-cased
+          # through g_last_match().
           G_GLOBALS_STORAGE_FN = KernelFn.new(
             name: "g_globals_storage",
             signature: "Hash* g_globals_storage()",

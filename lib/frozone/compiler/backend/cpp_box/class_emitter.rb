@@ -546,7 +546,7 @@ module Frozone
               emit.line "BasicObject* BasicObject::#{cpp_name}(UnivTag, Array* args, Hash* kwargs, BasicObject* block) {"
               emit.indented do
                 leaf_cpps.each do |leaf_cpp|
-                  emit.line "if (typeid(*this) == typeid(#{leaf_cpp})) {"
+                  emit.line "if (&typeid(*this) == &typeid(#{leaf_cpp})) {"
                   emit.indented do
                     emit.line "return static_cast<#{leaf_cpp}*>(this)->#{cpp_name}(univ, args, kwargs, block);"
                   end
