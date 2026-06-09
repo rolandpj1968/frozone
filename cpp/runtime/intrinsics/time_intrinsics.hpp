@@ -224,11 +224,11 @@ inline BasicObject* intrinsic_time_plus(BasicObject* self_, BasicObject* delta) 
   Time* out = new Time();
   out->utc_offset_ = t->utc_offset_;
   out->is_utc_ = t->is_utc_;
-  if (typeid(*delta) == typeid(Integer)) {
+  if (&typeid(*delta) == &typeid(Integer)) {
     auto* i = static_cast<Integer*>(delta);
     out->sec_ = t->sec_ + i->raw_;
     out->nsec_ = t->nsec_;
-  } else if (typeid(*delta) == typeid(Float)) {
+  } else if (&typeid(*delta) == &typeid(Float)) {
     auto* f = static_cast<Float*>(delta);
     double total = static_cast<double>(t->sec_) + static_cast<double>(t->nsec_) / 1e9 + f->raw_;
     out->sec_ = static_cast<int64_t>(total);
@@ -244,19 +244,19 @@ inline BasicObject* intrinsic_time_plus(BasicObject* self_, BasicObject* delta) 
 inline BasicObject* intrinsic_time_minus(BasicObject* self_, BasicObject* delta) {
   auto* t = static_cast<Time*>(self_);
   // Time - Time → Float seconds; Time - Numeric → Time.
-  if (typeid(*delta) == typeid(Time)) {
+  if (&typeid(*delta) == &typeid(Time)) {
     auto* other = static_cast<Time*>(delta);
     double d = (static_cast<double>(t->sec_) - static_cast<double>(other->sec_))
              + (static_cast<double>(t->nsec_) - static_cast<double>(other->nsec_)) / 1e9;
     return new Float(d);
   }
   // Delegate to time_plus with negated delta.
-  if (typeid(*delta) == typeid(Integer)) {
+  if (&typeid(*delta) == &typeid(Integer)) {
     auto* i = static_cast<Integer*>(delta);
     Integer* neg = new Integer(-i->raw_);
     return intrinsic_time_plus(self_, neg);
   }
-  if (typeid(*delta) == typeid(Float)) {
+  if (&typeid(*delta) == &typeid(Float)) {
     auto* f = static_cast<Float*>(delta);
     Float* neg = new Float(-f->raw_);
     return intrinsic_time_plus(self_, neg);
@@ -269,7 +269,7 @@ inline BasicObject* intrinsic_time_round(BasicObject* self_, BasicObject* ndigit
   auto* t = static_cast<Time*>(self_);
   int n = 0;
   if (ndigits && ndigits != nil_instance()) {
-    if (typeid(*ndigits) == typeid(Integer)) n = static_cast<int>(static_cast<Integer*>(ndigits)->raw_);
+    if (&typeid(*ndigits) == &typeid(Integer)) n = static_cast<int>(static_cast<Integer*>(ndigits)->raw_);
   }
   if (n >= 9) return intrinsic_time_dup(self_);
   Time* out = new Time();
@@ -292,7 +292,7 @@ inline BasicObject* intrinsic_time_floor(BasicObject* self_, BasicObject* ndigit
   auto* t = static_cast<Time*>(self_);
   int n = 0;
   if (ndigits && ndigits != nil_instance()) {
-    if (typeid(*ndigits) == typeid(Integer)) n = static_cast<int>(static_cast<Integer*>(ndigits)->raw_);
+    if (&typeid(*ndigits) == &typeid(Integer)) n = static_cast<int>(static_cast<Integer*>(ndigits)->raw_);
   }
   if (n >= 9) return intrinsic_time_dup(self_);
   Time* out = new Time();
@@ -309,7 +309,7 @@ inline BasicObject* intrinsic_time_ceil(BasicObject* self_, BasicObject* ndigits
   auto* t = static_cast<Time*>(self_);
   int n = 0;
   if (ndigits && ndigits != nil_instance()) {
-    if (typeid(*ndigits) == typeid(Integer)) n = static_cast<int>(static_cast<Integer*>(ndigits)->raw_);
+    if (&typeid(*ndigits) == &typeid(Integer)) n = static_cast<int>(static_cast<Integer*>(ndigits)->raw_);
   }
   if (n >= 9) return intrinsic_time_dup(self_);
   Time* out = new Time();
@@ -364,11 +364,11 @@ inline BasicObject* intrinsic_time_localtime(BasicObject* self_, BasicObject* /*
 // tz must use time_localtime or set iv_frozone_timezone after the fact.
 inline BasicObject* intrinsic_time_at(BasicObject* secs) {
   Time* out = new Time();
-  if (typeid(*secs) == typeid(Integer)) {
+  if (&typeid(*secs) == &typeid(Integer)) {
     auto* i = static_cast<Integer*>(secs);
     out->sec_ = i->raw_;
     out->nsec_ = 0;
-  } else if (typeid(*secs) == typeid(Float)) {
+  } else if (&typeid(*secs) == &typeid(Float)) {
     auto* f = static_cast<Float*>(secs);
     out->sec_ = static_cast<int64_t>(f->raw_);
     double frac = f->raw_ - static_cast<double>(out->sec_);

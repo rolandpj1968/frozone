@@ -422,7 +422,7 @@ module Frozone
             # nil` was reading garbage out of nil_instance()->data,
             # making the lexer state machine never transition.
             emit.line "BasicObject* #{raw} = #{rhs_expr};"
-            emit.line "Array* #{rhs} = (#{raw} && typeid(*#{raw}) == typeid(Array)) ? static_cast<Array*>(#{raw}) : nullptr;"
+            emit.line "Array* #{rhs} = (#{raw} && &typeid(*#{raw}) == &typeid(Array)) ? static_cast<Array*>(#{raw}) : nullptr;"
             emit.line "if (!#{rhs}) { #{rhs} = new Array(); if (#{raw} != nil_instance()) #{rhs}->data.push_back(#{raw}); }"
             emit.line "std::size_t #{n} = #{rhs}->data.size();"
             targets[0...pre_count].each_with_index do |t, i|

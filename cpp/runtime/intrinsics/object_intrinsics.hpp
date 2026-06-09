@@ -12,19 +12,19 @@
 // on for non-Ruby-defined classes). Real impl would call
 // m_initialize_copy.
 inline BasicObject* intrinsic_object_dup(BasicObject* self_) {
-  if (typeid(*self_) == typeid(String)) {
+  if (&typeid(*self_) == &typeid(String)) {
     auto* _s = static_cast<String*>(self_);
     auto* _r = new String();
     _r->bytes = _s->bytes;
     return _r;
   }
-  if (typeid(*self_) == typeid(Array)) {
+  if (&typeid(*self_) == &typeid(Array)) {
     auto* _a = static_cast<Array*>(self_);
     auto* _r = new Array();
     _r->data = _a->data;
     return _r;
   }
-  if (typeid(*self_) == typeid(Hash)) {
+  if (&typeid(*self_) == &typeid(Hash)) {
     auto* _h = static_cast<Hash*>(self_);
     auto* _r = new Hash();
     _r->data = _h->data;
@@ -45,7 +45,7 @@ inline BasicObject* intrinsic_object_public_send(BasicObject* self_, BasicObject
   _full->data.push_back(name);
   for (auto* _e : _a->data) _full->data.push_back(_e);
   g_caller_self = PUBLIC_SEND_SENTINEL;
-  Hash* _kw = (kwargs && typeid(*kwargs) == typeid(Hash)) ? static_cast<Hash*>(kwargs) : nullptr;
+  Hash* _kw = (kwargs && &typeid(*kwargs) == &typeid(Hash)) ? static_cast<Hash*>(kwargs) : nullptr;
   Proc* _blk = (block && block->mm_is_a_q_direct(&Proc_CLASS)) ? static_cast<Proc*>(block) : nullptr;
   return self_->m_send(univ, _full, _kw, _blk);
 }
@@ -61,7 +61,7 @@ inline BasicObject* intrinsic_basic_object___send__(BasicObject* self_, BasicObj
   _full->data.push_back(name);
   for (auto* _e : _a->data) _full->data.push_back(_e);
   g_caller_self = nullptr;
-  Hash* _kw = (kwargs && typeid(*kwargs) == typeid(Hash)) ? static_cast<Hash*>(kwargs) : nullptr;
+  Hash* _kw = (kwargs && &typeid(*kwargs) == &typeid(Hash)) ? static_cast<Hash*>(kwargs) : nullptr;
   Proc* _blk = (block && block->mm_is_a_q_direct(&Proc_CLASS)) ? static_cast<Proc*>(block) : nullptr;
   return self_->m_send(univ, _full, _kw, _blk);
 }
@@ -72,7 +72,7 @@ inline BasicObject* intrinsic_basic_object___send__(BasicObject* self_, BasicObj
 // defined method_missing.
 [[noreturn]] inline BasicObject* intrinsic_basic_object_method_missing(BasicObject* /*self_*/, BasicObject* name,
                                                                        BasicObject* /*args*/, BasicObject* /*kwargs*/) {
-  const char* _name = typeid(*name) == typeid(Symbol) ? static_cast<Symbol*>(name)->name_ : "<?>";
+  const char* _name = &typeid(*name) == &typeid(Symbol) ? static_cast<Symbol*>(name)->name_ : "<?>";
   std::string _msg = std::string("undefined method '") + _name + "'";
   throw static_cast<Exception*>(
       (&NoMethodError_CLASS)->m_new(univ, new Array({static_cast<BasicObject*>(new String(_msg.data(), _msg.size()))})));
