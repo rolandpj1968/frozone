@@ -176,17 +176,15 @@ module Frozone
             @multi_arity_table = {}
             @kw_unset_table = {}
             @leaf_dispatch_table = {}
-            # FROZONE_ALL_OPTS=1 turns on every dispatch-perf knob (natural-args,
-            # leaf dispatch). For ad-hoc runs and benchmarks; CI keeps using
-            # the explicit 4-mode matrix in integration_spec.
-            if ENV['FROZONE_ALL_OPTS'] == '1'
-              ENV['FROZONE_NATURAL_ARGS'] ||= '1'
-              ENV['FROZONE_LEAF_DISPATCH'] ||= '1'
-            end
-            if ENV['FROZONE_METHOD_SHAPES'] == '1' || ENV['FROZONE_NATURAL_ARGS'] == '1' || ENV['FROZONE_LEAF_DISPATCH'] == '1'
+            # FROZONE_NATURAL_ARGS + FROZONE_LEAF_DISPATCH default ON since
+            # #160. Explicit disable: =0 / =false / =off / =no / empty.
+            # FROZONE_ALL_OPTS=1 kept as a no-op alias for back-compat
+            # with external scripts that used it as the umbrella flag.
+            _all_opts_alias = ENV['FROZONE_ALL_OPTS']
+            if ENV['FROZONE_METHOD_SHAPES'] == '1' || env_opt_enabled?('FROZONE_NATURAL_ARGS') || env_opt_enabled?('FROZONE_LEAF_DISPATCH')
               agg = build_method_shape_survey
               MethodShapeSurvey.report(agg) if ENV['FROZONE_METHOD_SHAPES'] == '1'
-              if ENV['FROZONE_NATURAL_ARGS'] == '1'
+              if env_opt_enabled?('FROZONE_NATURAL_ARGS')
                 # Eligibility table includes block-bearing defs and
                 # yield / block_given? bodies as has_block:true sigs.
                 # The slot decl + body carry a trailing `Proc* block`
@@ -215,7 +213,7 @@ module Frozone
               # Leaf-dispatch eligibility (independent of natural-args).
               # Activated by FROZONE_LEAF_DISPATCH=1 — populates the
               # table; codegen consumes it via emit.leaf_dispatch_table.
-              if ENV['FROZONE_LEAF_DISPATCH'] == '1'
+              if env_opt_enabled?('FROZONE_LEAF_DISPATCH')
                 # Phase A: exclude names that already get natural-args
                 # dispatch — their trampoline already provides similar
                 # benefits. Pure universal-sig single-def-leaf names
@@ -278,6 +276,19 @@ module Frozone
           end
 
           private
+
+          # Default-on opt switch: true unless ENV[name] is explicitly
+          # disabled. Recognised off-values: "0", "false", "off", "no",
+          # and "" (case-insensitive). Anything else (including "1",
+          # "true", "yes", "on", or unset) means enabled. Used for the
+          # dispatch-perf knobs (FROZONE_NATURAL_ARGS, FROZONE_LEAF_DISPATCH)
+          # which default ON since #160.
+          OFF_VALUES = Set.new(%w[0 false off no]).freeze
+          def env_opt_enabled?(name)
+            v = ENV[name]
+            return true if v.nil?
+            !OFF_VALUES.include?(v.downcase) && !v.empty?
+          end
 
           # Sort classes so each class's `parent` (by name) appears
           # earlier than the class itself. Stable for siblings — a
