@@ -493,7 +493,7 @@ RSpec.describe 'box-first leaf-dispatch codegen' do
     # lazy expansion — so omit /m. ^ and $ are line-anchored by default.
     return nil unless gen_cpp =~ /^BasicObject\* BasicObject::#{Regexp.escape(cpp_name)}\(UnivTag, Array\*[^\n]*\{\n((?:.*\n)*?)^\}/
     body = Regexp.last_match(1)
-    body.scan(/typeid\(\*this\) == typeid\(([A-Za-z0-9_]+)\)/).flatten
+    body.scan(/&typeid\(\*this\) == &typeid\(([A-Za-z0-9_]+)\)/).flatten
   end
 
   context 'with LEAF=1 only (natural-args off)' do
