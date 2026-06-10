@@ -47,26 +47,6 @@ module Frozone
           end
         end
 
-        def integer_chr(context, v, enc = FNIL)
-          if fnil?(enc)
-            n2f_str(v.raw.chr)
-          elsif fstr?(enc)
-            n2f_str(v.raw.chr(enc.raw))
-          elsif enc.is_a?(ObjectObject)
-            # Encoding Frozone-land object — dispatch :name to get string name
-            enc_name = begin
-              r = enc.dispatch(context, :name, [], {})
-              fstr?(r) ? r.raw : enc.get_ivar(:@name)&.raw
-            rescue FrozoneException
-              enc.get_ivar(:@name)&.raw
-            end
-            enc_name ||= 'UTF-8'
-            reraise(::RangeError) { n2f_str(v.raw.chr(enc_name)) }
-          else
-            n2f_str(v.raw.chr)
-          end
-        end
-
         # MRI raises RangeError for shift widths >= 2**67 (ruby-spec: integer/left_shift_spec.rb).
         # Closed-world Frozone uses Int64; (1 << 62) is plenty as a sentinel and is representable.
         def integer_lshift(context, v1, v2)

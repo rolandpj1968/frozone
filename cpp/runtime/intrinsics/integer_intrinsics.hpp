@@ -7,34 +7,6 @@
 
 // ---- Integer -------------------------------------------------------
 
-// `Integer#chr(enc = nil)` — single-byte String. 0..255 only.
-// Encoding ignored (we treat as raw bytes).
-inline BasicObject* intrinsic_integer_chr(BasicObject* self_, BasicObject* /*enc*/) {
-  std::int64_t _v = static_cast<Integer*>(self_)->raw_;
-  auto* _r = new String();
-  if (_v < 0 || _v > 0x10FFFF) {
-    // Out of Unicode range — emit replacement char (wraps to byte for now).
-    _r->bytes.push_back(static_cast<std::uint8_t>('?'));
-    return _r;
-  }
-  if (_v <= 0x7F) {
-    _r->bytes.push_back(static_cast<std::uint8_t>(_v));
-  } else if (_v <= 0x7FF) {
-    _r->bytes.push_back(static_cast<std::uint8_t>(0xC0 | (_v >> 6)));
-    _r->bytes.push_back(static_cast<std::uint8_t>(0x80 | (_v & 0x3F)));
-  } else if (_v <= 0xFFFF) {
-    _r->bytes.push_back(static_cast<std::uint8_t>(0xE0 | (_v >> 12)));
-    _r->bytes.push_back(static_cast<std::uint8_t>(0x80 | ((_v >> 6) & 0x3F)));
-    _r->bytes.push_back(static_cast<std::uint8_t>(0x80 | (_v & 0x3F)));
-  } else {
-    _r->bytes.push_back(static_cast<std::uint8_t>(0xF0 | (_v >> 18)));
-    _r->bytes.push_back(static_cast<std::uint8_t>(0x80 | ((_v >> 12) & 0x3F)));
-    _r->bytes.push_back(static_cast<std::uint8_t>(0x80 | ((_v >> 6) & 0x3F)));
-    _r->bytes.push_back(static_cast<std::uint8_t>(0x80 | (_v & 0x3F)));
-  }
-  return _r;
-}
-
 // `Integer#bit_length` — bits needed to represent value (excl. sign).
 // Negative numbers: bits in ~n. __builtin_clzll gives leading zeros;
 // bit_length = 64 - clz.

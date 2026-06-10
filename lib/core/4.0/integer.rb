@@ -144,8 +144,24 @@ class Integer
   end
 
   def chr(enc = nil)
-    resolved = enc.nil? && self > 255 ? (di = Encoding.default_internal; return Intrinsics.integer_chr(self, nil) if di.nil?; di) : enc
-    Intrinsics.integer_chr(self, resolved)
+    raise RangeError, "#{self} out of char range" if self < 0 || self > 0x10FFFF
+    s = ""
+    if self <= 0x7F
+      s << self
+    elsif self <= 0x7FF
+      s << (0xC0 | (self >> 6))
+      s << (0x80 | (self & 0x3F))
+    elsif self <= 0xFFFF
+      s << (0xE0 | (self >> 12))
+      s << (0x80 | ((self >> 6) & 0x3F))
+      s << (0x80 | (self & 0x3F))
+    else
+      s << (0xF0 | (self >> 18))
+      s << (0x80 | ((self >> 12) & 0x3F))
+      s << (0x80 | ((self >> 6) & 0x3F))
+      s << (0x80 | (self & 0x3F))
+    end
+    s
   end
 
   def round(n = 0, half: nil)
