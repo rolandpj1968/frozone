@@ -1,29 +1,20 @@
 // Box-first Intrinsics implementations.
 //
-// `Intrinsics.foo(self, args...)` calls in lib/core/4.0/ Ruby code
-// lower to inline C++ calls into this header. Each `Intrinsics.X`
-// has a corresponding `Ruby::intrinsic_X(...)` inline function here.
+// `Intrinsics.X(self, args...)` in lib/core/4.0/ Ruby code lowers to
+// an inline call to `Ruby::intrinsic_X(...)` defined in this header
+// (or one of the per-category headers it aggregates).
 //
-// Moved out of intrinsic_lowering.rb's string-emitting Ruby lambdas
-// for readability and source-size: each intrinsic body lives ONCE
-// here (the optimiser inlines as it sees fit), instead of being
-// duplicated at every call site as a self-invoking lambda
-// expression. Real C++ syntax — editor highlighting, type checking,
-// gdb sees real function names.
+// Bodies depend on the per-program class structs (String*, Array*,
+// ...) being complete, so the emitter inserts this include between
+// the class definitions and the method bodies.
 //
-// Forward-declares with full type signatures — must be included
-// AFTER the per-program class structs are complete (String*, Array*,
-// etc. are referenced via member access). The emitter inserts the
-// include between class definitions and method bodies (see
-// class_emitter.rb's write_runtime).
-//
-// Naming: `intrinsic_<ruby_name>` to keep distinct from runtime
-// helpers (intern, splat_to_array, ...) which use bare names.
+// Naming: `intrinsic_<ruby_name>` to stay distinct from bare-named
+// runtime helpers (intern, splat_to_array, ...).
 //
 // Closure-style intrinsics (kernel_lambda, kernel_proc,
-// kernel_block_given) that reference `_block` in the surrounding
-// method's scope STAY in intrinsic_lowering.rb — they aren't pure
-// functions of their args.
+// kernel_block_given) that capture `_block` in the surrounding
+// method's scope stay in intrinsic_lowering.rb instead — they aren't
+// pure functions of their args.
 
 // NB: This header is `#include`'d INSIDE the gen file's
 // `namespace Ruby { ... }` block (see class_emitter.rb), so the
@@ -54,13 +45,6 @@
 // `ensure` blocks still run during unwinding), and frozone_main_impl
 // catches it to terminate with the requested status.
 struct SystemExitException { std::int64_t status; };
-
-// ---- String --------------------------------------------------------
-
-// `String#index(sub, offset = :__unset__)` — find first byte-position
-// of sub in self. String sub uses byte memcmp; Regexp sub goes through
-// onig_search via regexp_match_helper. Negative offset counts from
-// end; offset > size returns nil. Empty needle matches at offset.
 
 // ---- File-system shared helpers -----------------------------------
 //
@@ -97,18 +81,14 @@ namespace env_detail {
 
 // ---- Random --------------------------------------------------------
 //
-// The legacy Ruby intrinsic (lib/frozone/vm/intrinsics/random_intrinsics.rb,
-// used by the interpreted backend) does extensive coercion theatre —
-// Rational/Complex/to_int — that's now performed in Ruby-land before
-// the call. Box-first's wrappers in lib/core/4.0/random.rb already
-// pass concrete Integer/Float/nil/Range, so we keep these narrow.
-// Anything weird aborts with a loud message.
-//
 // `v` (the receiver) is the Random instance for instance methods, or
 // nil for the class-method (`Random.rand`, `Random.bytes`) path. The
 // generated `Random` struct has no ivars, so per-instance state lives
 // in a side-map keyed on the BasicObject* identity. The default
 // (nil-receiver) PRNG uses a separate global engine.
+//
+// Coercion (Rational/Complex/to_int) happens in core/4.0/random.rb
+// before the call lands here; these wrappers stay narrow.
 
 namespace random_detail {
   inline std::mt19937_64& default_rng() {
@@ -141,16 +121,11 @@ namespace random_detail {
 
 // ---- Integer -------------------------------------------------------
 //
-// Most integer ops are already in TEMPLATES (cpp_box/intrinsic_lowering.rb)
-// — __plus_/__minus_/__star_, comparisons, spaceship, bitnot.
-// These cover the remaining 13 that lib/core/4.0/integer.rb dispatches
-// through Intrinsics.
-//
-// Box-first stays Int64 throughout. Overflow is undefined behaviour
-// today; project_int_soundness.md / project_box_first_overflow_soundness.md
-// track the bignum-promotion gap. Where Ruby semantics differ from
-// C++ (notably `/` and `%` rounding direction), we apply the Ruby
-// adjustment.
+// Box-first stays Int64 throughout. Where Ruby semantics differ from
+// C++ (notably `/` and `%` rounding direction) the helpers below apply
+// the Ruby adjustment. Most arithmetic ops lower via TEMPLATES in
+// cpp_box/intrinsic_lowering.rb; the bodies here cover what doesn't
+// fit a single-expression template.
 
 namespace integer_detail {
   // Ruby `/` rounds toward negative infinity; C++ truncates toward
@@ -170,11 +145,9 @@ namespace integer_detail {
   }
 }
 
-// Aggregator — pulls all per-category intrinsic headers.
-// Per-TU include pruning is a follow-up; for now every TU still
-// gets every category, but the file split lets that change cleanly
-// later. Helpers (namespaces, free functions) above stay in this
-// file so every per-category header can see them.
+// Aggregator — pulls all per-category intrinsic headers. Helpers
+// (namespaces, free functions) above stay in this file so every
+// per-category header can see them.
 #include "intrinsics/dir_intrinsics.hpp"
 #include "intrinsics/env_intrinsics.hpp"
 #include "intrinsics/file_intrinsics.hpp"

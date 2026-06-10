@@ -35,8 +35,8 @@ inline BasicObject* intrinsic_regexp_escape(BasicObject* str) {
 
 // ---- Regexp / MatchData --------------------------------------------
 
-// `re.inspect` — `/source/`. Options stripped for now (full MRI form
-// `(?-mix:...)` is a follow-up).
+// `re.inspect` — `/source/`. Options stripped; full MRI form
+// `(?-mix:...)` not implemented.
 inline BasicObject* intrinsic_regexp_inspect(BasicObject* self_) {
   auto* _r = static_cast<Regexp*>(self_);
   auto* _s = static_cast<String*>(_r->source_);
@@ -48,7 +48,7 @@ inline BasicObject* intrinsic_regexp_inspect(BasicObject* self_) {
   return new String(_buf.data(), _buf.size());
 }
 
-// `re.to_s` — same as inspect for now.
+// `re.to_s` — same surface as inspect.
 inline BasicObject* intrinsic_regexp_to_s(BasicObject* self_) {
   return intrinsic_regexp_inspect(self_);
 }
