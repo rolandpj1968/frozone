@@ -114,34 +114,25 @@ class File < IO
     def executable_real? = File.executable_real?(@path)
     def owned? = File.owned?(@path)
     def grpowned? = File.grpowned?(@path)
-    def ctime = @native_stat ? Intrinsics.file_native_stat_time(@native_stat, :ctime) : File.ctime(@path)
-    def birthtime = @native_stat ? Intrinsics.file_native_stat_time(@native_stat, :birthtime) : File.birthtime(@path)
-    def size = @native_stat ? Intrinsics.file_native_stat_size(@native_stat) : File.size(@path)
-    def mode = @native_stat ? Intrinsics.file_native_stat_int(@native_stat, :mode) :
-                (@lstat ? Intrinsics.file_lstat_mode(@path) : Intrinsics.file_stat_mode(@path))
-    def ino = @native_stat ? Intrinsics.file_native_stat_int(@native_stat, :ino) : Intrinsics.file_stat_ino(@path)
-    def nlink = @native_stat ? Intrinsics.file_native_stat_int(@native_stat, :nlink) : Intrinsics.file_stat_nlink(@path)
-    def uid = @native_stat ? Intrinsics.file_native_stat_int(@native_stat, :uid) : Intrinsics.file_stat_uid(@path)
-    def gid = @native_stat ? Intrinsics.file_native_stat_int(@native_stat, :gid) : Intrinsics.file_stat_gid(@path)
-    def dev = @native_stat ? Intrinsics.file_native_stat_int(@native_stat, :dev) : Intrinsics.file_stat_dev(@path)
-    def rdev = @native_stat ? Intrinsics.file_native_stat_int(@native_stat, :rdev) : Intrinsics.file_stat_rdev(@path)
-    def dev_major = @native_stat ? Intrinsics.file_native_stat_int(@native_stat, :dev_major) : Intrinsics.file_stat_dev_major(@path)
-    def dev_minor = @native_stat ? Intrinsics.file_native_stat_int(@native_stat, :dev_minor) : Intrinsics.file_stat_dev_minor(@path)
-    def rdev_major = @native_stat ? Intrinsics.file_native_stat_int(@native_stat, :rdev_major) : Intrinsics.file_stat_rdev_major(@path)
-    def rdev_minor = @native_stat ? Intrinsics.file_native_stat_int(@native_stat, :rdev_minor) : Intrinsics.file_stat_rdev_minor(@path)
-    def blocks = @native_stat ? Intrinsics.file_native_stat_int(@native_stat, :blocks) : Intrinsics.file_stat_blocks(@path)
-    def blksize = @native_stat ? Intrinsics.file_native_stat_int(@native_stat, :blksize) : Intrinsics.file_stat_blksize(@path)
-    def inspect = "#<File::Stat dev=0x#{dev.to_s(16)}, ino=#{ino}, mode=0#{mode.to_s(8)}, nlink=#{nlink}, uid=#{uid}, gid=#{gid}, rdev=0x#{rdev.to_s(16)}, size=#{size}, blksize=#{blksize}, blocks=#{blocks}, atime=#{atime.inspect}, mtime=#{mtime.inspect}, ctime=#{ctime.inspect}>"
-
-    def atime
-      return Intrinsics.file_lstat_atime(@path) if @lstat
-      @native_stat ? Intrinsics.file_native_stat_time(@native_stat, :atime) : File.atime(@path)
-    end
-
-    def mtime
-      return Intrinsics.file_lstat_mtime(@path) if @lstat
-      @native_stat ? Intrinsics.file_native_stat_time(@native_stat, :mtime) : File.mtime(@path)
-    end
+    def mode = @stat[OS_STAT_MODE]
+    def size = @stat[OS_STAT_SIZE]
+    def uid  = @stat[OS_STAT_UID]
+    def gid  = @stat[OS_STAT_GID]
+    def dev  = @stat[OS_STAT_DEV]
+    def ino  = @stat[OS_STAT_INO]
+    def nlink     = raise NotImplementedError, "File::Stat#nlink — os_stat tuple needs nlink"
+    def rdev      = raise NotImplementedError, "File::Stat#rdev — os_stat tuple needs rdev"
+    def dev_major = raise NotImplementedError, "File::Stat#dev_major"
+    def dev_minor = raise NotImplementedError, "File::Stat#dev_minor"
+    def rdev_major = raise NotImplementedError, "File::Stat#rdev_major"
+    def rdev_minor = raise NotImplementedError, "File::Stat#rdev_minor"
+    def blocks    = raise NotImplementedError, "File::Stat#blocks"
+    def blksize   = raise NotImplementedError, "File::Stat#blksize"
+    def atime     = raise NotImplementedError, "File::Stat#atime — os_stat tuple needs timespec"
+    def mtime     = raise NotImplementedError, "File::Stat#mtime — os_stat tuple needs timespec"
+    def ctime     = raise NotImplementedError, "File::Stat#ctime — os_stat tuple needs timespec"
+    def birthtime = raise NotImplementedError, "File::Stat#birthtime — needs statx"
+    def inspect = "#<File::Stat dev=0x#{dev.to_s(16)}, ino=#{ino}, mode=0#{mode.to_s(8)}, uid=#{uid}, gid=#{gid}, size=#{size}>"
 
     def ftype
       case mode & 0o170000
@@ -159,7 +150,8 @@ class File < IO
     def initialize(path, lstat: false)
       @path = __coerce_to_path__(path)
       @lstat = lstat
-      @stat = lstat ? Intrinsics.file_lstat_native(@path) : Intrinsics.file_stat_native(@path)
+      @stat = lstat ? Intrinsics.os_lstat(@path) : Intrinsics.os_stat(@path)
+      raise Errno::ENOENT, @path if @stat.nil?
     end
 
     def <=>(other)
@@ -423,7 +415,8 @@ class File < IO
 
     def world_readable?(path)
       begin
-        mode = Intrinsics.file_stat_mode(_coerce_path(path))
+        st = Intrinsics.os_stat(_coerce_path(path))
+        mode = st && st[OS_STAT_MODE]
         (mode & 0o004) != 0 ? mode & 0o777 : nil
       rescue
         nil
@@ -432,7 +425,8 @@ class File < IO
 
     def world_writable?(path)
       begin
-        mode = Intrinsics.file_stat_mode(_coerce_path(path))
+        st = Intrinsics.os_stat(_coerce_path(path))
+        mode = st && st[OS_STAT_MODE]
         (mode & 0o002) != 0 ? mode & 0o777 : nil
       rescue
         nil
