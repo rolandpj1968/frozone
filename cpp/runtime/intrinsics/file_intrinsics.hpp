@@ -19,12 +19,22 @@ namespace fs_detail {
       static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_gid))),
       static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_dev))),
       static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_ino))),
+      static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_nlink))),
+      static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_rdev))),
+      static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_blocks))),
+      static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_blksize))),
+      static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_atim.tv_sec))),
+      static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_atim.tv_nsec))),
+      static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_mtim.tv_sec))),
+      static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_mtim.tv_nsec))),
+      static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_ctim.tv_sec))),
+      static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_ctim.tv_nsec))),
     });
   }
 }
 
-// stat(2) — returns nil on failure, else Array [mode, size, uid, gid,
-// dev, ino]. Field order is mirrored in lib/core/4.0/file.rb (OS_STAT_*).
+// stat(2) — returns nil on failure, else a 16-element Array. Field
+// order matches OS_STAT_* indices in lib/core/4.0/file.rb.
 inline BasicObject* intrinsic_os_stat(BasicObject* path) {
   struct stat st;
   return ::stat(fs_detail::str_of(path).c_str(), &st) == 0 ? fs_detail::stat_array(st) : nil_instance();

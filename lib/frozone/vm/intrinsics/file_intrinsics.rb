@@ -410,6 +410,16 @@ module Frozone
           n2f_int(stat.gid),
           n2f_int(stat.dev),
           n2f_int(stat.ino),
+          n2f_int(stat.nlink),
+          n2f_int(stat.rdev),
+          n2f_int(stat.blocks || 0),
+          n2f_int(stat.blksize || 4096),
+          n2f_int(stat.atime.to_i),
+          n2f_int(stat.atime.nsec),
+          n2f_int(stat.mtime.to_i),
+          n2f_int(stat.mtime.nsec),
+          n2f_int(stat.ctime.to_i),
+          n2f_int(stat.ctime.nsec),
         ])
 
         def stat_int_field(path, default: 0)

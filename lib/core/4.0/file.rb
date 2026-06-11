@@ -81,13 +81,23 @@ class File < IO
   W_OK = 2
   X_OK = 1
 
-  # os_stat field indices
+  # os_stat field indices — mirrors stat_array in file_intrinsics.hpp.
   OS_STAT_MODE = 0
   OS_STAT_SIZE = 1
   OS_STAT_UID = 2
   OS_STAT_GID = 3
   OS_STAT_DEV = 4
   OS_STAT_INO = 5
+  OS_STAT_NLINK = 6
+  OS_STAT_RDEV = 7
+  OS_STAT_BLOCKS = 8
+  OS_STAT_BLKSIZE = 9
+  OS_STAT_ATIME_SEC = 10
+  OS_STAT_ATIME_NSEC = 11
+  OS_STAT_MTIME_SEC = 12
+  OS_STAT_MTIME_NSEC = 13
+  OS_STAT_CTIME_SEC = 14
+  OS_STAT_CTIME_NSEC = 15
 
   class Stat
     include Comparable
@@ -114,25 +124,28 @@ class File < IO
     def executable_real? = File.executable_real?(@path)
     def owned? = File.owned?(@path)
     def grpowned? = File.grpowned?(@path)
-    def mode = @stat[OS_STAT_MODE]
-    def size = @stat[OS_STAT_SIZE]
-    def uid  = @stat[OS_STAT_UID]
-    def gid  = @stat[OS_STAT_GID]
-    def dev  = @stat[OS_STAT_DEV]
-    def ino  = @stat[OS_STAT_INO]
-    def nlink     = raise NotImplementedError, "File::Stat#nlink — os_stat tuple needs nlink"
-    def rdev      = raise NotImplementedError, "File::Stat#rdev — os_stat tuple needs rdev"
-    def dev_major = raise NotImplementedError, "File::Stat#dev_major"
-    def dev_minor = raise NotImplementedError, "File::Stat#dev_minor"
-    def rdev_major = raise NotImplementedError, "File::Stat#rdev_major"
-    def rdev_minor = raise NotImplementedError, "File::Stat#rdev_minor"
-    def blocks    = raise NotImplementedError, "File::Stat#blocks"
-    def blksize   = raise NotImplementedError, "File::Stat#blksize"
-    def atime     = raise NotImplementedError, "File::Stat#atime — os_stat tuple needs timespec"
-    def mtime     = raise NotImplementedError, "File::Stat#mtime — os_stat tuple needs timespec"
-    def ctime     = raise NotImplementedError, "File::Stat#ctime — os_stat tuple needs timespec"
-    def birthtime = raise NotImplementedError, "File::Stat#birthtime — needs statx"
-    def inspect = "#<File::Stat dev=0x#{dev.to_s(16)}, ino=#{ino}, mode=0#{mode.to_s(8)}, uid=#{uid}, gid=#{gid}, size=#{size}>"
+    def mode    = @stat[OS_STAT_MODE]
+    def size    = @stat[OS_STAT_SIZE]
+    def uid     = @stat[OS_STAT_UID]
+    def gid     = @stat[OS_STAT_GID]
+    def dev     = @stat[OS_STAT_DEV]
+    def ino     = @stat[OS_STAT_INO]
+    def nlink   = @stat[OS_STAT_NLINK]
+    def rdev    = @stat[OS_STAT_RDEV]
+    def blocks  = @stat[OS_STAT_BLOCKS]
+    def blksize = @stat[OS_STAT_BLKSIZE]
+    def atime   = Time.at(@stat[OS_STAT_ATIME_SEC], @stat[OS_STAT_ATIME_NSEC], :nsec)
+    def mtime   = Time.at(@stat[OS_STAT_MTIME_SEC], @stat[OS_STAT_MTIME_NSEC], :nsec)
+    def ctime   = Time.at(@stat[OS_STAT_CTIME_SEC], @stat[OS_STAT_CTIME_NSEC], :nsec)
+    # glibc-style major/minor: dev encoded as (major << 8) | minor for legacy devices;
+    # the modern encoding uses (major << 8) | (minor & 0xff) | ((minor & ~0xff) << 12).
+    # The simple bit split below matches MRI on Linux for typical fs devices.
+    def dev_major  = (dev >> 8) & 0xfff
+    def dev_minor  = (dev & 0xff) | ((dev >> 12) & ~0xff)
+    def rdev_major = (rdev >> 8) & 0xfff
+    def rdev_minor = (rdev & 0xff) | ((rdev >> 12) & ~0xff)
+    def birthtime  = raise NotImplementedError, "File::Stat#birthtime — needs statx"
+    def inspect = "#<File::Stat dev=0x#{dev.to_s(16)}, ino=#{ino}, mode=0#{mode.to_s(8)}, nlink=#{nlink}, uid=#{uid}, gid=#{gid}, rdev=0x#{rdev.to_s(16)}, size=#{size}, blksize=#{blksize}, blocks=#{blocks}, atime=#{atime.inspect}, mtime=#{mtime.inspect}, ctime=#{ctime.inspect}>"
 
     def ftype
       case mode & 0o170000
@@ -197,11 +210,11 @@ class File < IO
     def split(path) = [dirname(_coerce_path(path)), basename(_coerce_path(path))]
     def absolute_path(path, base = nil) = expand_path(path, base)
     def absolute_path?(path) = _coerce_path(path).start_with?('/')
-    def ftype(path) = Intrinsics.file_ftype(_coerce_path(path))
-    def atime(path) = Intrinsics.file_atime(_coerce_path(path))
-    def mtime(path) = Intrinsics.file_mtime(_coerce_path(path))
-    def ctime(path) = Intrinsics.file_ctime(_coerce_path(path))
-    def birthtime(path) = Intrinsics.file_birthtime(_coerce_path(path))
+    def ftype(path)     = File::Stat.new(_coerce_path(path), lstat: true).ftype
+    def atime(path)     = File::Stat.new(_coerce_path(path)).atime
+    def mtime(path)     = File::Stat.new(_coerce_path(path)).mtime
+    def ctime(path)     = File::Stat.new(_coerce_path(path)).ctime
+    def birthtime(path) = File::Stat.new(_coerce_path(path)).birthtime
     def delete(*paths) = Intrinsics.file_delete_strict(paths)
     def unlink(*paths) = Intrinsics.file_delete_strict(paths)
     def rename(from, to) = Intrinsics.file_rename(_coerce_path(from), _coerce_path(to))
