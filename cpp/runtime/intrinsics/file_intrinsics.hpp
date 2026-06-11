@@ -87,4 +87,78 @@ inline BasicObject* intrinsic_file_read(BasicObject* path) {
   std::string s = ss.str();
   return new String(s.data(), s.size());
 }
+
+// ---- Mutating POSIX primitives -----------------------------------
+// Each returns nil on errno failure; Ruby maps nil → the appropriate
+// Errno::* via inspecting errno or trying again.
+
+inline BasicObject* intrinsic_os_unlink(BasicObject* path) {
+  return ::unlink(fs_detail::str_of(path).c_str()) == 0 ? true_instance() : nil_instance();
+}
+
+inline BasicObject* intrinsic_os_rename(BasicObject* from, BasicObject* to) {
+  return ::rename(fs_detail::str_of(from).c_str(),
+                  fs_detail::str_of(to).c_str()) == 0 ? true_instance() : nil_instance();
+}
+
+inline BasicObject* intrinsic_os_link(BasicObject* target, BasicObject* link) {
+  return ::link(fs_detail::str_of(target).c_str(),
+                fs_detail::str_of(link).c_str()) == 0 ? true_instance() : nil_instance();
+}
+
+inline BasicObject* intrinsic_os_symlink(BasicObject* target, BasicObject* link) {
+  return ::symlink(fs_detail::str_of(target).c_str(),
+                   fs_detail::str_of(link).c_str()) == 0 ? true_instance() : nil_instance();
+}
+
+inline BasicObject* intrinsic_os_chmod(BasicObject* path, BasicObject* mode) {
+  mode_t m = static_cast<mode_t>(static_cast<Integer*>(mode)->raw_);
+  return ::chmod(fs_detail::str_of(path).c_str(), m) == 0 ? true_instance() : nil_instance();
+}
+
+inline BasicObject* intrinsic_os_truncate(BasicObject* path, BasicObject* length) {
+  off_t len = static_cast<off_t>(static_cast<Integer*>(length)->raw_);
+  return ::truncate(fs_detail::str_of(path).c_str(), len) == 0 ? true_instance() : nil_instance();
+}
+
+// utimensat with AT_FDCWD; accepts nanosecond-precision atime/mtime.
+// flags 0 follows symlinks; AT_SYMLINK_NOFOLLOW for lutime.
+inline BasicObject* intrinsic_os_utimes(BasicObject* path,
+                                        BasicObject* atime_sec, BasicObject* atime_nsec,
+                                        BasicObject* mtime_sec, BasicObject* mtime_nsec,
+                                        BasicObject* follow_symlinks) {
+  struct timespec ts[2];
+  ts[0].tv_sec = static_cast<time_t>(static_cast<Integer*>(atime_sec)->raw_);
+  ts[0].tv_nsec = static_cast<long>(static_cast<Integer*>(atime_nsec)->raw_);
+  ts[1].tv_sec = static_cast<time_t>(static_cast<Integer*>(mtime_sec)->raw_);
+  ts[1].tv_nsec = static_cast<long>(static_cast<Integer*>(mtime_nsec)->raw_);
+  int flags = (follow_symlinks == true_instance()) ? 0 : AT_SYMLINK_NOFOLLOW;
+  return ::utimensat(AT_FDCWD, fs_detail::str_of(path).c_str(), ts, flags) == 0
+    ? true_instance() : nil_instance();
+}
+
+inline BasicObject* intrinsic_os_mkfifo(BasicObject* path, BasicObject* mode) {
+  mode_t m = static_cast<mode_t>(static_cast<Integer*>(mode)->raw_);
+  return ::mkfifo(fs_detail::str_of(path).c_str(), m) == 0 ? true_instance() : nil_instance();
+}
+
+// umask sets+returns prior mask. nil arg → query (no change). Tricky
+// because umask has no "query without change" form; emulate via
+// set→reset.
+inline BasicObject* intrinsic_os_umask(BasicObject* new_mask) {
+  if (new_mask == nil_instance()) {
+    mode_t prev = ::umask(0);
+    ::umask(prev);
+    return new Integer(static_cast<int64_t>(prev));
+  }
+  mode_t m = static_cast<mode_t>(static_cast<Integer*>(new_mask)->raw_);
+  return new Integer(static_cast<int64_t>(::umask(m)));
+}
+
+inline BasicObject* intrinsic_os_fnmatch(BasicObject* pattern, BasicObject* path, BasicObject* flags) {
+  int f = static_cast<int>(static_cast<Integer*>(flags)->raw_);
+  return boxed_bool(
+    ::fnmatch(fs_detail::str_of(pattern).c_str(),
+              fs_detail::str_of(path).c_str(), f) == 0);
+}
 #endif  // FROZONE_FILE_INTRINSICS_HPP

@@ -215,25 +215,33 @@ class File < IO
     def mtime(path)     = File::Stat.new(_coerce_path(path)).mtime
     def ctime(path)     = File::Stat.new(_coerce_path(path)).ctime
     def birthtime(path) = File::Stat.new(_coerce_path(path)).birthtime
-    def delete(*paths) = Intrinsics.file_delete_strict(paths)
-    def unlink(*paths) = Intrinsics.file_delete_strict(paths)
-    def rename(from, to) = Intrinsics.file_rename(_coerce_path(from), _coerce_path(to))
-    def symlink(target, link) = Intrinsics.file_symlink_create(_coerce_path(target), _coerce_path(link))
-    def link(target, link) = Intrinsics.file_link(_coerce_path(target), _coerce_path(link))
+    def delete(*paths)
+      paths.each { |p| Intrinsics.os_unlink(_coerce_path(p)) || raise(Errno::ENOENT, _coerce_path(p)) }
+      paths.length
+    end
+    def unlink(*paths) = delete(*paths)
+    def rename(from, to) = Intrinsics.os_rename(_coerce_path(from), _coerce_path(to)) ? 0 : raise(Errno::ENOENT, "#{from} → #{to}")
+    def symlink(target, link) = Intrinsics.os_symlink(_coerce_path(target), _coerce_path(link)) ? 0 : raise(Errno::EEXIST, link)
+    def link(target, link) = Intrinsics.os_link(_coerce_path(target), _coerce_path(link)) ? 0 : raise(Errno::ENOENT, "#{target} → #{link}")
     def readlink(path) = Intrinsics.os_readlink(_coerce_path(path)) || raise(Errno::ENOENT, "No such file or directory @ rb_readlink - #{path}")
     def lchown(uid, gid, *paths) = paths.length
     def lchmod(mode, *paths) = paths.length
-    def lutime(atime, mtime, *paths) = Intrinsics.file_lutime(atime, mtime, paths.map { |p| _coerce_path(p) })
+    def lutime(atime, mtime, *paths) = _utimes(atime, mtime, paths, false)
     def stat(path) = Stat.new(_coerce_path(path))
     def lstat(path) = Stat.new(_coerce_path(path), lstat: true)
     def binread(path, length = nil, offset = nil) = Intrinsics.file_binread(_coerce_path(path), length, offset)
     def binwrite(path, content, offset = nil) = Intrinsics.file_write(_coerce_path(path), content)
     def fnmatch?(pattern, path, flags = 0) = fnmatch(pattern, path, flags)
-    def mkfifo(path, mode = 0o666) = Intrinsics.file_mkfifo(_coerce_path(path), mode)
-    def umask(new_mask = nil) = Intrinsics.file_umask(new_mask)
-    def utime(atime, mtime, *paths) = Intrinsics.file_utime(atime, mtime, paths.map { |p| _coerce_path(p) })
-    def truncate(path, length) = Intrinsics.file_truncate(_coerce_path(path), __coerce_to_int__(length))
-    def fnmatch(pattern, path, flags = 0) = Intrinsics.file_fnmatch(pattern, _coerce_path(path), __coerce_to_int__(flags))
+    def mkfifo(path, mode = 0o666) = Intrinsics.os_mkfifo(_coerce_path(path), mode) ? 0 : raise(Errno::EEXIST, path)
+    def umask(new_mask = nil) = Intrinsics.os_umask(new_mask.nil? ? nil : __coerce_to_int__(new_mask))
+    def utime(atime, mtime, *paths) = _utimes(atime, mtime, paths, true)
+    def truncate(path, length) = Intrinsics.os_truncate(_coerce_path(path), __coerce_to_int__(length)) ? 0 : raise(Errno::ENOENT, path)
+    def fnmatch(pattern, path, flags = 0) = Intrinsics.os_fnmatch(pattern, _coerce_path(path), __coerce_to_int__(flags))
+    def chmod(mode_int, *paths)
+      mode = __coerce_to_int__(mode_int)
+      paths.each { |p| Intrinsics.os_chmod(_coerce_path(p), mode) || raise(Errno::ENOENT, _coerce_path(p)) }
+      paths.length
+    end
 
     def size(path)
       st = Intrinsics.os_stat(_coerce_path(path))
@@ -420,12 +428,6 @@ class File < IO
       base
     end
 
-    def chmod(mode, *paths)
-      mode_int = __coerce_to_int__(mode)
-      raise RangeError, "bignum too big to convert into 'long'" if mode_int > UINT32_UPPER || mode_int < INT32_LOWER
-      Intrinsics.file_chmod(mode_int, paths.map { |p| _coerce_path(p) })
-    end
-
     def world_readable?(path)
       begin
         st = Intrinsics.os_stat(_coerce_path(path))
@@ -447,6 +449,28 @@ class File < IO
     end
 
     private
+
+    # Apply atime/mtime to each path via utimensat. follow=true follows
+    # symlinks (utime); follow=false hits the link itself (lutime).
+    def _utimes(atime, mtime, paths, follow)
+      asec, ansec = _time_to_pair(atime)
+      msec, mnsec = _time_to_pair(mtime)
+      paths.each do |p|
+        Intrinsics.os_utimes(_coerce_path(p), asec, ansec, msec, mnsec, follow) ||
+          raise(Errno::ENOENT, _coerce_path(p))
+      end
+      paths.length
+    end
+
+    def _time_to_pair(t)
+      case t
+      when Time    then [t.to_i, t.nsec]
+      when Integer then [t, 0]
+      when Float   then [t.to_i, ((t - t.to_i) * 1_000_000_000).to_i]
+      when nil     then n = Time.now; [n.to_i, n.nsec]
+      else raise TypeError, "no implicit conversion of #{t.class} into Time"
+      end
+    end
 
     def __stat_type?(path, type_bits) = (st = Intrinsics.os_stat(_coerce_path(path))) && (st[OS_STAT_MODE] & S_IFMT) == type_bits || false
     def __stat_bit?(path, mask) = (st = Intrinsics.os_stat(_coerce_path(path))) && (st[OS_STAT_MODE] & mask) != 0 || false

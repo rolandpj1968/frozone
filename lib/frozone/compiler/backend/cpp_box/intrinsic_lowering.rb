@@ -115,6 +115,8 @@ module Frozone
             process_clock_gettime
             fiber_storage_get fiber_storage_set
             os_stat os_lstat os_access os_realpath os_readlink os_euid os_egid
+            os_unlink os_rename os_link os_symlink os_chmod os_truncate
+            os_utimes os_mkfifo os_umask os_fnmatch
             file_read
             os_getenv os_setenv os_unsetenv os_environ_pairs
             random_new random_new_seed random_seed random_state

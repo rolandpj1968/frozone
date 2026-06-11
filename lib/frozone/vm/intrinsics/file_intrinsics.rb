@@ -21,6 +21,26 @@ module Frozone
         def os_readlink(_, path) = n2f_str(::File.readlink(path.raw)) rescue FNIL
         def os_euid(_) = n2f_int(Process.euid)
         def os_egid(_) = n2f_int(Process.egid)
+        # Tier 3 mutating POSIX primitives — MRI bridges return true (sentinel)
+        # on success, nil on failure (errno-aware). Ruby side maps nil to the
+        # right Errno::*.
+        def os_unlink(_, path) = (File.unlink(path.raw); FTRUE) rescue FNIL
+        def os_rename(_, from, to) = (File.rename(from.raw, to.raw); FTRUE) rescue FNIL
+        def os_link(_, t, l) = (File.link(t.raw, l.raw); FTRUE) rescue FNIL
+        def os_symlink(_, t, l) = (File.symlink(t.raw, l.raw); FTRUE) rescue FNIL
+        def os_chmod(_, p, m) = (File.chmod(m.raw, p.raw); FTRUE) rescue FNIL
+        def os_truncate(_, p, len) = (File.truncate(p.raw, len.raw); FTRUE) rescue FNIL
+        def os_mkfifo(_, p, m) = (File.mkfifo(p.raw, m.raw); FTRUE) rescue FNIL
+        def os_umask(_, m) = fnil?(m) ? n2f_int(File.umask) : n2f_int(File.umask(m.raw))
+        def os_fnmatch(_, pat, p, flags) = n2f_bool(File.fnmatch(pat.raw, p.raw, flags.raw))
+        def os_utimes(_, p, asec, ansec, msec, mnsec, follow)
+          atime = Time.at(asec.raw, ansec.raw / 1000, :usec)
+          mtime = Time.at(msec.raw, mnsec.raw / 1000, :usec)
+          ftrue?(follow) ? File.utime(atime, mtime, p.raw) : File.lutime(atime, mtime, p.raw)
+          FTRUE
+        rescue
+          FNIL
+        end
         def file_ftype(_, path) = reraise(Errno::ENOENT) { n2f_str(File.ftype(path.raw)) }
         def file_atime(_, path) = reraise(Errno::ENOENT) { n2f_time(File.atime(path.raw)) }
         def file_mtime(_, path) = reraise(Errno::ENOENT) { n2f_time(File.mtime(path.raw)) }
