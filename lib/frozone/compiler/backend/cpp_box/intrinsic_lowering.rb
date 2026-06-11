@@ -166,7 +166,7 @@ module Frozone
             # host-Ruby workarounds that only apply during interpretation.
             # NOTE: keyed by the Ruby name (with `?`); the `?`→`_q` transform
             # in `lower` only runs for HPP_INTRINSICS lookups, not TEMPLATES.
-            :"interpreted?" => ->(_s) { "false_instance()" },
+            :"interpreted?" => ->(*_) { "false_instance()" },
             # Class — raw allocator that bypasses Ruby-level overrides.
             # `Thread.allocate` raises TypeError, so calling through
             # m_allocate would hit that. m_raw_allocate is a non-Ruby

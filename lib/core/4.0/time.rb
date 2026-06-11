@@ -57,7 +57,7 @@ class Time
     def now(in: nil)
       arr = Intrinsics.os_time_now
       t = Intrinsics.time_make(arr[0], arr[1], arr[2], false)
-      tz = Intrinsics.interpreted?(self) ? _coerce_tz_arg(binding.local_variable_get(:in)) : nil
+      tz = Intrinsics.interpreted? ? _coerce_tz_arg(binding.local_variable_get(:in)) : nil
       return t unless tz
       if tz.respond_to?(:utc_to_local) || tz.respond_to?(:local_to_utc)
         unless tz.respond_to?(:utc_to_local)
@@ -129,7 +129,7 @@ class Time
         t_r = t_r + sub_r
       end
 
-      tz = Intrinsics.interpreted?(self) ? _coerce_tz_arg(binding.local_variable_get(:in)) : nil
+      tz = Intrinsics.interpreted? ? _coerce_tz_arg(binding.local_variable_get(:in)) : nil
       if tz.respond_to?(:utc_to_local)
         raw_t_r = t_r.is_a?(Time) ? t_r.to_r : t_r.to_r
         utc_t   = Intrinsics.time_at_raw(raw_t_r, nil).utc
@@ -143,7 +143,7 @@ class Time
     end
 
     def new(year = NEW_NO_YEAR, month = nil, day = nil, hour = nil, min = nil, sec = nil, tz = nil, in: nil, precision: NEW_NO_PRECISION)
-      in_tz = Intrinsics.interpreted?(self) ? binding.local_variable_get(:in) : nil
+      in_tz = Intrinsics.interpreted? ? binding.local_variable_get(:in) : nil
       if year.is_a?(String) && month.nil?
         # Ruby 3.2+ ISO-8601 string parsing (only when year is the sole positional arg).
         # Coerce precision to Integer if given.

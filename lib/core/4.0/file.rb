@@ -134,9 +134,9 @@ class File < IO
     def rdev    = @stat[OS_STAT_RDEV]
     def blocks  = @stat[OS_STAT_BLOCKS]
     def blksize = @stat[OS_STAT_BLKSIZE]
-    def atime   = Time.at(@stat[OS_STAT_ATIME_SEC], @stat[OS_STAT_ATIME_NSEC], :nsec)
-    def mtime   = Time.at(@stat[OS_STAT_MTIME_SEC], @stat[OS_STAT_MTIME_NSEC], :nsec)
-    def ctime   = Time.at(@stat[OS_STAT_CTIME_SEC], @stat[OS_STAT_CTIME_NSEC], :nsec)
+    def atime   = Intrinsics.time_make(@stat[OS_STAT_ATIME_SEC], @stat[OS_STAT_ATIME_NSEC], 0, false)
+    def mtime   = Intrinsics.time_make(@stat[OS_STAT_MTIME_SEC], @stat[OS_STAT_MTIME_NSEC], 0, false)
+    def ctime   = Intrinsics.time_make(@stat[OS_STAT_CTIME_SEC], @stat[OS_STAT_CTIME_NSEC], 0, false)
     # glibc-style major/minor: dev encoded as (major << 8) | minor for legacy devices;
     # the modern encoding uses (major << 8) | (minor & 0xff) | ((minor & ~0xff) << 12).
     # The simple bit split below matches MRI on Linux for typical fs devices.
