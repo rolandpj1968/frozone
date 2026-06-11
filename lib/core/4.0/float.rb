@@ -24,7 +24,21 @@ class Float
   def to_i = truncate
   def to_int = to_i
   def to_f = self
-  def to_r = Intrinsics.float_to_r(self)
+  def to_r
+    raise FloatDomainError, "Infinity" if infinite?
+    raise FloatDomainError, "NaN" if nan?
+    return Rational.send(:__construct__, 0, 1) if self == 0.0
+    # f = mantissa * 2**exp, mantissa ∈ [0.5, 1) or (-1, -0.5]
+    m, e = Math.frexp(self)
+    # Promote mantissa to a 53-bit integer (IEEE double precision).
+    m_int = (m * (1 << 53)).to_i
+    e -= 53
+    if e >= 0
+      Rational.send(:__construct__, m_int * (1 << e), 1)
+    else
+      Rational.send(:__construct__, m_int, 1 << (-e))
+    end
+  end
   def abs = zero? ? 0.0 : self < 0.0 ? -self : self
   def magnitude = abs
   def nan? = self != self

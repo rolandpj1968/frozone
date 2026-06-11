@@ -54,7 +54,7 @@ class Integer
   def ~ = Intrinsics.integer_bitnot(self)
   def size = [(bit_length + 7) / 8, 8].max
   def bit_length = Intrinsics.integer_bit_length(self)
-  def to_r = Intrinsics.integer_to_r(self)
+  def to_r = Rational.send(:__construct__, self, 1)
   def to_c = Intrinsics.integer_to_c(self)
   def integer? = true
   def nonzero? = self == 0 ? nil : self

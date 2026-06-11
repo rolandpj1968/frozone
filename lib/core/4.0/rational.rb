@@ -1,6 +1,16 @@
 class Rational < Numeric
   class << self
     def new(*) = raise NoMethodError, "undefined method 'new' for class #{self}"
+
+    # Bypass-the-public-constructor allocate+init shim used by Integer#to_r,
+    # Float#to_r, Time#to_r, and the Kernel#Rational coerce path. Not part
+    # of the user surface; Kernel#Rational(...) is the documented entry.
+    def __construct__(num, den)
+      r = allocate
+      r.__send__(:initialize, num, den)
+      r
+    end
+    private :__construct__
   end
 
   def initialize(numerator, denominator = 1)

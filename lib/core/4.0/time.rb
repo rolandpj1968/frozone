@@ -481,7 +481,7 @@ class Time
 
   def to_i = Intrinsics.time_to_i(self)
   def to_f = to_i + nsec / 1_000_000_000.0
-  def to_r = Intrinsics.time_to_r(self)
+  def to_r = Rational.send(:__construct__, to_i * 1_000_000_000 + nsec, 1_000_000_000)
   def nsec = Intrinsics.time_nsec(self)
   def usec = nsec / 1000
   def utc? = Intrinsics.time_utc_q(self)
