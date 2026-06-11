@@ -15,6 +15,7 @@
 # functions producing cpp strings live on `Cpp` (held as `emit.cpp`).
 
 require_relative 'cpp'
+require_relative 'intrinsic_lowering'
 require_relative 'snapshot'
 require_relative 'class_emitter'
 require_relative 'method_emitter'
@@ -100,9 +101,16 @@ module Frozone
             # Key: host class name (Symbol/String — same as the class's
             # `.name` attribute on the Vm::ClassObject).
             @host_class_refs = Hash.new { |h, k| h[k] = Set.new }
+            # Per-host-class set of intrinsic categories referenced in
+            # its method bodies. Populated by collect_call_surface's
+            # AST walk via IntrinsicLowering.category_for. Drives
+            # per-class-TU `#include "intrinsics/<cat>_intrinsics.hpp"`
+            # emission — same precise-includes pattern as
+            # host_class_refs (Stage 3 of the layouts.hpp split).
+            @host_intrinsic_refs = Hash.new { |h, k| h[k] = Set.new }
           end
 
-          attr_reader :host_class_refs
+          attr_reader :host_class_refs, :host_intrinsic_refs
 
           # Switch active output stream for the duration of the block.
           # Restores prior stream on exit (including via exception).
@@ -981,6 +989,31 @@ module Frozone
                   if ENV['FROZONE_BOX_REFS_DEBUG'] == '1'
                     $stderr.puts "[refs] #{host_flat} -> #{resolved[1]}"
                   end
+                end
+              elsif node.is_a?(Ast::IntrinsicCall) && host_refs
+                # Per-TU intrinsic-category tracking. Each call site
+                # contributes one entry in @host_intrinsic_refs so
+                # class_emitter.rb can emit only the category headers
+                # this TU actually needs (drops per-TU header parse
+                # from ~14 categories to typically 1-3). category_for
+                # returns nil for TEMPLATE-only intrinsics that don't
+                # need a header.
+                cat = IntrinsicLowering.category_for(node.name)
+                if cat
+                  host_flat =
+                    if host_refs.respond_to?(:is_singleton_class) && host_refs.is_singleton_class
+                      owner = host_refs.singleton_of
+                      if owner.respond_to?(:full_name) && owner.full_name
+                        :"#{owner.full_name.to_s.gsub("::", "_")}_eigenclass"
+                      elsif owner
+                        :"#{owner.name}_eigenclass"
+                      end
+                    elsif host_refs.respond_to?(:full_name) && host_refs.full_name
+                      host_refs.full_name.to_s.gsub("::", "_").to_sym
+                    else
+                      host_refs.name.to_s.to_sym
+                    end
+                  @host_intrinsic_refs[host_flat] << cat if host_flat
                 end
               end
               node.children.each { |c| walk.call(c, host, host_refs) } if node.respond_to?(:children)

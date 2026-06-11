@@ -227,13 +227,34 @@ module Frozone
                     emit.line %(#include "class/#{r}.hpp")
                     emit.line %(#include "class/#{r}_eigenclass.hpp")
                   end
-                  # Intrinsic decl aggregator at TU file scope (outside
-                  # namespace Ruby — each category header self-wraps
-                  # its own). Bodies live in dedicated per-category .cpp
-                  # files (cpp/runtime/intrinsics/X_intrinsics.cpp); this
-                  # header pulls only the declarations the linker needs
-                  # to resolve `intrinsic_X` calls.
-                  emit.line %|#include "../../../runtime/intrinsics.hpp"|
+                  # intrinsics_helpers.hpp is needed unconditionally:
+                  # bodies that call STUB intrinsics lower to
+                  # `intrinsic_not_implemented("name")` from there,
+                  # and the helpers header is small (~40 lines).
+                  # Per-category headers also include it transitively
+                  # when present.
+                  emit.line %|#include "../../../runtime/intrinsics_helpers.hpp"|
+                  # Per-TU intrinsic-category decls. Union across the
+                  # ancestor chain (mirrors host_class_refs), so an
+                  # Enumerable method overlaid onto Array gets the
+                  # categories its body actually calls. Categories
+                  # are recorded by collect_call_surface's IntrinsicCall
+                  # branch via IntrinsicLowering.category_for. Each
+                  # header is decl-only; bodies live in the matching
+                  # cpp/runtime/intrinsics/X_intrinsics.cpp TU.
+                  intr_cats = Set.new
+                  if vm_for_k.respond_to?(:ancestors_list)
+                    vm_for_k.ancestors_list.each do |anc|
+                      anc_flat = (anc.respond_to?(:full_name) && anc.full_name ?
+                                    anc.full_name.to_s.gsub("::", "_") :
+                                    anc.name.to_s).to_sym
+                      intr_cats.merge(emit.host_intrinsic_refs[anc_flat] || Set.new)
+                    end
+                  end
+                  intr_cats.merge(emit.host_intrinsic_refs[k.name.to_sym] || Set.new)
+                  intr_cats.to_a.sort.each do |cat|
+                    emit.line %|#include "../../../runtime/intrinsics/#{cat}_intrinsics.hpp"|
+                  end
                   emit.blank
                   emit.line "namespace Ruby {"
                   emit.blank

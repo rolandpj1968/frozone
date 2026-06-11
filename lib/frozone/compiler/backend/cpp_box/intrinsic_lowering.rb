@@ -149,6 +149,59 @@ module Frozone
             string_unicode_normalized_q string_to_c string_upto
           ]).freeze
 
+          # Intrinsic name → category header for per-TU precise
+          # `#include "../../../runtime/intrinsics/<cat>_intrinsics.hpp"`
+          # emission in class_emitter.rb. Most names dispatch by prefix
+          # (PREFIX_CATEGORY below); the `os_*` block is hand-split since
+          # those names span file / env / time / process. Keep in sync
+          # when adding entries to HPP_INTRINSICS above.
+          HPP_INTRINSIC_CATEGORY = {
+            os_stat: :file, os_lstat: :file, os_access: :file,
+            os_realpath: :file, os_readlink: :file, os_unlink: :file,
+            os_rename: :file, os_link: :file, os_symlink: :file,
+            os_chmod: :file, os_truncate: :file, os_utimes: :file,
+            os_mkfifo: :file, os_umask: :file, os_fnmatch: :file,
+            os_euid: :file, os_egid: :file,
+            os_getenv: :env, os_setenv: :env, os_unsetenv: :env,
+            os_environ_pairs: :env,
+            os_time_now: :time, os_localtime: :time, os_gmtime: :time,
+            os_mktime: :time, os_strftime: :time,
+          }.freeze
+
+          PREFIX_CATEGORY = {
+            "dbg_" => :kernel,
+            "fiber_" => :kernel,
+            "kernel_" => :kernel,
+            "float_" => :float,
+            "io_" => :io,
+            "string_" => :string,
+            "symbol_" => :string,
+            "array_" => :string,
+            "regexp_" => :regexp,
+            "match_" => :regexp,
+            "hash_" => :hash,
+            "integer_" => :integer,
+            "object_" => :object,
+            "basic_object_" => :object,
+            "process_" => :process,
+            "random_" => :random,
+            "file_" => :file,
+            "dir_" => :dir,
+            "time_" => :time,
+          }.freeze
+
+          # Returns the category symbol for a given intrinsic name, or
+          # nil if the name doesn't lower to an HPP function (TEMPLATE-
+          # only intrinsics need no header dep).
+          def self.category_for(name)
+            sym = name.to_sym
+            return nil unless HPP_INTRINSICS.include?(sym)
+            return HPP_INTRINSIC_CATEGORY[sym] if HPP_INTRINSIC_CATEGORY.key?(sym)
+            s = name.to_s
+            PREFIX_CATEGORY.each { |pre, cat| return cat if s.start_with?(pre) }
+            nil
+          end
+
           # Unary <cmath> Float→Float intrinsics (Math.* + Float math
           # methods): intrinsic name → C math function. Each lowers to
           # `(new Float(std::FN(recv.raw_)))`. Spliced into TEMPLATES below.
