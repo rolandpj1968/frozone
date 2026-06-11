@@ -227,6 +227,13 @@ module Frozone
                     emit.line %(#include "class/#{r}.hpp")
                     emit.line %(#include "class/#{r}_eigenclass.hpp")
                   end
+                  # Intrinsic decl aggregator at TU file scope (outside
+                  # namespace Ruby — each category header self-wraps
+                  # its own). Bodies live in dedicated per-category .cpp
+                  # files (cpp/runtime/intrinsics/X_intrinsics.cpp); this
+                  # header pulls only the declarations the linker needs
+                  # to resolve `intrinsic_X` calls.
+                  emit.line %|#include "../../../runtime/intrinsics.hpp"|
                   emit.blank
                   emit.line "namespace Ruby {"
                   emit.blank
@@ -321,11 +328,11 @@ module Frozone
               emit.cpp.write_raw_int_array_defs(emit)
               emit.cpp.write_int_literal_defs(emit)
             end
-            emit.with_stream(:post) do
-              # cpp/gen/<backend>/<base>/ → cpp/runtime/ is ../../../.
-              emit.line %|#include "../../../runtime/intrinsics.hpp"|
-              emit.blank
-            end
+            # Note: intrinsic-category includes are NOT emitted here.
+            # Per-class TUs include only the categories their bodies
+            # call (see :class_<Name> stream below); aggregator TUs
+            # (frozone.cpp, universe, static) include the
+            # `intrinsics.hpp` aggregator at file scope.
             emit.with_stream(:post) do
               write_class_var_storage(emit)
             end

@@ -833,13 +833,29 @@ def frozone_box_gen
   puts "[frozone:gen] #{count} .cpp in %.1fs" % elapsed
 end
 
+# Static intrinsic-body TUs that ship with the runtime. Each
+# `cpp/runtime/intrinsics/X_intrinsics.cpp` holds the per-category
+# function bodies (declarations live in the partner `.hpp`). They
+# reference per-program types (`Integer*`, `String*`, …) so they need
+# `-I <gen-dir>` to find `frozone_all.hpp`. Output goes into the
+# per-program gen dir as `frozone_intrinsic_X.cpp.o` so the linker's
+# existing `frozone*.cpp.o` glob picks them up.
+FROZONE_RUNTIME_INTRINSIC_DIR = File.expand_path('cpp/runtime/intrinsics', __dir__)
+
+def frozone_runtime_intrinsic_o_path(rt_cpp)
+  base = File.basename(rt_cpp, '_intrinsics.cpp')
+  File.join(FROZONE_BOX_GEN_DIR, "frozone_intrinsic_#{base}.cpp.o")
+end
+
 # Compile stale .cpps in parallel. A .cpp is stale if (a) no .o exists,
 # (b) .cpp is newer than .o, or (c) header fingerprint changed since the
 # last successful build (forces full recompile). `force: true` ignores
 # the staleness check and recompiles everything.
 def frozone_box_compile(force: false)
-  cpp_files = Dir["#{FROZONE_BOX_GEN_DIR}/frozone*.cpp"].sort
-  abort '[frozone:compile] no .cpp files — run frozone:gen first' if cpp_files.empty?
+  gen_cpps = Dir["#{FROZONE_BOX_GEN_DIR}/frozone*.cpp"].sort
+  abort '[frozone:compile] no .cpp files — run frozone:gen first' if gen_cpps.empty?
+
+  runtime_cpps = Dir["#{FROZONE_RUNTIME_INTRINSIC_DIR}/*_intrinsics.cpp"].sort
 
   opt = frozone_box_opt
   current_fp = frozone_box_header_fingerprint
@@ -847,31 +863,37 @@ def frozone_box_compile(force: false)
   last_opt = File.exist?(FROZONE_OPT_STAMP) ? File.read(FROZONE_OPT_STAMP).strip : nil
   full_rebuild = force || last_fp != current_fp || last_opt != opt
 
+  # Each compile entry is [cpp_path, o_path]. Gen .cpps emit `.cpp.o`
+  # alongside themselves; runtime .cpps emit into the gen dir.
+  gen_entries     = gen_cpps.map     { |c| [c, "#{c}.o"] }
+  runtime_entries = runtime_cpps.map { |c| [c, frozone_runtime_intrinsic_o_path(c)] }
+  all_entries     = gen_entries + runtime_entries
+  cpp_count       = all_entries.size
+
   stale = if full_rebuild
-            cpp_files
+            all_entries
           else
-            cpp_files.select do |cpp|
-              o = "#{cpp}.o"
+            all_entries.select do |cpp, o|
               !File.exist?(o) || File.mtime(cpp) > File.mtime(o)
             end
           end
 
   if stale.empty?
-    puts "[frozone:compile] up-to-date (#{cpp_files.size} TUs)"
+    puts "[frozone:compile] up-to-date (#{cpp_count} TUs)"
     return
   end
 
   reason = if force then 'forced'
            elsif last_fp != current_fp then 'header change'
            elsif last_opt != opt then "opt change (#{last_opt || 'none'} → #{opt})"
-           else "#{stale.size}/#{cpp_files.size} stale"
+           else "#{stale.size}/#{cpp_count} stale"
            end
   puts "[frozone:compile] compiling #{stale.size} TUs at -#{opt} (-j#{frozone_box_jobs}, #{reason})"
 
   cxx = frozone_box_cxx
   jobs = frozone_box_jobs
   queue = Queue.new
-  stale.each { |f| queue << f }
+  stale.each { |entry| queue << entry }
   errors = []
   mutex = Mutex.new
   t0 = Time.now
@@ -879,8 +901,8 @@ def frozone_box_compile(force: false)
   Array.new(jobs) do
     Thread.new do
       loop do
-        cpp = queue.pop(true) rescue break
-        cmd = %(#{cxx} -std=c++20 -#{opt} #{frozone_box_lto_flag} -c "#{cpp}" -I #{ONIGMO_INCLUDE} -o "#{cpp}.o")
+        cpp, o = queue.pop(true) rescue break
+        cmd = %(#{cxx} -std=c++20 -#{opt} #{frozone_box_lto_flag} -c "#{cpp}" -I #{ONIGMO_INCLUDE} -I #{FROZONE_BOX_GEN_DIR} -o "#{o}")
         unless system(cmd)
           mutex.synchronize { errors << cpp }
         end

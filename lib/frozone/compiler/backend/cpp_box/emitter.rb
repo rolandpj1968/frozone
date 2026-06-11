@@ -2822,6 +2822,11 @@ module Frozone
             # genuinely needs the full meta-include.
             line %(#include "#{@base_name}_all.hpp")
             line %(#include "#{@base_name}_layouts.hpp")
+            # frozone_main_impl catches SystemExitException — just
+            # the helpers header; this TU doesn't call any C++
+            # `intrinsic_X` directly (those are reached via the per-
+            # class method bodies in their own TUs).
+            line %(#include "../../../runtime/intrinsics_helpers.hpp")
             blank
           end
 
@@ -3011,6 +3016,9 @@ module Frozone
           def write_universe_open
             line %(#include "#{@base_name}_all.hpp")
             line %(#include "#{@base_name}_layouts.hpp")
+            # frozone_universe.cpp holds kernel-fn bodies, the IS_A
+            # LUT, and the method VT — no `intrinsic_X` calls land
+            # here, so no per-category intrinsics header is needed.
             blank
             line "namespace Ruby {"
             blank
@@ -3030,6 +3038,9 @@ module Frozone
           def write_static_open
             line %(#include "#{@base_name}_all.hpp")
             line %(#include "#{@base_name}_layouts.hpp")
+            # frozone_static.cpp = __init_static_state__: Onigmo
+            # init, class_id wiring, singleton ctors. No
+            # `intrinsic_X` calls in the gen here either.
             blank
             line "namespace Ruby {"
             blank
