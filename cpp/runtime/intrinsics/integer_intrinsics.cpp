@@ -188,11 +188,4 @@ BasicObject* intrinsic_integer_to_c(BasicObject* /*s*/) {
   throw_not_implemented("Integer#to_c not yet supported in box-first (Complex class not wired up)");
 }
 
-BasicObject* intrinsic_integer_to_r(BasicObject* /*s*/) {
-  // Rational construction same story as Complex — see Time.to_r in
-  // time_intrinsics.hpp for the same gap.
-  throw_not_implemented("Integer#to_r not yet supported in box-first (Rational construction not wired up)");
-}
-
-
 }  // namespace Ruby

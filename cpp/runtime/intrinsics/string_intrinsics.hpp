@@ -225,7 +225,6 @@ BasicObject* intrinsic_string_scrub(BasicObject* /*s*/, BasicObject* /*replaceme
 BasicObject* intrinsic_string_unicode_normalize(BasicObject* /*s*/, BasicObject* /*form*/);
 BasicObject* intrinsic_string_unicode_normalized_q(BasicObject* /*s*/, BasicObject* /*form*/);
 BasicObject* intrinsic_string_to_c(BasicObject* /*s*/);
-BasicObject* intrinsic_string_upto(BasicObject* /*s*/, BasicObject* /*end*/, BasicObject* /*excl*/, BasicObject* /*block*/);
 
 }  // namespace Ruby
 

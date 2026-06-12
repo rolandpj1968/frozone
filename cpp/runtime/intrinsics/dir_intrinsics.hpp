@@ -52,7 +52,8 @@ BasicObject* intrinsic_dir_fileno(BasicObject* /*obj*/);
 BasicObject* intrinsic_dir_for_fd(BasicObject* /*fd*/);
 BasicObject* intrinsic_dir_fchdir(BasicObject* /*fd*/, BasicObject* /*block*/);
 BasicObject* intrinsic_dir_chroot(BasicObject* /*path*/);
-BasicObject* intrinsic_dir_mktmpdir(BasicObject* /*prefix*/, BasicObject* /*block*/);
+// Dir.mktmpdir hoisted to Ruby on top of os_mkdtemp (POSIX mkdtemp(3)).
+BasicObject* intrinsic_os_mkdtemp(BasicObject* /*template*/);
 
 }  // namespace Ruby
 

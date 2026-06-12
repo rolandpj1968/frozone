@@ -47,7 +47,6 @@ BasicObject* intrinsic_integer_to_f(BasicObject* s);
 BasicObject* intrinsic_integer_to_s(BasicObject* s, BasicObject* base);
 
 BasicObject* intrinsic_integer_to_c(BasicObject* /*s*/);
-BasicObject* intrinsic_integer_to_r(BasicObject* /*s*/);
 
 }  // namespace Ruby
 

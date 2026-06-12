@@ -39,6 +39,7 @@
 #include <execinfo.h>
 #include <filesystem>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <unistd.h>
 #include <dirent.h>
 #include <fcntl.h>

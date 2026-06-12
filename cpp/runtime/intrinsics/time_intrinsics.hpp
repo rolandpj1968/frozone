@@ -65,12 +65,9 @@ BasicObject* intrinsic_time_localtime(BasicObject* self_, BasicObject* offset);
 
 // ---- Deferred stubs ---------------------------------------------------
 
-BasicObject* intrinsic_time_to_r(BasicObject* /*self_*/);
-BasicObject* intrinsic_time_at_raw(BasicObject* /*r*/, BasicObject* /*offset*/);
 BasicObject* intrinsic_time_new_from_string(BasicObject* /*str*/, BasicObject* /*prec*/, BasicObject* /*tz*/);
 BasicObject* intrinsic_time_dump(BasicObject* /*self_*/);
 BasicObject* intrinsic_time_load(BasicObject* /*str*/);
-BasicObject* intrinsic_time_iso8601(BasicObject* /*self_*/, BasicObject* /*frac*/);
 
 
 }  // namespace Ruby

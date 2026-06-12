@@ -31,11 +31,40 @@ class Process
   RLIM_SAVED_CUR   = 18446744073709551615
 
   def self._fork = raise(NotImplementedError, "fork() function is unimplemented on this machine")
-  def self.wait(pid = -1, flags = 0) = Intrinsics.process_wait(self, __coerce_to_int__(pid), flags)
-  def self.wait2(pid = -1, flags = 0) = Intrinsics.process_wait2(self, __coerce_to_int__(pid), flags)
-  def self.waitpid(pid = -1, flags = 0) = Intrinsics.process_wait(self, __coerce_to_int__(pid), flags)
-  def self.waitpid2(pid = -1, flags = 0) = Intrinsics.process_wait2(self, __coerce_to_int__(pid), flags)
-  def self.waitall = Intrinsics.process_waitall(self)
+  # wait family: call os_waitpid, construct a Process::Status, update $?.
+  # os_waitpid returns [child_pid, raw_status] or nil (WNOHANG / ECHILD).
+  def self._do_waitpid(pid, flags)
+    result = Intrinsics.os_waitpid(pid, flags)
+    return nil if result.nil?
+    cpid, raw = result[0], result[1]
+    $? = Process::Status.new(cpid, raw)
+    [cpid, $?]
+  end
+
+  def self.wait(pid = -1, flags = 0)
+    r = _do_waitpid(__coerce_to_int__(pid), flags)
+    raise Errno::ECHILD if r.nil?
+    r[0]
+  end
+
+  def self.wait2(pid = -1, flags = 0)
+    r = _do_waitpid(__coerce_to_int__(pid), flags)
+    raise Errno::ECHILD if r.nil?
+    r
+  end
+
+  def self.waitpid(pid = -1, flags = 0) = wait(pid, flags)
+  def self.waitpid2(pid = -1, flags = 0) = wait2(pid, flags)
+
+  def self.waitall
+    out = []
+    loop do
+      r = _do_waitpid(-1, 0)
+      break if r.nil?
+      out << r
+    end
+    out
+  end
   def self.pid = Intrinsics.process_pid
   def self.uid = Intrinsics.process_uid
   def self.gid = Intrinsics.process_gid
@@ -166,17 +195,29 @@ class Process
     def self.issetugid = false
   end
 
+  # POSIX wait-status bit layout (decoded in pure Ruby — same bit-twiddle
+  # MRI's process.c does). raw_status comes from waitpid(2) directly:
+  #   low 7 bits  = signal that terminated the process (0 = exited normally)
+  #   bit 7       = WCOREDUMP (set if dumped core)
+  #   bits 8..15  = exit status (when exited normally)
   class Status
-    def exitstatus = Intrinsics.process_status_exitstatus(self)
-    def success? = exitstatus == 0
-    def pid = Intrinsics.process_status_pid(self)
-    def termsig = Intrinsics.process_status_termsig(self)
-    def signaled? = !termsig.nil?
-    def stopped? = false
-    def stopsig = nil
-    def coredump? = false
-    def exited? = !signaled?
-    def to_i = exitstatus.to_i
+    def self.new(pid, raw_status)
+      s = allocate
+      s.instance_variable_set(:@pid, pid)
+      s.instance_variable_set(:@raw, raw_status)
+      s
+    end
+
+    def pid = @pid
+    def to_i = @raw
+    def exited? = (@raw & 0x7f) == 0
+    def signaled? = ((@raw & 0x7f) + 1) >> 1 > 0
+    def stopped? = (@raw & 0xff) == 0x7f  # WIFSTOPPED bit pattern
+    def coredump? = (@raw & 0x80) != 0
+    def exitstatus = exited? ? (@raw >> 8) & 0xff : nil
+    def termsig = signaled? ? (@raw & 0x7f) : nil
+    def stopsig = stopped? ? (@raw >> 8) & 0xff : nil
+    def success? = exited? && exitstatus == 0
     def to_s = "#<Process::Status: pid #{pid} exit #{exitstatus}>"
     def inspect = to_s
   end

@@ -231,10 +231,21 @@ BasicObject* intrinsic_dir_chroot(BasicObject* /*path*/) {
   std::abort();
 }
 
-BasicObject* intrinsic_dir_mktmpdir(BasicObject* /*prefix*/, BasicObject* /*block*/) {
-  std::fprintf(stderr, "[box-first] dir_mktmpdir not yet supported\n");
-  std::abort();
+// `Intrinsics.os_mkdtemp(template)` — thin POSIX wrapper. `template`
+// must end in "XXXXXX"; mkdtemp(3) overwrites those 6 chars with a
+// unique suffix and returns the resulting path. Ruby-side
+// Dir.mktmpdir (core/4.0/dir.rb) handles template construction +
+// block + cleanup; this is just the OS syscall.
+BasicObject* intrinsic_os_mkdtemp(BasicObject* template_obj) {
+  std::string tmpl = fs_detail::str_of(template_obj);
+  std::vector<char> buf(tmpl.begin(), tmpl.end());
+  buf.push_back('\0');
+  char* result = ::mkdtemp(buf.data());
+  if (!result) {
+    std::fprintf(stderr, "[box-first] os_mkdtemp(%s): errno %d\n", tmpl.c_str(), errno);
+    std::abort();
+  }
+  return fs_detail::string_of(std::string(result));
 }
-
 
 }  // namespace Ruby

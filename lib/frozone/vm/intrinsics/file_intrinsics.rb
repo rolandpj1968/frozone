@@ -378,6 +378,23 @@ module Frozone
           n2f_int(0)
         end
 
+        # `os_mkdtemp(template)` — thin POSIX mkdtemp(3) bridge for MRI.
+        # template is a String ending in XXXXXX; returns the resulting path.
+        # Dir.mktmpdir in lib/core/4.0/dir.rb does the template construction
+        # + block + cleanup on top.
+        def os_mkdtemp(_, template)
+          tmpl = f2n_raw(template)
+          # MRI doesn't expose mkdtemp directly; use Dir.mktmpdir with the
+          # template prefix peeled off (everything up to the trailing XXXXXX).
+          require 'tmpdir'
+          pfx = tmpl.sub(/XXXXXX\z/, '')
+          # Want the mkdtemp result to be under the same parent dir as the
+          # template, with a similar prefix.
+          parent = File.dirname(pfx)
+          basename = File.basename(pfx)
+          n2f_str(Dir.mktmpdir(basename, parent))
+        end
+
         def dir_mktmpdir(context, prefix, block)
           require 'tmpdir'
           pfx = f2n_raw(prefix)

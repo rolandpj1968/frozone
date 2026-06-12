@@ -7,7 +7,38 @@ class Dir
     def home(user = nil) = Intrinsics.dir_home(user)
     def chdir(path = nil, &block) = Intrinsics.dir_chdir(path, block)
     def fchdir(fd, &block) = Intrinsics.dir_fchdir(fd, block)
-    def mktmpdir(prefix = nil, &block) = Intrinsics.dir_mktmpdir(prefix, block)
+    # mktmpdir: build a "/tmp/<prefix>XXXXXX" template, hand to mkdtemp(3),
+    # then either return the path or yield to the block and clean up after.
+    def mktmpdir(prefix = nil, &block)
+      base = ENV['TMPDIR'] || '/tmp'
+      pre = prefix.nil? ? '' : prefix.to_s
+      path = Intrinsics.os_mkdtemp("#{base}/#{pre}XXXXXX")
+      return path unless block
+      begin
+        block.call(path)
+      ensure
+        # Best-effort recursive cleanup. The path is freshly created and
+        # owned by us; if rmdir fails because something's in there, the
+        # caller's leftover is the surprise, not ours.
+        _rm_rf(path) rescue nil
+      end
+    end
+
+    # Tiny recursive rm — enough for mktmpdir cleanup. Uses entries + stat
+    # to walk. Pure Ruby on top of what's already there.
+    def _rm_rf(path)
+      return unless File.exist?(path)
+      if File.directory?(path) && !File.symlink?(path)
+        entries(path).each do |e|
+          next if e == '.' || e == '..'
+          _rm_rf(File.join(path, e))
+        end
+        Intrinsics.dir_rmdir(path)
+      else
+        File.delete(path)
+      end
+    end
+    private :_rm_rf
     def delete(path) = Intrinsics.dir_rmdir(__coerce_to_path__(path))
     def rmdir(path) = Intrinsics.dir_rmdir(__coerce_to_path__(path))
     def unlink(path) = Intrinsics.dir_rmdir(__coerce_to_path__(path))

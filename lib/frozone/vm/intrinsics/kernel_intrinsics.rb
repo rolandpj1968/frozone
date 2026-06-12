@@ -456,6 +456,23 @@ module Frozone
           n2f_int(::Kernel.spawn(*argv))
         end
 
+        # `os_waitpid(pid, flags)` — thin POSIX bridge. Returns
+        # [child_pid, raw_status] Array or nil (WNOHANG / ECHILD).
+        # Process.wait/wait2/waitall in lib/core/4.0/process.rb construct
+        # Process::Status on top.
+        def os_waitpid(_, pid_obj, flags_obj)
+          pid = fint?(pid_obj) ? pid_obj.raw : -1
+          flags = fint?(flags_obj) ? flags_obj.raw : 0
+          begin
+            result_pid = ::Process.waitpid(pid, flags)
+          rescue ::Errno::ECHILD
+            return FNIL
+          end
+          return FNIL if result_pid.nil?
+          raw = $?.to_i
+          n2f_arr([n2f_int(result_pid), n2f_int(raw)])
+        end
+
         def process_wait(_, _receiver, pid_obj = FNIL, flags_obj = FNIL)
           pid = fint?(pid_obj)   ? pid_obj.raw   : -1
           flags = fint?(flags_obj) ? flags_obj.raw :  0

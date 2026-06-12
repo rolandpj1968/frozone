@@ -214,16 +214,6 @@ BasicObject* intrinsic_time_localtime(BasicObject* self_, BasicObject* offset) {
 
 // ---- Deferred stubs ---------------------------------------------------
 
-BasicObject* intrinsic_time_to_r(BasicObject* /*self_*/) {
-  std::fprintf(stderr, "[box-first] time_to_r: Rational construction not yet wired up\n");
-  std::abort();
-}
-
-BasicObject* intrinsic_time_at_raw(BasicObject* /*r*/, BasicObject* /*offset*/) {
-  std::fprintf(stderr, "[box-first] time_at_raw: needs Rational/timezone object support\n");
-  std::abort();
-}
-
 BasicObject* intrinsic_time_new_from_string(BasicObject* /*str*/, BasicObject* /*prec*/, BasicObject* /*tz*/) {
   std::fprintf(stderr, "[box-first] time_new_from_string: not yet implemented (strptime TODO)\n");
   std::abort();
@@ -238,11 +228,5 @@ BasicObject* intrinsic_time_load(BasicObject* /*str*/) {
   std::fprintf(stderr, "[box-first] time_load: marshal not yet implemented\n");
   std::abort();
 }
-
-BasicObject* intrinsic_time_iso8601(BasicObject* /*self_*/, BasicObject* /*frac*/) {
-  std::fprintf(stderr, "[box-first] time_iso8601: not yet implemented\n");
-  std::abort();
-}
-
 
 }  // namespace Ruby

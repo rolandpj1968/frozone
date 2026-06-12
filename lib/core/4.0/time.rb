@@ -66,11 +66,11 @@ class Time
         utc_t   = t.utc
         local_t = tz.utc_to_local(utc_t)
         offset  = _utc_to_local_offset(local_t, utc_t)
-        r = Intrinsics.time_at_raw(t.to_r, offset)
+        r = _time_at_raw(t.to_r, offset)
         r.instance_variable_set(:@frozone_timezone, tz)
         return r
       end
-      Intrinsics.time_at_raw(t.to_r, tz)
+      _time_at_raw(t.to_r, tz)
     end
 
     def at(time_or_secs, subsec = AT_NO_SUBSEC, format = AT_NO_FORMAT, in: nil)
@@ -132,14 +132,14 @@ class Time
       tz = Intrinsics.interpreted? ? _coerce_tz_arg(binding.local_variable_get(:in)) : nil
       if tz.respond_to?(:utc_to_local)
         raw_t_r = t_r.is_a?(Time) ? t_r.to_r : t_r.to_r
-        utc_t   = Intrinsics.time_at_raw(raw_t_r, nil).utc
+        utc_t   = _time_at_raw(raw_t_r, nil).utc
         local_t = tz.utc_to_local(utc_t)
         offset  = _utc_to_local_offset(local_t, utc_t)
-        r = Intrinsics.time_at_raw(raw_t_r, offset)
+        r = _time_at_raw(raw_t_r, offset)
         r.instance_variable_set(:@frozone_timezone, tz)
         return r
       end
-      Intrinsics.time_at_raw(t_r, tz)
+      _time_at_raw(t_r, tz)
     end
 
     def new(year = NEW_NO_YEAR, month = nil, day = nil, hour = nil, min = nil, sec = nil, tz = nil, in: nil, precision: NEW_NO_PRECISION)
@@ -324,6 +324,33 @@ class Time
 
     private
 
+    # Construct a Time from (Rational/Float/Integer/Time) seconds-since-epoch
+    # + offset. Hoisted out of intrinsic_time_at_raw — that stub named a
+    # Ruby concept (Rational) the C++ side can't model, so the decomposition
+    # lives here and the OS-bound work stays in time_make.
+    #
+    # offset is whatever Time#at accepts: nil (local), Integer (UTC offset
+    # seconds), Symbol/String, or a timezone object (handled at call sites).
+    def _time_at_raw(t_r, offset)
+      if t_r.is_a?(Time)
+        # Preserve UTC flag + sub-second from the input Time.
+        sec, nsec = t_r.to_i, t_r.nsec
+      else
+        # Floor-divide into (sec, nsec). t_r may be Integer/Float/Rational;
+        # `to_i` truncates toward zero, so adjust the negative-fractional case.
+        sec = t_r.to_i
+        sec -= 1 if (t_r - sec) < 0
+        frac = t_r - sec
+        nsec = (frac * 1_000_000_000).round
+        # Rounding can push nsec to a full second; carry.
+        if nsec >= 1_000_000_000
+          sec += 1
+          nsec -= 1_000_000_000
+        end
+      end
+      Intrinsics.time_make(sec, nsec, offset, false)
+    end
+
     # Coerce a time-constructor arg: strings/to_str via to_i, numerics pass through.
     def _coerce_time_arg(a)
       return nil if a.nil?
@@ -406,14 +433,14 @@ class Time
       return _build_calendar_time(y, mo, d, h, mi, s, 0, true)  if tz.is_a?(String) && _time_zone_utc?(tz)
       return _build_calendar_time_with_offset(y, mo, d, h, mi, s, tz) if tz.is_a?(Integer)
       base = _build_calendar_time(y, mo, d, h, mi, s, 0, true)
-      Intrinsics.time_at_raw(base.to_r, tz)
+      _time_at_raw(base.to_r, tz)
     end
 
     def _now_with_tz(tz)
       arr = Intrinsics.os_time_now
       return Intrinsics.time_make(arr[0], arr[1], arr[2], false) if tz.nil?
       return Intrinsics.time_make(arr[0], arr[1], tz, false) if tz.is_a?(Integer)
-      Intrinsics.time_at_raw(now.to_r, tz)
+      _time_at_raw(now.to_r, tz)
     end
 
     def _build_time_with_offset(epoch_sec, nsec, offset) = Intrinsics.time_make(epoch_sec, nsec, offset, false)
@@ -513,7 +540,7 @@ class Time
   def asctime = strftime('%a %b %e %H:%M:%S %Y')
   def ctime = asctime
   def to_s = strftime(utc? ? '%Y-%m-%d %H:%M:%S UTC' : '%Y-%m-%d %H:%M:%S %z')
-  def iso8601(fraction_digits = 0)   = Intrinsics.time_iso8601(self, fraction_digits)
+  def iso8601(fraction_digits = 0)   = _iso8601(fraction_digits)
   def xmlschema(fraction_digits = 0) = iso8601(fraction_digits)
   def monday? = wday == 1
   def tuesday? = wday == 2
@@ -647,6 +674,37 @@ class Time
   alias rfc822 rfc2822
 
   private
+
+  # ISO 8601 / xmlschema representation. Hoisted out of intrinsic_time_iso8601
+  # — strftime + sprintf is all the work; no need to be in C++.
+  # fraction_digits controls sub-second precision: 0 omits, N includes .NNNN
+  # rounded to N digits. zone tail: "Z" for UTC, "+HH:MM"/"-HH:MM" otherwise.
+  def _iso8601(fraction_digits)
+    base = strftime('%Y-%m-%dT%H:%M:%S')
+    frac =
+      if fraction_digits.to_i > 0
+        n = fraction_digits.to_i
+        # Round nsec to n digits (nsec has 9 digits of precision).
+        if n >= 9
+          ".%09d" % nsec
+        else
+          scale = 10 ** (9 - n)
+          ".%0*d" % [n, (nsec + scale / 2) / scale]
+        end
+      else
+        ''
+      end
+    zone =
+      if utc?
+        'Z'
+      else
+        off = utc_offset
+        sign = off < 0 ? '-' : '+'
+        abs = off.abs
+        '%s%02d:%02d' % [sign, abs / 3600, (abs % 3600) / 60]
+      end
+    base + frac + zone
+  end
 
   def _bdt
     cached = @bdt

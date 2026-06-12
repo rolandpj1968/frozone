@@ -123,22 +123,21 @@ module Frozone
             random_rand random_bytes random_urandom random_marshal_load
             process_pid process_uid process_euid process_gid process_egid
             process_groups process_kill process_clock_getres
-            process_wait process_wait2 process_waitall
-            process_status_exitstatus process_status_pid process_status_termsig
+            os_waitpid
             dir_pwd dir_chdir dir_home dir_entries dir_glob
             dir_mkdir dir_rmdir dir_exist dir_empty
             dir_open dir_close dir_read dir_seek dir_rewind
-            dir_fileno dir_for_fd dir_fchdir dir_chroot dir_mktmpdir
+            dir_fileno dir_for_fd dir_fchdir dir_chroot
+            os_mkdtemp
             os_time_now os_localtime os_gmtime os_mktime os_strftime
             time_make time_to_i time_nsec
             time_utc_q time_utc time_utc_offset
             time_dup time_localtime
-            time_to_r time_at_raw
-            time_new_from_string time_dump time_load time_iso8601
+            time_new_from_string time_dump time_load
             integer_bitand integer_bitor integer_bitxor
             integer__div_ integer__mod_ integer_fdiv
             integer_lshift integer_rshift integer__pow_
-            integer_to_f integer_to_s integer_to_c integer_to_r
+            integer_to_f integer_to_s integer_to_c
             string_freeze string_frozen string_dup string_clone
             string_eql string_concat string_concat_codepoint string_dedup
             string_byteindex string_byterindex string_byteslice
@@ -146,7 +145,7 @@ module Frozone
             string_dump string_grapheme_clusters string_slice_bang
             string_tr_s string_unpack1 string_undump string_crypt
             string_scrub string_unicode_normalize
-            string_unicode_normalized_q string_to_c string_upto
+            string_unicode_normalized_q string_to_c
           ]).freeze
 
           # Intrinsic name → category header for per-TU precise
@@ -166,6 +165,8 @@ module Frozone
             os_environ_pairs: :env,
             os_time_now: :time, os_localtime: :time, os_gmtime: :time,
             os_mktime: :time, os_strftime: :time,
+            os_waitpid: :process,
+            os_mkdtemp: :dir,
           }.freeze
 
           PREFIX_CATEGORY = {

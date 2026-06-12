@@ -116,34 +116,28 @@ BasicObject* intrinsic_process_clock_getres(BasicObject* /*clock_id*/, BasicObje
   return new Float(res_seconds);
 }
 
-BasicObject* intrinsic_process_wait(BasicObject* /*receiver*/, BasicObject* /*pid*/, BasicObject* /*flags*/) {
-  std::fprintf(stderr, "[box-first] process_wait not yet supported (needs ProcessStatusObject + $? update)\n");
-  std::abort();
-}
-
-BasicObject* intrinsic_process_wait2(BasicObject* /*receiver*/, BasicObject* /*pid*/, BasicObject* /*flags*/) {
-  std::fprintf(stderr, "[box-first] process_wait2 not yet supported\n");
-  std::abort();
-}
-
-BasicObject* intrinsic_process_waitall(BasicObject* /*receiver*/) {
-  std::fprintf(stderr, "[box-first] process_waitall not yet supported\n");
-  std::abort();
-}
-
-BasicObject* intrinsic_process_status_exitstatus(BasicObject* /*obj*/) {
-  std::fprintf(stderr, "[box-first] process_status_exitstatus not yet supported\n");
-  std::abort();
-}
-
-BasicObject* intrinsic_process_status_pid(BasicObject* /*obj*/) {
-  std::fprintf(stderr, "[box-first] process_status_pid not yet supported\n");
-  std::abort();
-}
-
-BasicObject* intrinsic_process_status_termsig(BasicObject* /*obj*/) {
-  std::fprintf(stderr, "[box-first] process_status_termsig not yet supported\n");
-  std::abort();
+// `Intrinsics.os_waitpid(pid, flags)` — thin POSIX wrapper. Returns
+// `[child_pid, raw_status]` on success, nil on WNOHANG with no child
+// available. Raises (via abort for now) on Errno::ECHILD/EINTR;
+// Ruby-side callers in core/4.0/process.rb construct Process::Status
+// from the raw_status and update $?. All accessor decoding
+// (exitstatus / signaled? / termsig) is pure Ruby — it's bit-twiddle
+// on the raw_status integer.
+BasicObject* intrinsic_os_waitpid(BasicObject* pid_obj, BasicObject* flags_obj) {
+  int64_t pid = static_cast<Integer*>(pid_obj)->raw_;
+  int64_t flags = static_cast<Integer*>(flags_obj)->raw_;
+  int status = 0;
+  pid_t got = ::waitpid(static_cast<pid_t>(pid), &status, static_cast<int>(flags));
+  if (got == 0) return nil_instance();  // WNOHANG, no child ready
+  if (got < 0) {
+    if (errno == ECHILD) return nil_instance();
+    std::fprintf(stderr, "[box-first] os_waitpid: errno %d\n", errno);
+    std::abort();
+  }
+  Array* result = new Array();
+  result->data.push_back(static_cast<BasicObject*>(new Integer(static_cast<int64_t>(got))));
+  result->data.push_back(static_cast<BasicObject*>(new Integer(static_cast<int64_t>(status))));
+  return result;
 }
 
 

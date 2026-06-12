@@ -790,7 +790,21 @@ class String
   def upto(other, exclusive = false, &block)
     other = __coerce_to_str__(other)
     return to_enum(:upto, other, exclusive) unless block
-    Intrinsics.string_upto(self, other, exclusive, block)
+    # Pure-Ruby walk: yield self, self.succ, … while not past `other`.
+    # MRI bails out when the candidate length exceeds `other` (no
+    # well-defined ordering once we've gone past). Comparison is the
+    # standard <=>; succ handles digit/letter carry.
+    s = self
+    loop do
+      cmp = s <=> other
+      break if cmp.nil? || cmp > 0
+      break if cmp == 0 && exclusive
+      yield s
+      break if cmp == 0
+      s = s.succ
+      break if s.length > other.length
+    end
+    self
   end
 
   def grapheme_clusters(&block)

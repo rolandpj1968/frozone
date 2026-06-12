@@ -40,12 +40,9 @@ BasicObject* intrinsic_process_kill(BasicObject* sig, BasicObject* pid);
 
 BasicObject* intrinsic_process_clock_getres(BasicObject* /*clock_id*/, BasicObject* unit);
 
-BasicObject* intrinsic_process_wait(BasicObject* /*receiver*/, BasicObject* /*pid*/, BasicObject* /*flags*/);
-BasicObject* intrinsic_process_wait2(BasicObject* /*receiver*/, BasicObject* /*pid*/, BasicObject* /*flags*/);
-BasicObject* intrinsic_process_waitall(BasicObject* /*receiver*/);
-BasicObject* intrinsic_process_status_exitstatus(BasicObject* /*obj*/);
-BasicObject* intrinsic_process_status_pid(BasicObject* /*obj*/);
-BasicObject* intrinsic_process_status_termsig(BasicObject* /*obj*/);
+// process_wait*, process_status_* hoisted to Ruby — see core/4.0/process.rb.
+// Only the thin POSIX wrapper remains here.
+BasicObject* intrinsic_os_waitpid(BasicObject* pid, BasicObject* flags);
 
 }  // namespace Ruby
 
