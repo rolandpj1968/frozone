@@ -378,21 +378,28 @@ module Frozone
           n2f_int(0)
         end
 
-        # `os_mkdtemp(template)` — thin POSIX mkdtemp(3) bridge for MRI.
-        # template is a String ending in XXXXXX; returns the resulting path.
-        # Dir.mktmpdir in lib/core/4.0/dir.rb does the template construction
-        # + block + cleanup on top.
+        # `os_mkdtemp(template)` — POSIX mkdtemp(3) bridge. template ends
+        # in "XXXXXX"; we replace with random alphanumeric + mkdir, retry
+        # on collision. Self-contained: doesn't call Frozone's
+        # Dir.mktmpdir (which would recurse through this bridge).
         def os_mkdtemp(_, template)
           tmpl = f2n_raw(template)
-          # MRI doesn't expose mkdtemp directly; use Dir.mktmpdir with the
-          # template prefix peeled off (everything up to the trailing XXXXXX).
-          require 'tmpdir'
-          pfx = tmpl.sub(/XXXXXX\z/, '')
-          # Want the mkdtemp result to be under the same parent dir as the
-          # template, with a similar prefix.
-          parent = File.dirname(pfx)
-          basename = File.basename(pfx)
-          n2f_str(Dir.mktmpdir(basename, parent))
+          base = tmpl.sub(/XXXXXX\z/, '')
+          chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+          attempts = 0
+          while attempts < 10
+            attempts += 1
+            suffix = (0...6).map { chars[rand(chars.size)] }.join
+            path = base + suffix
+            ok = true
+            begin
+              ::Dir.mkdir(path, 0o700)
+            rescue ::Errno::EEXIST
+              ok = false
+            end
+            return n2f_str(path) if ok
+          end
+          raise ::SystemCallError, "os_mkdtemp: couldn't create unique tmpdir for #{tmpl}"
         end
 
         def dir_mktmpdir(context, prefix, block)
