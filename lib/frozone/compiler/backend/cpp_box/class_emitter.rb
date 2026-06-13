@@ -762,7 +762,7 @@ module Frozone
                 vm = vm_class[klass.name.to_sym]
                 if vm
                   (vm.ancestors_list rescue []).each do |a|
-                    aid = class_ids[a.full_name.to_s.gsub("::", "_").to_sym]
+                    aid = class_ids[a.full_name.to_s.gsub("::", "_")]
                     lut[i][aid] = true if aid
                   end
                 end
