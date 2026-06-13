@@ -119,6 +119,26 @@ module Frozone
               end
               [stream, path]
             end.compact.to_h
+            # Canonical-name shims for runtime intrinsic .cpps that
+            # `#include "frozone_all.hpp"` / `"frozone_base.hpp"` literally.
+            # Per-stub gens use a `<base>_*` prefix on these files; the shims
+            # let any per-stub gen dir serve as an `-I` root for the runtime
+            # intrinsic TUs (cpp/runtime/intrinsics/*_intrinsics.cpp). Skip
+            # when base IS "frozone" (the canonical name already exists).
+            if base != "frozone"
+              [["frozone_all.hpp", "#{base}_all.hpp"],
+               ["frozone_base.hpp", "#{base}_base.hpp"]].each do |shim_name, target|
+                shim_path = File.join(cpp_dir, shim_name)
+                shim_content = %(#pragma once\n#include "#{target}"\n)
+                prev = File.read(shim_path) rescue nil
+                if prev == shim_content
+                  unchanged_count += 1
+                else
+                  File.write(shim_path, shim_content)
+                  written_count += 1
+                end
+              end
+            end
             $stderr.puts "Frozone.compile! (C++): #{written_count} written, #{unchanged_count} unchanged across #{outputs.size} files"
           else
             output = @output_path || File.join(cpp_dir, "#{base}.cpp")

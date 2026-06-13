@@ -21,6 +21,7 @@ GEN_DIR      = File.join(PROJECT_ROOT, 'cpp', 'gen', 'box')
 ONIGMO_DIR   = File.join(PROJECT_ROOT, 'vendor', 'Onigmo', '_install')
 ONIGMO_INC   = File.join(ONIGMO_DIR, 'include')
 ONIGMO_LIB   = File.join(ONIGMO_DIR, 'lib', 'libonigmo.a')
+RUNTIME_INTRINSIC_DIR = File.join(PROJECT_ROOT, 'cpp', 'runtime', 'intrinsics')
 
 # Dispatch-feature matrix. Each test runs once per mode (4 modes
 # total) so codegen regressions in either natural-args or leaf-
@@ -130,6 +131,18 @@ def run_box_first(stub_name, env_extras: {})
     cpp_files = Dir.glob(File.join(gen_dir, "#{stub_name}*.cpp")).sort
     raise "no .cpp files for #{stub_name}" if cpp_files.empty?
 
+    # Runtime intrinsic TUs — per-category function bodies that the gen
+    # references via `intrinsic_*` calls. Each TU compiles with -I <stub
+    # gen dir> so its `#include "frozone_all.hpp"` resolves to the shim
+    # the per-stub gen drops alongside its real `<base>_all.hpp`. .o
+    # outputs land in the stub's gen dir under a `<stub>_intrinsic_<cat>`
+    # prefix so they get picked up by the link glob below.
+    runtime_cpps = Dir.glob(File.join(RUNTIME_INTRINSIC_DIR, '*_intrinsics.cpp')).sort
+    runtime_o_for = lambda do |rt_cpp|
+      cat = File.basename(rt_cpp, '_intrinsics.cpp')
+      File.join(gen_dir, "#{stub_name}_intrinsic_#{cat}.o")
+    end
+
     bin = Tempfile.new(["box_#{stub_name}_", ''])
     bin.close
     begin
@@ -143,7 +156,11 @@ def run_box_first(stub_name, env_extras: {})
       # emit many per-class .cpp files.
       parallel = ENV.fetch('JOBS', Etc.nprocessors.to_s).to_i
       queue = Queue.new
-      cpp_files.each { |f| queue << f }
+      # Gen .cpps compile alongside themselves (.cpp → .cpp.o). Runtime
+      # intrinsic .cpps need an explicit per-stub .o path since they live
+      # outside the stub gen dir; pair each with its target path.
+      cpp_files.each      { |f| queue << [f, "#{f.sub(/\.cpp\z/, '')}.o"] }
+      runtime_cpps.each   { |f| queue << [f, runtime_o_for.call(f)] }
       errors = []
       mutex = Mutex.new
       o_files = []
@@ -151,11 +168,10 @@ def run_box_first(stub_name, env_extras: {})
       Array.new(parallel) do
         Thread.new do
           loop do
-            cpp = queue.pop(true) rescue break
-            o_path = cpp.sub(/\.cpp\z/, '.o')
+            cpp, o_path = queue.pop(true) rescue break
             out, status = Open3.capture2e(
               'g++', '-std=c++20', '-O0', '-c', cpp,
-              '-I', ONIGMO_INC, '-o', o_path
+              '-I', gen_dir, '-I', ONIGMO_INC, '-o', o_path
             )
             mutex.synchronize do
               if status.success?
