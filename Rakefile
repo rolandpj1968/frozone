@@ -308,19 +308,29 @@ def box_compile(stub_name)
     out: File::NULL, err: File::NULL)
   cpp_files = Dir.glob("#{dir}/*.cpp").sort
   return [:gen_fail, nil] if cpp_files.empty?
+  # Runtime intrinsic TUs — each `#include "frozone_all.hpp"` (resolves
+  # to the per-stub shim that frozone_compile.rb drops in `dir`).
+  # Compile them into the stub gen dir as `<stub>_intrinsic_<cat>.o`
+  # alongside the gen .o files so they get linked uniformly.
+  runtime_dir = File.expand_path('cpp/runtime/intrinsics', __dir__)
+  runtime_cpps = Dir["#{runtime_dir}/*_intrinsics.cpp"].sort
+  runtime_o_for = ->(rt_cpp) {
+    cat = File.basename(rt_cpp, '_intrinsics.cpp')
+    "#{dir}/#{stub_name}_intrinsic_#{cat}.o"
+  }
   # Parallel compile each .cpp → .o, then link.
   parallel = ENV.fetch('JOBS', Etc.nprocessors.to_s).to_i
   queue = Queue.new
-  cpp_files.each { |f| queue << f }
+  cpp_files.each    { |f| queue << [f, f.sub(/\.cpp\z/, '.o')] }
+  runtime_cpps.each { |f| queue << [f, runtime_o_for.call(f)] }
   o_files = []
   errors = []
   mutex = Mutex.new
   Array.new(parallel) do
     Thread.new do
       loop do
-        cpp = queue.pop(true) rescue break
-        o = cpp.sub(/\.cpp\z/, '.o')
-        ok = system("g++ -O2 #{frozone_box_lto_flag(opt_level: 'O2')} -std=c++20 -I #{ONIGMO_INCLUDE} -c #{cpp} -o #{o} 2>/dev/null")
+        cpp, o = queue.pop(true) rescue break
+        ok = system("g++ -O2 #{frozone_box_lto_flag(opt_level: 'O2')} -std=c++20 -I #{dir} -I #{ONIGMO_INCLUDE} -c #{cpp} -o #{o} 2>/dev/null")
         mutex.synchronize { ok ? o_files << o : errors << cpp }
       end
     end
