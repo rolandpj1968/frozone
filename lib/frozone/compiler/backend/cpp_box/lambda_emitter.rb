@@ -674,24 +674,34 @@ module Frozone
                 end
                 # Lambda has its own __frame_id__ — `return` inside the
                 # body shadows the enclosing method's frame and targets
-                # the lambda itself.
-                emit.line "std::uint64_t __frame_id__ = next_frame_id();"
-                emit.line "try {"
-                emit.indented do
-                  if body
-                    emit.cpp.with_in_block do
-                      ExprEmitter.write_body(emit, body, locals: block_locals, last_is_return: true, next_returns: true, in_block: true)
+                # the lambda itself. Elide the frame setup + catch when
+                # nothing in the body actually emits a Return-as-throw
+                # site (tracked at the emit boundary via frame_id_used).
+                body_buf = nil
+                needs_frame = emit.cpp.with_frame_id_tracking do
+                  body_buf = emit.capture do
+                    if body
+                      emit.cpp.with_in_block do
+                        ExprEmitter.write_body(emit, body, locals: block_locals, last_is_return: true, next_returns: true, in_block: true)
+                      end
                     end
+                    # Fallthrough — Ruby blocks return nil when control falls
+                    # off the end (trailing while/until/case-without-else, or
+                    # an if-as-statement where neither branch returns).
+                    # last_is_return:true above handles the common case;
+                    # this safety net catches the rest. Skipped after a real
+                    # return is unreachable code, which C++ optimises away.
+                    emit.line "return nil_instance();"
                   end
-                  # Fallthrough — Ruby blocks return nil when control falls
-                  # off the end (trailing while/until/case-without-else, or
-                  # an if-as-statement where neither branch returns).
-                  # last_is_return:true above handles the common case;
-                  # this safety net catches the rest. Skipped after a real
-                  # return is unreachable code, which C++ optimises away.
-                  emit.line "return nil_instance();"
                 end
-                emit.line "} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }"
+                if needs_frame
+                  emit.line "std::uint64_t __frame_id__ = next_frame_id();"
+                  emit.line "try {"
+                  emit.indented { body_buf.each_line { |l| emit.line l.chomp } }
+                  emit.line "} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }"
+                else
+                  body_buf.each_line { |l| emit.line l.chomp }
+                end
               end
             end
             referenced = LambdaEmitter.referenced_outer_locals(body, inner_own)

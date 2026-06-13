@@ -190,6 +190,16 @@ module Frozone
           # from_rescue) know to emit Break/Return as throws rather than
           # C++ break/return. Push/pop via with_in_block.
           attr_accessor :in_block
+          # Tracks whether any `throw ReturnException{val, __frame_id__}`
+          # was emitted during the current body rendering. Set by the
+          # Return-as-throw emit site in expr_emitter.rb. Wrapped by
+          # with_frame_id_tracking { ... } at the body-render boundary
+          # in the 4 string-form override paths + the streaming method/
+          # lambda body emit. Read post-hoc to decide whether the body
+          # needs `next_frame_id()` + try/catch (ReturnException) at all.
+          # Exact (no false positives) — strictly more precise than the
+          # AST-walk body_needs_frame? predicate.
+          attr_accessor :frame_id_used
           # Set true while emitting the body of an NA-with-block slot.
           # NA-with-block declares `Proc* block = nullptr`; bodies use
           # `_block != nullptr` for block_given?. Universal-slot bodies
@@ -219,6 +229,7 @@ module Frozone
             @raw_int_arrays = []
             @tmp_counter = 0
             @in_block = false
+            @frame_id_used = false
             @block_is_nullable = false
             @captured_locals = Set.new
             @class_vars = Hash.new { |h, k| h[k] = Set.new }
@@ -300,6 +311,22 @@ module Frozone
           end
 
           def next_tmp_id = (@tmp_counter += 1)
+
+          # Body-render boundary: reset frame_id_used, yield, return
+          # whether the body emitted at least one Return-as-throw site.
+          # Restores prior value so nested method emissions stay isolated
+          # (e.g. a Sequence containing a nested Ast::MethodDef).
+          def with_frame_id_tracking
+            saved = @frame_id_used
+            @frame_id_used = false
+            begin
+              yield
+              result = @frame_id_used
+            ensure
+              @frame_id_used = saved
+            end
+            result
+          end
 
           def with_in_block
             saved = @in_block

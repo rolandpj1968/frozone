@@ -123,6 +123,11 @@ module Frozone
                 # Frame-targeted: __frame_id__ resolves via C++ scope
                 # to the closest enclosing method/lambda frame, which
                 # is the right return target per Ruby semantics.
+                # Flag this scope as needing the __frame_id__ + try/catch
+                # wrap; with_frame_id_tracking at the body-render boundary
+                # reads this post-hoc to elide the wrap when no throw site
+                # was reached.
+                emit.cpp.frame_id_used = true
                 emit.line "throw ReturnException{#{v}, __frame_id__};"
               else
                 emit.line "return #{v};"

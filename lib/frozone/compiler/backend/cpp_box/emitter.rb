@@ -2127,8 +2127,10 @@ module Frozone
             # the duration of body emission.
             prev_block_nullable = @cpp.block_is_nullable
             @cpp.block_is_nullable = sig.has_block
+            needs_frame = false
             body = @cpp.with_captured_locals(captured) do
               capture do
+                needs_frame = @cpp.with_frame_id_tracking do
                 locals = Set.new
                 # Re-declare each natural-arity param as a body local
                 # via decl_local_line — heap-cell form when captured,
@@ -2146,7 +2148,12 @@ module Frozone
                   locals << kn.to_s
                 end
                 if sig.has_block
-                  line "Proc* _block = block;"
+                  # Note: `Proc* _block = block;` is emitted by
+                  # write_override_def's NA-with-block prelude
+                  # (class_emitter.rb) — no need to re-declare here
+                  # in the body. Inner duplicate was previously hidden
+                  # by the enclosing try{...} scope; with the frame
+                  # elision the body and prelude share a scope.
                   user_block = MethodEmitter.user_block_name(method)
                   if user_block
                     # Keep user_block typed as Proc* so `if block`
@@ -2172,10 +2179,10 @@ module Frozone
                   locals << s
                 end
                 ExprEmitter.write_body(self, method.body, locals: locals, last_is_return: true) if method.body
+                end
               end
             end
             @cpp.block_is_nullable = prev_block_nullable
-            indented_body = body.each_line.map { |l| "  #{l}" }.join
             vis_prologue = MethodEmitter.visibility_prologue_text(
               @visibility_survey, method.name, method.visibility
             )
@@ -2186,7 +2193,7 @@ module Frozone
             # via decl_local_line handle the kw mapping).
             {
               params: required.each_with_index.map { |_, i| "BasicObject* _arg#{i}" },
-              body: "#{vis_prologue}std::uint64_t __frame_id__ = next_frame_id();\ntry {\n#{indented_body}  return nil_instance();\n} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }\n",
+              body: MethodEmitter.body_with_frame_text(body, needs_frame, vis_prologue: vis_prologue),
             }
           end
 
@@ -2222,8 +2229,10 @@ module Frozone
                 })
               end
               bound_opt = k - arity_req
+              needs_frame = false
               body = @cpp.with_captured_locals(captured) do
                 capture do
+                  needs_frame = @cpp.with_frame_id_tracking do
                   locals = Set.new
                   required.each_with_index do |p, i|
                     line MethodEmitter.decl_local_line(self, p, "_arg#{i}")
@@ -2250,15 +2259,15 @@ module Frozone
                     locals << s
                   end
                   ExprEmitter.write_body(self, method.body, locals: locals, last_is_return: true) if method.body
+                  end
                 end
               end
-              indented = body.each_line.map { |l| "  #{l}" }.join
               ma_vis_prologue = MethodEmitter.visibility_prologue_text(
                 @visibility_survey, storage_name || method.name, method.visibility
               )
               {
                 params: (0...k).map { |i| "BasicObject* _arg#{i}" },
-                body: "#{ma_vis_prologue}std::uint64_t __frame_id__ = next_frame_id();\ntry {\n#{indented}  return nil_instance();\n} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }\n",
+                body: MethodEmitter.body_with_frame_text(body, needs_frame, vis_prologue: ma_vis_prologue),
               }
             end
             spec = { multi_arity: entries }
@@ -2316,8 +2325,10 @@ module Frozone
               raise Cpp::EmissionError, "kw-unset shape mismatch for :#{method.name}"
             end
             captured = method.body ? MethodEmitter.collect_method_captured(method) : Set.new
+            needs_frame = false
             body = @cpp.with_captured_locals(captured) do
               capture do
+                needs_frame = @cpp.with_frame_id_tracking do
                 locals = Set.new
                 required.each_with_index do |p, i|
                   line MethodEmitter.decl_local_line(self, p, "_arg#{i}")
@@ -2347,9 +2358,9 @@ module Frozone
                   locals << s
                 end
                 ExprEmitter.write_body(self, method.body, locals: locals, last_is_return: true) if method.body
+                end
               end
             end
-            indented_body = body.each_line.map { |l| "  #{l}" }.join
             slot_params = (0...sig.arity_req).map { |i| "BasicObject* _arg#{i}" } +
                           (0...sig.opt).map { |i| "BasicObject* _arg#{sig.arity_req + i}" } +
                           sig.all_kw_names.map { |kn| "BasicObject* _kw_#{kn}" }
@@ -2358,7 +2369,7 @@ module Frozone
             )
             {
               params: slot_params,
-              body: "#{ku_vis_prologue}std::uint64_t __frame_id__ = next_frame_id();\ntry {\n#{indented_body}  return nil_instance();\n} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }\n",
+              body: MethodEmitter.body_with_frame_text(body, needs_frame, vis_prologue: ku_vis_prologue),
               kw_unset: true,
             }
           end
@@ -2389,10 +2400,13 @@ module Frozone
                 # so they share the same captured? check as the bare
                 # method-level decl unpack_params emits for them.
                 captured = method.body ? MethodEmitter.collect_method_captured(method) : Set.new
+                needs_frame = false
                 body = @cpp.with_captured_locals(captured) do
                   capture do
-                    locals = MethodEmitter.unpack_params(self, method)
-                    ExprEmitter.write_body(self, method.body, locals: locals, last_is_return: true) if method.body
+                    needs_frame = @cpp.with_frame_id_tracking do
+                      locals = MethodEmitter.unpack_params(self, method)
+                      ExprEmitter.write_body(self, method.body, locals: locals, last_is_return: true) if method.body
+                    end
                   end
                 end
                 # Wrap in try/catch ReturnException so `return v` inside
@@ -2407,11 +2421,6 @@ module Frozone
                 # like patterns (list.fetch(k) {return nil}) silently
                 # break — fetch's catch swallows the throw meant for
                 # search.
-                # Indent body lines so they sit visually inside the
-                # try { } block. Cosmetic — C++ ignores it — but the
-                # resulting code is much easier to read in gdb / when
-                # diagnosing.
-                indented_body = body.each_line.map { |l| "  #{l}" }.join
                 # Stage 3 visibility prologue: for P4 (mixed-vis) names
                 # with non-public bodies, check `g_caller_self` at entry
                 # so the universal-slot dispatch can decide private/
@@ -2421,7 +2430,7 @@ module Frozone
                 )
                 {
                   params: [],
-                  body: "#{vis_prologue}std::uint64_t __frame_id__ = next_frame_id();\ntry {\n#{indented_body}  return nil_instance();\n} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }\n",
+                  body: MethodEmitter.body_with_frame_text(body, needs_frame, vis_prologue: vis_prologue),
                 }
               end
             end

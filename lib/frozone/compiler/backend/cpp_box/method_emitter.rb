@@ -82,19 +82,14 @@ module Frozone
           # return-from-block semantics.
           def self.write_universal_method(emit, _name, method, cpp_name)
             captured = method.body ? collect_method_captured(method) : Set.new
-            needs_frame = body_needs_frame?(method.body)
             body_buf = emit.cpp.with_captured_locals(captured) do
             emit.capture do
               locals = unpack_params(emit, method)
-              # Wrap in try/catch ReturnException when the body contains
-              # any block/lambda — `return v` inside throws with the
-              # method's frame_id and lands here. Frame-targeted:
-              # __frame_id__ is unique per invocation; mismatched throws
-              # re-raise so they propagate to the method that owns the
-              # block (Ruby's return-from-block semantics).
-              # Elided when the body has no inner blocks/lambdas — no
-              # throw site can target this frame, so no setup needed.
-              emit_body_with_frame(emit, method.body, locals, needs_frame: needs_frame)
+              # emit_body_with_frame post-hoc decides whether to wrap with
+              # __frame_id__ + try/catch (ReturnException) — exact via
+              # Cpp#with_frame_id_tracking around the render. Elided when
+              # nothing in the body actually emitted a Return-as-throw.
+              emit_body_with_frame(emit, method.body, locals)
             end
             end
             emit.line "virtual BasicObject* #{cpp_name}(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) {"
@@ -647,18 +642,41 @@ module Frozone
           # body_needs_frame? for other reasons pass it in via
           # needs_frame:; otherwise the helper recomputes.
           def self.emit_body_with_frame(emit, body, locals, needs_frame: nil)
-            needs_frame = body_needs_frame?(body) if needs_frame.nil?
-            if needs_frame
-              emit.line "std::uint64_t __frame_id__ = next_frame_id();"
-              emit.line "try {"
-              emit.indented do
+            # Capture the body first into a buffer so we can post-hoc
+            # decide whether to wrap with __frame_id__ + try/catch based
+            # on whether the body actually emitted any Return-as-throw
+            # site (tracked via Cpp#with_frame_id_tracking).
+            body_buf = nil
+            tracked = emit.cpp.with_frame_id_tracking do
+              body_buf = emit.capture do
                 ExprEmitter.write_body(emit, body, locals: locals, last_is_return: true) if body
                 emit.line "return nil_instance();"
               end
+            end
+            needs_frame = tracked if needs_frame.nil?
+            if needs_frame
+              emit.line "std::uint64_t __frame_id__ = next_frame_id();"
+              emit.line "try {"
+              emit.indented { body_buf.each_line { |l| emit.line l.chomp } }
               emit.line "} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }"
             else
-              ExprEmitter.write_body(emit, body, locals: locals, last_is_return: true) if body
-              emit.line "return nil_instance();"
+              body_buf.each_line { |l| emit.line l.chomp }
+            end
+          end
+
+          # Returns the body string with optional frame-targeted try/catch
+          # wrap. needs_frame is the post-hoc result of Cpp#with_frame_id_tracking
+          # around the body rendering — true iff at least one Return-as-throw
+          # site emitted during that render. Elides next_frame_id() + try/catch
+          # on simple bodies with no such throw site.
+          def self.body_with_frame_text(body_str, needs_frame, vis_prologue: "")
+            if needs_frame
+              indented = body_str.each_line.map { |l| "  #{l}" }.join
+              "#{vis_prologue}std::uint64_t __frame_id__ = next_frame_id();\n" \
+                "try {\n#{indented}  return nil_instance();\n" \
+                "} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }\n"
+            else
+              "#{vis_prologue}#{body_str}return nil_instance();\n"
             end
           end
 
