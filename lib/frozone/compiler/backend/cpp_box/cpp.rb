@@ -231,6 +231,7 @@ module Frozone
             @in_block = false
             @frame_id_used = false
             @block_is_nullable = false
+            @cst_lift_cache = nil
             @captured_locals = Set.new
             @class_vars = Hash.new { |h, k| h[k] = Set.new }
           end
@@ -340,6 +341,16 @@ module Frozone
           # string. Pure: no side effects. Recursive into sub-expressions.
           def from_expr(node, locals)
             raise EmissionError, "from_expr: nil node — caller passed missing AST" if node.nil?
+            # Caller-self transport lift cache: from_method_call pre-renders
+            # non-trivial recv/arg/kwarg sub-expressions into temporaries
+            # before emitting `g_caller_self = X` so the temporaries
+            # evaluate BEFORE the set (preventing the body-entry clear on
+            # nested call bodies from clobbering it). Sub-renders during
+            # the outer call's expression building look up here first to
+            # pick up the tmp name. See from_method_call below.
+            if @cst_lift_cache && (tmp = @cst_lift_cache[node.object_id])
+              return tmp
+            end
             case node
             when Ast::IntegerLiteral then intern_int(node.value.raw)
             when Ast::FloatLiteral   then "(new Float(#{node.value}))"
@@ -418,6 +429,41 @@ module Frozone
             end
           end
 
+          # Trivial-for-caller-self-transport predicate. An AST node is
+          # trivial here iff its rendered C++ expression evaluates to a
+          # value without invoking any Ruby method body. Every body emits
+          # an unconditional `g_caller_self = nullptr;` entry clear, so
+          # any non-trivial sub-expression evaluated between the outer
+          # call's `g_caller_self = X` set and its actual dispatch would
+          # silently clobber the set — a visibility-bypass bug surfaced
+          # by bench/stubs/visibility_arg_clobber_test.rb.
+          #
+          # Trivial:
+          #   - Variable reads (local, ivar, cvar, gvar): direct loads
+          #   - Literal values (Int/Float/Symbol/String/Nil/True/False)
+          #   - self: just `this`
+          #   - ConstantRead / ConstantPath: lower to `(&Foo_CLASS)` or
+          #     `k_Foo()` — both are address-of-static / free-function
+          #     accessor, NOT method-body dispatch.
+          #
+          # Non-trivial: everything else (MethodCall, And/Or, If/Case/Begin
+          # as expression, ArrayLiteral, HashLiteral, InterpolatedString,
+          # RangeLiteral, Yield, operator nodes, …).
+          def self.trivial_for_caller_self_transport?(node)
+            case node
+            when Ast::LocalVariableRead, Ast::InstanceVariableRead,
+                 Ast::ClassVariableRead, Ast::GlobalVariableRead,
+                 Ast::SelfLiteral,
+                 Ast::IntegerLiteral, Ast::FloatLiteral, Ast::SymbolLiteral,
+                 Ast::NilLiteral, Ast::TrueLiteral, Ast::FalseLiteral,
+                 Ast::StringLiteral,
+                 Ast::ConstantRead, Ast::ConstantPath
+              true
+            else
+              false
+            end
+          end
+
           # Universal call protocol: every Ruby method call is
           #   recv->m_X(args_array, kwargs_hash_or_nullptr, block_or_nullptr)
           # where args_array is `(new Array({a, b, ...}))`. The called
@@ -429,6 +475,8 @@ module Frozone
             recv = node.receiver_node
             name = node.name
             arg_nodes = node.arg_nodes || []
+            kw_nodes  = node.kw_arg_nodes  || []
+            kw_splats = node.kw_splat_nodes || []
 
             # Stash for from_expr_recv below. Cleared at top of method
             # so a nested call can install its own pattern; we restore
@@ -436,11 +484,82 @@ module Frozone
             prev_vis_name = @vis_check_name
             @vis_check_name = name
             begin
-              call_expr = from_method_call_inner(node, recv, name, arg_nodes, locals)
-              wrap_p4_caller_self_set(call_expr, recv_node: recv)
+              pattern = emit&.visibility_survey&.per_name&.[](name)
+              # When the callee name is P4 (mixed-vis) — the only case
+              # where the outer `g_caller_self = X` set matters — and any
+              # recv/arg/kwarg sub-expression is non-trivial, hoist those
+              # sub-expressions into temporaries BEFORE the set. P1 sites
+              # skip the wrap entirely (no transport needed). P2/P3 sites
+              # decide visibility statically at the call site — no body
+              # prologue reads g_caller_self.
+              if pattern && pattern != :p1 && needs_caller_self_lift?(recv, arg_nodes, kw_nodes, kw_splats)
+                emit_call_with_caller_self_lift(node, recv, name, arg_nodes, kw_nodes, kw_splats, locals, pattern)
+              else
+                call_expr = from_method_call_inner(node, recv, name, arg_nodes, locals)
+                wrap_p4_caller_self_set(call_expr, recv_node: recv)
+              end
             ensure
               @vis_check_name = prev_vis_name
             end
+          end
+
+          # SplatArg / kw-splat wrappers don't render via from_expr directly —
+          # from_method_call_inner's args-array builder calls
+          # `from_expr(a.value_node, …)` and wraps it with splat_to_array.
+          # So for triviality, peek through the wrapper to the inner value.
+          def self.unwrap_for_lift(node)
+            return nil if node.nil?
+            return node.value_node if node.is_a?(Ast::SplatArg)
+            node
+          end
+
+          def needs_caller_self_lift?(recv, arg_nodes, kw_nodes, kw_splats)
+            return true if recv && !Cpp.trivial_for_caller_self_transport?(recv)
+            return true if arg_nodes.any? { |a| sub = Cpp.unwrap_for_lift(a); sub && !Cpp.trivial_for_caller_self_transport?(sub) }
+            return true if kw_nodes.any? { |(_, v)| !Cpp.trivial_for_caller_self_transport?(v) }
+            return true if kw_splats.any? { |n| sub = Cpp.unwrap_for_lift(n); sub && !Cpp.trivial_for_caller_self_transport?(sub) }
+            false
+          end
+
+          # Render the outer call with non-trivial sub-expressions hoisted
+          # into temporaries, then `g_caller_self = X`, then dispatch.
+          # IIFE form so the whole thing is a single expression. Cache maps
+          # node.object_id → tmp name; from_expr picks tmps up transparently.
+          def emit_call_with_caller_self_lift(node, recv, name, arg_nodes, kw_nodes, kw_splats, locals, _pattern)
+            saved_cache = @cst_lift_cache
+            @cst_lift_cache = saved_cache ? saved_cache.dup : {}
+            tmp_decls = []
+            lift = lambda do |sub|
+              return if sub.nil?
+              return if Cpp.trivial_for_caller_self_transport?(sub)
+              return if @cst_lift_cache.key?(sub.object_id)
+              # Render the sub WITHOUT the lift cache visible to itself
+              # (saved_cache scope), so nested method calls within the
+              # sub get their own lift treatment via from_method_call.
+              prev_cache = @cst_lift_cache
+              @cst_lift_cache = saved_cache
+              begin
+                rendered = from_expr(sub, locals)
+              ensure
+                @cst_lift_cache = prev_cache
+              end
+              tmp = "_csat_#{next_tmp_id}"
+              tmp_decls << "BasicObject* #{tmp} = #{rendered};"
+              @cst_lift_cache[sub.object_id] = tmp
+            end
+            lift.call(recv) if recv
+            arg_nodes.each      { |a| lift.call(Cpp.unwrap_for_lift(a)) }
+            kw_nodes.each       { |(_, v)| lift.call(v) }
+            kw_splats.each      { |n| lift.call(Cpp.unwrap_for_lift(n)) }
+            # Re-render the call expression using the cached tmps. Any
+            # remaining sub-expression renders are trivial (literals / loads),
+            # so they don't re-clobber.
+            inner_call = from_method_call_inner(node, recv, name, arg_nodes, locals)
+            cs_value = (recv.nil? || recv.is_a?(Ast::SelfLiteral)) ? 'nullptr' : 'this'
+            decls = tmp_decls.join(' ')
+            result = "([&]() -> BasicObject* { #{decls} g_caller_self = #{cs_value}; return #{inner_call}; }())"
+            @cst_lift_cache = saved_cache
+            result
           end
 
           # Stage 3 + Stage 4: every call site for a non-public name

@@ -60,6 +60,7 @@ UNIFIED_STUBS = %w[
   kw_test kw_unset_test leaf_dispatch_test math_test multi_arity_test
   nqueens_small random_test return_in_rescue_test splat_test
   string_test super_test ternary_test visibility_test
+  visibility_arg_clobber_test
 ].freeze
 
 # Cache: env_extras (sorted-array form) → { stub_name => stdout-section }.
@@ -303,6 +304,25 @@ RSpec.describe 'box-first end-to-end' do
         positive nonpos
         got_int result=100 result=not_int
         zero one many
+      ]
+    )
+  end
+
+  # P4 explicit-other call to a private method must raise NoMethodError
+  # even when the receiver expression or arg expression involves further
+  # method calls — those calls' body-entry `g_caller_self = nullptr;`
+  # would clobber the outer `g_caller_self = this` set if subs aren't
+  # hoisted into temporaries first. Pre-fix: bug emitted as
+  # `(g_caller_self = this, recv_call->m_priv(arg_call))` and the
+  # receiver/arg eval happened AFTER the set in the comma's RHS.
+  it 'hoists non-trivial recv/args before g_caller_self set (P4 visibility transport)' do
+    expect(unified_stub_out('visibility_arg_clobber_test', env_extras: env_extras).strip.split("\n")).to eq(
+      [
+        'p4-touch-1: public variant: hi',
+        'p4-touch-2: private helper variant',
+        'bare: OK — NoMethodError raised',
+        'clobber_implicit: OK — NoMethodError raised',
+        'clobber_explicit_self: OK — NoMethodError raised',
       ]
     )
   end
