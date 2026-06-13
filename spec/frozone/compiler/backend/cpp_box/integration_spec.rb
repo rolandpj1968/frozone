@@ -57,8 +57,8 @@ UNIFIED_STUBS = %w[
   block_specialization_test block_test box_test case_test
   class_method_test fib float_test getivar hash_test iow_test
   kw_test kw_unset_test leaf_dispatch_test math_test multi_arity_test
-  nqueens_small random_test splat_test string_test super_test
-  ternary_test visibility_test
+  nqueens_small random_test return_in_rescue_test splat_test
+  string_test super_test ternary_test visibility_test
 ].freeze
 
 # Cache: env_extras (sorted-array form) → { stub_name => stdout-section }.
@@ -258,6 +258,36 @@ RSpec.describe 'box-first end-to-end' do
   it 'dispatches case/when with subject, multi-condition, and subject-less form' do
     expect(unified_stub_out('case_test', env_extras: env_extras).strip.split("\n")).to eq(
       %w[A C F low mid high neg zero pos]
+    )
+  end
+
+  # Regression for the codegen bug where `return val` inside an IIFE-
+  # wrapped construct emitted a bare C++ `return`, which only escaped
+  # the innermost lambda — method bodies fell through to whatever
+  # followed. Time.now hit this via __rational_coerce__'s `return val
+  # if val.is_a?(Integer)` inside a begin/rescue. The same shape exists
+  # for from_if_as_lambda (if-as-expression with return) and from_case
+  # (case-as-expression with return). The fix flips `cpp.in_block`
+  # while emitting any of these IIFE bodies so Ast::Return throws
+  # ReturnException, unwrapped by the method's frame-id try/catch.
+  # Cases below cover all three IIFE shapes plus nesting variants.
+  it 'returns from inside begin/rescue/if-expr/case-expr IIFEs' do
+    expect(unified_stub_out('return_in_rescue_test', env_extras: env_extras).strip.split("\n")).to eq(
+      %w[
+        early fallthrough
+        was_int was_str other
+        zero one two many
+        from_rescue from_else
+        positive nonpos
+        zero one many
+        inner outer outer_fallthrough
+        early body 2
+        one two else_branch
+        42
+        positive nonpos
+        got_int result=100 result=not_int
+        zero one many
+      ]
     )
   end
 

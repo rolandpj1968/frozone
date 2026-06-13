@@ -70,41 +70,50 @@ module Frozone
           # ensure guard.
           def from_rescue(node, locals)
             check_no_break_next!(node, "rescue")
-            buf = +"([&]() -> BasicObject* { "
-            if node.ensure_node
-              buf << "EnsureGuard _eg([&]() #{body_as_block(node.ensure_node, locals, last_is_return: false)}); "
-            end
-            buf << "try { "
-            if node.else_node
-              # Body's value discarded; else_node provides the value.
-              buf << "#{body_as_lambda_call(node.body, locals)}; "
-              buf << "return #{body_as_lambda_call(node.else_node, locals)}; "
-            else
-              buf << "return #{body_as_lambda_call(node.body, locals)}; "
-            end
-            buf << "} catch (Exception* e_) { "
-            (node.rescue_clauses || []).each do |clause|
-              cond = rescue_clause_condition(clause, locals)
-              bind_locals = locals.dup
-              bind_str = ""
-              if clause.var_name
-                bind_locals << clause.var_name.to_s
-                cpp_name = MethodEmitter.local_cpp_name(clause.var_name)
-                # If captured by an inner block / lambda, the closure-env
-                # convention reads/writes via `(*l_e)`; the binding has
-                # to be a heap cell. Otherwise a bare local is fine.
-                bind_str =
-                  if captured?(clause.var_name)
-                    "BasicObject** #{cpp_name} = gc_box<BasicObject*>(e_); "
-                  else
-                    "BasicObject* #{cpp_name} = e_; "
-                  end
+            # Every clause body is rendered as a nested C++ IIFE
+            # (`[&]() -> BasicObject* { ... }()`). A Ruby `return` inside
+            # any of them must escape the IIFE — bare C++ `return` would
+            # only exit the innermost lambda and the method body would
+            # fall through. Force `in_block` so write_stmt emits
+            # `throw ReturnException{...}` for Ast::Return, which the
+            # enclosing method's frame-id try/catch unwraps.
+            emit.cpp.with_in_block do
+              buf = +"([&]() -> BasicObject* { "
+              if node.ensure_node
+                buf << "EnsureGuard _eg([&]() #{body_as_block(node.ensure_node, locals, last_is_return: false)}); "
               end
-              arm_call = body_as_lambda_call(clause.body, bind_locals)
-              buf << "if (#{cond}) { #{bind_str}return #{arm_call}; } "
+              buf << "try { "
+              if node.else_node
+                # Body's value discarded; else_node provides the value.
+                buf << "#{body_as_lambda_call(node.body, locals)}; "
+                buf << "return #{body_as_lambda_call(node.else_node, locals)}; "
+              else
+                buf << "return #{body_as_lambda_call(node.body, locals)}; "
+              end
+              buf << "} catch (Exception* e_) { "
+              (node.rescue_clauses || []).each do |clause|
+                cond = rescue_clause_condition(clause, locals)
+                bind_locals = locals.dup
+                bind_str = ""
+                if clause.var_name
+                  bind_locals << clause.var_name.to_s
+                  cpp_name = MethodEmitter.local_cpp_name(clause.var_name)
+                  # If captured by an inner block / lambda, the closure-env
+                  # convention reads/writes via `(*l_e)`; the binding has
+                  # to be a heap cell. Otherwise a bare local is fine.
+                  bind_str =
+                    if captured?(clause.var_name)
+                      "BasicObject** #{cpp_name} = gc_box<BasicObject*>(e_); "
+                    else
+                      "BasicObject* #{cpp_name} = e_; "
+                    end
+                end
+                arm_call = body_as_lambda_call(clause.body, bind_locals)
+                buf << "if (#{cond}) { #{bind_str}return #{arm_call}; } "
+              end
+              buf << "throw; } }())"
+              buf
             end
-            buf << "throw; } }())"
-            buf
           end
 
           # Build the LUT-based condition for one rescue clause. Bare
@@ -697,27 +706,35 @@ module Frozone
           # (cpp.in_block) so explicit Break/Return inside the branches
           # throw rather than fall through.
           def from_if_as_lambda(node, locals)
-            in_block = emit.cpp.in_block
-            buf = emit.capture do
-              emit.line "if (truthy(#{from_expr(node.pred_node, locals)})) {"
-              emit.indented do
-                if node.then_node
-                  ExprEmitter.write_body(emit, node.then_node, locals: locals, last_is_return: true, in_block: in_block, next_returns: in_block)
-                else
-                  emit.line "return nil_instance();"
+            # We wrap the if's branches in a C++ IIFE. A Ruby `return`
+            # inside either branch must escape both the IIFE and the
+            # enclosing method body — bare C++ `return` would only exit
+            # the lambda. Same logic for `break`/`next` w.r.t. the
+            # enclosing block. Force `in_block` so write_stmt emits
+            # `throw ReturnException{__frame_id__, v}` /
+            # `throw BreakException{v}` instead of bare return/break.
+            emit.cpp.with_in_block do
+              buf = emit.capture do
+                emit.line "if (truthy(#{from_expr(node.pred_node, locals)})) {"
+                emit.indented do
+                  if node.then_node
+                    ExprEmitter.write_body(emit, node.then_node, locals: locals, last_is_return: true, in_block: true, next_returns: true)
+                  else
+                    emit.line "return nil_instance();"
+                  end
                 end
-              end
-              emit.line "} else {"
-              emit.indented do
-                if node.else_node
-                  ExprEmitter.write_body(emit, node.else_node, locals: locals, last_is_return: true, in_block: in_block, next_returns: in_block)
-                else
-                  emit.line "return nil_instance();"
+                emit.line "} else {"
+                emit.indented do
+                  if node.else_node
+                    ExprEmitter.write_body(emit, node.else_node, locals: locals, last_is_return: true, in_block: true, next_returns: true)
+                  else
+                    emit.line "return nil_instance();"
+                  end
                 end
+                emit.line "}"
               end
-              emit.line "}"
+              "([&]() -> BasicObject* { #{buf.gsub(/\s+/, ' ').strip} }())"
             end
-            "([&]() -> BasicObject* { #{buf.gsub(/\s+/, ' ').strip} }())"
           end
 
           # Pre-walk: among `own_local_names`, return the subset that
@@ -790,6 +807,17 @@ module Frozone
           # inside a lambda, which is invalid (lambda blocks loop scope).
           def from_case(node, locals)
             check_no_break_next!(node, "case-as-expression")
+            # Each case-arm body is rendered via body_as_lambda_call —
+            # nested C++ IIFE. Any Ruby `return` inside must escape both
+            # the IIFE and the enclosing method. Force `in_block` so
+            # write_stmt emits `throw ReturnException{__frame_id__, v}`.
+            # break/next are pre-filtered by check_no_break_next!.
+            emit.cpp.with_in_block do
+              from_case_body(node, locals)
+            end
+          end
+
+          def from_case_body(node, locals)
             buf = +"([&]() -> BasicObject* { "
             if node.subject_node
               buf << "auto* _subj = #{from_expr(node.subject_node, locals)}; "
