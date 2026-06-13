@@ -2287,7 +2287,7 @@ module Frozone
               spec[:universal_entry] = {
                 params: ["UnivTag", "Array* args", "Hash* kwargs", "BasicObject* /*block*/"],
                 body: <<~CPP,
-                  if (!kwargs->data.empty()) { Array* _ext = new Array(); _ext->data = args->data; Hash* _h = new Hash(); _h->copy_kvps_from(*kwargs); _ext->data.push_back(static_cast<BasicObject*>(_h)); args = _ext; }
+                  if (kwargs != &EMPTY_KWARGS) args = fold_kwargs_into_args_tail(args, kwargs);
                   #{check_call}
                   switch (args->data.size()) {
                   #{switch_lines}

@@ -1852,6 +1852,31 @@ module Frozone
             CPP
           )
 
+          # Universal-slot kwargs→positional fold. Every universal-slot
+          # entry whose callee has no kw-rest / kwparam declaration needs
+          # to fold trailing kwargs into a positional Hash so arity-check
+          # surfaces "(given N+1, expected N)" instead of silently
+          # dropping kwargs. Inlining this at ~10k call sites was the
+          # bulk of the gen-bloat; out-of-line + cold + the call-site
+          # `if (kwargs != &EMPTY_KWARGS)` singleton gate keeps the
+          # hot path one immediate-compare and the cold body shared.
+          # Defensive empty() check inside guards against any path that
+          # passes a non-singleton empty Hash (e.g. an empty `**h` splat
+          # that the codegen forgot to canonicalise).
+          FOLD_KWARGS_INTO_ARGS_TAIL_FN = KernelFn.new(
+            name: "fold_kwargs_into_args_tail",
+            signature: "[[gnu::noinline, gnu::cold]] Array* fold_kwargs_into_args_tail(Array* args, Hash* kwargs)",
+            body: <<~CPP.chomp,
+              if (kwargs->data.empty()) return args;
+              Array* ext = new Array();
+              ext->data = args->data;
+              Hash* h = new Hash();
+              h->copy_kvps_from(*kwargs);
+              ext->data.push_back(static_cast<BasicObject*>(h));
+              return ext;
+            CPP
+          )
+
           # Splat-form rescue spec: `rescue *exprs => e` evaluates exprs
           # to an Array (or array-like) of Class objects, and matches if
           # the in-flight exception is an instance of any of them. Used
@@ -2387,7 +2412,7 @@ module Frozone
           ALL_KERNEL_FNS = [
             NIL_INSTANCE_FN, TRUE_INSTANCE_FN, FALSE_INSTANCE_FN, UNSET_INSTANCE_FN,
             BOXED_BOOL, TRUTHY, TRUTHY_PROC, RUBY_PUTS, INTERN_FN, ARRAY_AT_FN,
-            SPLAT_TO_ARRAY_FN, RESCUE_SPLAT_MATCHES_FN,
+            SPLAT_TO_ARRAY_FN, FOLD_KWARGS_INTO_ARGS_TAIL_FN, RESCUE_SPLAT_MATCHES_FN,
             BUILD_INT_ARRAY_FN, INT_BOX_FN,
             COERCE_TO_INT_FN,
             THROW_NOT_IMPLEMENTED_FN,

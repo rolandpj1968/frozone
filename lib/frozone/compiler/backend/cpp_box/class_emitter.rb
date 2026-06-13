@@ -659,7 +659,7 @@ module Frozone
                 max_arity = arities.last
                 emit.line "BasicObject* BasicObject::#{cpp_name}(UnivTag, Array* args, Hash* kwargs, BasicObject* /*block*/) {"
                 emit.indented do
-                  emit.line "if (!kwargs->data.empty()) { Array* _ext = new Array(); _ext->data = args->data; Hash* _h = new Hash(); _h->copy_kvps_from(*kwargs); _ext->data.push_back(static_cast<BasicObject*>(_h)); args = _ext; }"
+                  emit.line "if (kwargs != &EMPTY_KWARGS) args = fold_kwargs_into_args_tail(args, kwargs);"
                   emit.line "check_arity_range(args->data.size(), #{min_arity}, #{max_arity});"
                   emit.line "switch (args->data.size()) {"
                   emit.indented do
@@ -682,7 +682,7 @@ module Frozone
               emit.line "BasicObject* BasicObject::#{cpp_name}(UnivTag, Array* args, Hash* kwargs, #{block_param_decl}) {"
               emit.indented do
                 if sig.required_kw_names.empty?
-                  emit.line "if (!kwargs->data.empty()) { Array* _ext = new Array(); _ext->data = args->data; Hash* _h = new Hash(); _h->copy_kvps_from(*kwargs); _ext->data.push_back(static_cast<BasicObject*>(_h)); args = _ext; }"
+                  emit.line "if (kwargs != &EMPTY_KWARGS) args = fold_kwargs_into_args_tail(args, kwargs);"
                   emit.line "check_arity_fixed(args->data.size(), #{n});"
                   call_args = (0...n).map { |i| "args->data[#{i}]" }
                   # Normalise nil_instance() to nullptr so block_given?

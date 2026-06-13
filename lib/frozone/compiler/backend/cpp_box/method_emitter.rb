@@ -415,7 +415,7 @@ module Frozone
                      !(method.optional_kw_params || []).empty? ||
                      !!method.kw_rest_param
             unless has_kw
-              emit.line "if (!kwargs->data.empty()) { Array* _ext = new Array(); _ext->data = args->data; Hash* _h = new Hash(); _h->copy_kvps_from(*kwargs); _ext->data.push_back(static_cast<BasicObject*>(_h)); args = _ext; }"
+              emit.line "if (kwargs != &EMPTY_KWARGS) args = fold_kwargs_into_args_tail(args, kwargs);"
             end
             emit_arity_check(emit, method)
             required.each_with_index do |p, i|
