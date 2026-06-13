@@ -580,11 +580,18 @@ module Frozone
           #
           # Returns "" for public defs (and when the survey isn't
           # available — defensive only).
-          def self.visibility_prologue_text(survey, name, visibility)
+          def self.visibility_prologue_text(survey, name, visibility, body: nil)
             return "" unless survey
             return "" if visibility.nil?
             pattern = survey.per_name[name.to_sym]
             return "" if pattern.nil?
+            # Phase A elision: a public def whose body never invokes any
+            # downstream Ruby dispatch can't read g_caller_self at any
+            # point in its own runtime, so the bare clear is dead. Skip
+            # the entire prologue. Non-public defs still need the
+            # snapshot+check — visibility decision, not internal-state
+            # protection.
+            return "" if visibility == :public && body_makes_no_calls?(body)
             # EVERY body snapshots g_caller_self and clears it, so any
             # internal C++ runtime call (e.g. raise_private_call → m_new
             # → m_initialize) sees the "privileged" nullptr state. Ruby
@@ -662,6 +669,37 @@ module Frozone
             else
               body_buf.each_line { |l| emit.line l.chomp }
             end
+          end
+
+          # Phase A of the visibility-protocol elision (TODO #3). Returns
+          # true iff the body never invokes any downstream Ruby method
+          # body. Such bodies cannot read g_caller_self at any point in
+          # their own runtime, so the public-def bare `g_caller_self = nullptr;`
+          # entry clear is dead. Non-public defs still need their snapshot+
+          # check prologue regardless — that IS the visibility decision.
+          #
+          # Stops recursion at MethodDef / Block / Lambda boundaries: nested
+          # method defs aren't part of this body's runtime, and block/lambda
+          # bodies are deferred (invoked separately when the Proc runs).
+          # AttributeWrite (foo.bar = baz) is a setter dispatch and also
+          # counts. Operator nodes (+, ==, <, etc.) parse as MethodCall and
+          # are caught directly.
+          def self.body_makes_no_calls?(body)
+            return true unless body
+            found = false
+            walk = ->(node) {
+              return if found
+              return unless node.is_a?(Ast::Node)
+              return if node.is_a?(Ast::MethodDef) || node.is_a?(Ast::Block) || node.is_a?(Ast::Lambda)
+              if node.is_a?(Ast::MethodCall) || node.is_a?(Ast::Yield) ||
+                 node.is_a?(Ast::Super) || node.is_a?(Ast::AttributeWrite)
+                found = true
+                return
+              end
+              node.children.each { |c| walk.call(c) } if node.respond_to?(:children)
+            }
+            walk.call(body)
+            !found
           end
 
           # Returns the body string with optional frame-targeted try/catch

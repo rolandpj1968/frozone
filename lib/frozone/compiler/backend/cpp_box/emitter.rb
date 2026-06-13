@@ -2184,7 +2184,7 @@ module Frozone
             end
             @cpp.block_is_nullable = prev_block_nullable
             vis_prologue = MethodEmitter.visibility_prologue_text(
-              @visibility_survey, method.name, method.visibility
+              @visibility_survey, method.name, method.visibility, body: method.body
             )
             # spec[:params] carries only the positional slot decls;
             # write_override_def appends `_kw_<name>` decls from the
@@ -2263,7 +2263,7 @@ module Frozone
                 end
               end
               ma_vis_prologue = MethodEmitter.visibility_prologue_text(
-                @visibility_survey, storage_name || method.name, method.visibility
+                @visibility_survey, storage_name || method.name, method.visibility, body: method.body
               )
               {
                 params: (0...k).map { |i| "BasicObject* _arg#{i}" },
@@ -2365,7 +2365,7 @@ module Frozone
                           (0...sig.opt).map { |i| "BasicObject* _arg#{sig.arity_req + i}" } +
                           sig.all_kw_names.map { |kn| "BasicObject* _kw_#{kn}" }
             ku_vis_prologue = MethodEmitter.visibility_prologue_text(
-              @visibility_survey, method.name, method.visibility
+              @visibility_survey, method.name, method.visibility, body: method.body
             )
             {
               params: slot_params,
@@ -2426,7 +2426,7 @@ module Frozone
                 # so the universal-slot dispatch can decide private/
                 # protected at runtime per the receiver's class.
                 vis_prologue = MethodEmitter.visibility_prologue_text(
-                  @visibility_survey, storage_name || method.name, method.visibility
+                  @visibility_survey, storage_name || method.name, method.visibility, body: method.body
                 )
                 {
                   params: [],
