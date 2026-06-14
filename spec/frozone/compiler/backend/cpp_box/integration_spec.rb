@@ -5,8 +5,7 @@ require 'etc'
 
 # Integration tests for box-first: end-to-end pipeline check.
 # For each test stub:
-#   1. Generate cpp via `frozone --aot bench/stubs/<stub>.rb` with
-#      FROZONE_CPP=1 + FROZONE_BOX_FIRST=1.
+#   1. Generate cpp via `frozone --aot bench/stubs/<stub>.rb` with FROZONE_CPP=1.
 #   2. Compile the generated cpp with g++ + Boehm.
 #   3. Run the binary; assert stdout matches expected.
 #
@@ -119,7 +118,7 @@ def run_box_first(stub_name, env_extras: {})
     # run's leftover files don't sneak into this stub's compile glob.
     FileUtils.rm_rf(gen_dir)
 
-    env = { 'FROZONE_CPP' => '1', 'FROZONE_BOX_FIRST' => '1' }.merge(env_extras)
+    env = { 'FROZONE_CPP' => '1' }.merge(env_extras)
     out, status = Open3.capture2e(env, 'bundle', 'exec', 'ruby', 'frozone.rb', '--aot', stub_path)
     raise "frozone --aot failed for #{stub_name}:\n#{out}" unless status.success?
     raise "expected #{cpp_path} to exist after generation" unless File.exist?(cpp_path)
@@ -555,7 +554,7 @@ RSpec.describe 'box-first leaf-dispatch codegen' do
       # #138: gens into cpp/gen/box/leaf_dispatch_test/ (with class/ inside).
       gen_dir = File.join(GEN_DIR, 'leaf_dispatch_test')
       FileUtils.rm_rf(gen_dir)
-      env = { 'FROZONE_CPP' => '1', 'FROZONE_BOX_FIRST' => '1' }.merge(env_extras)
+      env = { 'FROZONE_CPP' => '1' }.merge(env_extras)
       out, status = Open3.capture2e(env, 'bundle', 'exec', 'ruby', 'frozone.rb',
                                     '--aot', 'bench/stubs/leaf_dispatch_test.rb')
       raise "gen failed:\n#{out}" unless status.success?

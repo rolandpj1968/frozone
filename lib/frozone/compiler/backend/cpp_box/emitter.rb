@@ -7,7 +7,7 @@
 # unboxing is the optimisation pass — added later, on top of an
 # always-correct baseline.
 #
-# Selected via `FROZONE_BOX_FIRST=1` (see ast/frozone_compile.rb).
+# Invoked by Frozone.compile! (see ast/frozone_compile.rb).
 #
 # See memory/project_radical_box_first.md for the pinned plan.
 #

@@ -10,11 +10,6 @@ FLATTEN_FLAG  = ENV['FLATTEN'] ? ' --flatten' : ''
 # Internal RSpec suite
 task default: :spec
 
-desc "Run Crystal runtime library specs (crystal/)"
-task :crystal do
-  sh "cd crystal && crystal spec"
-end
-
 desc "Run internal RSpec suite"
 task :spec do
   sh "bundle exec rspec"
@@ -303,7 +298,7 @@ def box_compile(stub_name)
   # class/ included), so no cross-program stomping and no leftover .cpp
   # sneaking into this stub's compile glob.
   FileUtils.rm_rf(dir)
-  return [:gen_fail, nil] unless system({"FROZONE_CPP" => "1", "FROZONE_BOX_FIRST" => "1"},
+  return [:gen_fail, nil] unless system({"FROZONE_CPP" => "1"},
     "bundle exec ruby frozone.rb --aot bench/stubs/#{stub_name}.rb",
     out: File::NULL, err: File::NULL)
   cpp_files = Dir.glob("#{dir}/*.cpp").sort
@@ -441,30 +436,10 @@ task :bench_compare do
   puts ""
 end
 
-DUSTMAN_DIR     = File.expand_path('vendor/dustman', __dir__)
-DUSTMAN_BUILD   = File.join(DUSTMAN_DIR, 'build')
-DUSTMAN_LIB     = File.join(DUSTMAN_BUILD, 'libdustman.a')
-DUSTMAN_INCLUDE = File.join(DUSTMAN_DIR, 'include')
-
 ONIGMO_DIR     = File.expand_path('vendor/Onigmo', __dir__)
 ONIGMO_PREFIX  = File.join(ONIGMO_DIR, '_install')
 ONIGMO_INCLUDE = File.join(ONIGMO_PREFIX, 'include')
 ONIGMO_LIB     = File.join(ONIGMO_PREFIX, 'lib', 'libonigmo.a')
-
-namespace :dustman do
-  desc "Build vendor/dustman (Release) via CMake + Ninja → vendor/dustman/build/libdustman.a"
-  task :build do
-    raise "vendor/dustman not checked out — run `git submodule update --init`" unless File.exist?(File.join(DUSTMAN_DIR, 'CMakeLists.txt'))
-    FileUtils.mkdir_p(DUSTMAN_BUILD)
-    sh "cmake -S #{DUSTMAN_DIR} -B #{DUSTMAN_BUILD} -G Ninja -DCMAKE_BUILD_TYPE=Release -DDUSTMAN_BUILD_TESTS=OFF -DDUSTMAN_BUILD_BENCHMARKS=OFF"
-    sh "cmake --build #{DUSTMAN_BUILD} --target dustman"
-  end
-
-  desc "Remove vendor/dustman/build"
-  task :clean do
-    FileUtils.rm_rf(DUSTMAN_BUILD)
-  end
-end
 
 namespace :onigmo do
   desc "Build vendor/Onigmo (static lib) → vendor/Onigmo/_install/lib/libonigmo.a"
@@ -485,150 +460,6 @@ namespace :onigmo do
   end
 end
 
-# Compile one generated cpp/gen/<backend>/<name>.cpp for a given GC mode.
-# Returns [:pass | :mismatch | :compile_fail, elapsed_seconds_or_nil].
-def cpp_compile_run(name, gc: :none, expected: nil, backend: 'legacy')
-  cpp = "cpp/gen/#{backend}/#{name}.cpp"
-  bin = "cpp/gen/#{backend}/#{name}_#{gc}"
-  cflags =
-    case gc
-    when :boehm
-      "-DFROZONE_USE_BOEHM_GC -lgc"
-    when :dustman
-      "-DFROZONE_USE_DUSTMAN_GC -I #{DUSTMAN_INCLUDE} #{DUSTMAN_LIB}"
-    else
-      ""
-    end
-  cflags = "#{cflags} -I #{ONIGMO_INCLUDE} #{ONIGMO_LIB}" if backend == 'box' && File.exist?(ONIGMO_LIB)
-  return [:compile_fail, nil] unless system("g++ -O2 #{frozone_box_lto_flag(opt_level: 'O2')} -std=c++20 #{cpp} -o #{bin} #{cflags} 2>/dev/null")
-  t0 = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-  actual = `./#{bin} 2>&1`
-  elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - t0
-  [actual == expected ? :pass : :mismatch, elapsed]
-end
-
-desc "Compile + run all benchmarks via C++ backend; report pass/fail vs bench/expected"
-task :bench_cpp do
-  pass = []; fail = []; mismatch = []
-  Dir['bench/stubs/*.rb'].sort.each do |stub|
-    name = File.basename(stub, '.rb')
-    expected_path = "bench/expected/#{name}.txt"
-    next unless File.exist?(expected_path)
-    expected = File.read(expected_path)
-    unless system("FROZONE_CPP=1 bundle exec ruby frozone.rb --aot #{stub} > /dev/null 2>&1")
-      puts "  #{name.ljust(25)} GEN_FAIL"; fail << name; next
-    end
-    status, _elapsed = cpp_compile_run(name, gc: :none, expected: expected)
-    case status
-    when :pass         then puts "  #{name.ljust(25)} PASS"; pass << name
-    when :mismatch     then puts "  #{name.ljust(25)} MISMATCH"; mismatch << name
-    when :compile_fail then puts "  #{name.ljust(25)} COMPILE_FAIL"; fail << name
-    end
-  end
-  total = pass.size + fail.size + mismatch.size
-  puts ''
-  puts "C++ backend: #{pass.size}/#{total} pass, #{mismatch.size} mismatch, #{fail.size} fail"
-end
-
-desc "Compile + run all benchmarks against Dustman GC; report pass/fail and per-bench elapsed"
-task bench_cpp_dustman: 'dustman:build' do
-  raise "Dustman library not built — run `rake dustman:build`" unless File.exist?(DUSTMAN_LIB)
-  pass = []; fail = []; mismatch = []
-  timings = {}
-  Dir['bench/stubs/*.rb'].sort.each do |stub|
-    name = File.basename(stub, '.rb')
-    expected_path = "bench/expected/#{name}.txt"
-    next unless File.exist?(expected_path)
-    expected = File.read(expected_path)
-    unless system("FROZONE_CPP=1 bundle exec ruby frozone.rb --aot #{stub} > /dev/null 2>&1")
-      puts "  #{name.ljust(25)} GEN_FAIL"; fail << name; next
-    end
-    status, elapsed = cpp_compile_run(name, gc: :dustman, expected: expected)
-    timings[name] = elapsed if elapsed
-    case status
-    when :pass         then puts "  #{name.ljust(25)} PASS       #{format('%.3fs', elapsed)}"; pass << name
-    when :mismatch     then puts "  #{name.ljust(25)} MISMATCH   #{format('%.3fs', elapsed)}"; mismatch << name
-    when :compile_fail then puts "  #{name.ljust(25)} COMPILE_FAIL"; fail << name
-    end
-  end
-  total = pass.size + fail.size + mismatch.size
-  puts ''
-  puts "Dustman: #{pass.size}/#{total} pass, #{mismatch.size} mismatch, #{fail.size} fail"
-end
-
-desc "Compile + run key benchmarks end-to-end (catches codegen regressions)"
-task :bench_smoke do
-  failures = []
-  BENCH_SMOKE.each do |name|
-    print "  #{name.ljust(12)} "
-    begin
-      sh "bundle exec ruby frozone.rb --aot bench/stubs/#{name}.rb > /dev/null 2>&1"
-      sh "cd crystal && crystal build gen/#{name}.cr --release -o #{name} > /dev/null 2>&1"
-      t0 = Time.now
-      out = `cd crystal && ./#{name} 2>&1`
-      raise "binary exited #{$?.exitstatus}" unless $?.success?
-      ms = ((Time.now - t0) * 1000).to_i
-      expected_path = File.expand_path("bench/expected/#{name}.txt", __dir__)
-      if File.exist?(expected_path)
-        expected = File.read(expected_path)
-        if out != expected
-          puts "✗ output mismatch"
-          puts "    expected: #{expected.inspect[0..120]}"
-          puts "    actual:   #{out.inspect[0..120]}"
-          failures << "#{name} (output mismatch)"
-          next
-        end
-        puts "✓ #{ms}ms (output verified)"
-      else
-        puts "✓ #{ms}ms (no expected output captured)"
-      end
-    rescue => e
-      puts "✗ #{e.message.lines.first&.strip}"
-      failures << name
-    end
-  end
-  abort "bench_smoke FAILED: #{failures.join(', ')}" unless failures.empty?
-end
-
-# Codegen golden-file check: AOT-compile each smoke benchmark and diff its
-# generated .cr against the committed copy in spec/golden/codegen/. Catches
-# silent emission drift (optimization paths that stop firing, etc.) before
-# bench_smoke would only flag a perf regression or compile failure.
-desc "Compare current AOT codegen output against committed goldens"
-task :bench_check_codegen do
-  golden_dir = File.expand_path('spec/golden/codegen', __dir__)
-  failures = []
-  BENCH_SMOKE.each do |name|
-    print "  #{name.ljust(12)} "
-    sh "bundle exec ruby frozone.rb --aot bench/stubs/#{name}.rb > /dev/null 2>&1"
-    cur = File.expand_path("crystal/gen/#{name}.cr", __dir__)
-    gold = File.join(golden_dir, "#{name}.cr")
-    if File.read(cur) == File.read(gold)
-      puts '✓ matches golden'
-    else
-      puts '✗ DIFFERS from golden'
-      failures << name
-    end
-  end
-  unless failures.empty?
-    puts
-    puts "Drift detected. Review with:"
-    failures.each { |n| puts "  diff -u spec/golden/codegen/#{n}.cr crystal/gen/#{n}.cr" }
-    puts "Update goldens (after review) with: rake bench_update_goldens"
-    abort "bench_check_codegen FAILED: #{failures.join(', ')}"
-  end
-end
-
-desc "Update committed codegen goldens from current AOT output"
-task :bench_update_goldens do
-  golden_dir = File.expand_path('spec/golden/codegen', __dir__)
-  BENCH_SMOKE.each do |name|
-    sh "bundle exec ruby frozone.rb --aot bench/stubs/#{name}.rb > /dev/null 2>&1"
-    cur = File.expand_path("crystal/gen/#{name}.cr", __dir__)
-    FileUtils.cp(cur, File.join(golden_dir, "#{name}.cr"))
-    puts "  updated #{name}.cr"
-  end
-end
 
 # Compare each benchmark's MRI Ruby output against bench/expected/*.txt.
 # bench/expected/ was historically captured from the Crystal backend, so
@@ -835,7 +666,7 @@ end
 # files under cpp/gen/box/ from frozone.rb itself.
 def frozone_box_gen
   t0 = Time.now
-  ok = system({'FROZONE_CPP' => '1', 'FROZONE_BOX_FIRST' => '1'},
+  ok = system({'FROZONE_CPP' => '1'},
               'bundle exec ruby frozone.rb --aot --hoist-class-consts frozone.rb')
   abort '[frozone:gen] gen failed' unless ok
   elapsed = Time.now - t0

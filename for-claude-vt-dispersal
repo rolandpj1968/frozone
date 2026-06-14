@@ -1,0 +1,17 @@
+For all closed-world defns of a method, the "natural" place for method VT entry is the LCA class of all defining classes.
+
+Without TI we still need to dispatch via the root class - BO.
+
+For single-def methods defined only in a leaf class we can remove from VT directly.
+
+BO has a non-virtual method impl (for all arg-pattern variants) that just does "if this->klass == the-leaf-class then static-cast<leaf-class>(this)->m_impl else method_missing" and the leaf class implements m_impl as a non-virtual fn.
+
+For the special case of caller already being leaf-class this should dispatch directly (and be inlineable by the C++ compiler)
+
+We can generalise for multiple defn by lowering the VT entry to the LCA class.
+
+In this case BO has the same trampoline shape but we need to use our is_a? infra to check the calling class = "if this->klass is_a? LCA-class then static-cast<lca-class>(this)->m_impl else method_missing"
+
+(Actually we want reinterpret-cast not static-cast?)
+
+(Also we could use dynamic-cast<> instead of this->klass() ==/is_a - to be discussed)

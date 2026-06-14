@@ -84,8 +84,71 @@ termination guarantees and infrastructure.
 
 ### Answer cache as API
 Codegen never invokes the engine directly. It queries the answer
-cache: "what's the receiver type at site X?" The engine can run
+cache: "what's the type of this expression?" The engine can run
 eagerly, lazily, or incrementally — all behind one read interface.
+
+### 3.1 No-`auto` discipline drives TI granularity
+
+Frozone's emitted C++ never uses `auto` (per `[[feedback_no_auto_in_cpp]]`).
+TI must commit to a concrete Type at every emission site. The
+implication: TI's primary output isn't "type of variable X" or
+"return type of method M" — it's `Map<ASTExpressionNode → LatticeValue>`.
+Every expression node that produces a value gets a type. Statements
+(no value) don't, but their component expressions do.
+
+This actually fits abstract interpretation cleanly. The transfer
+function is recursive over the AST:
+
+  type_of(literal)        → the literal's type directly
+  type_of(var_read)       → lookup the variable's bound type
+  type_of(method_call)    → receiver type × method name × arg types
+                            → dispatch targets → return type union
+  type_of(if_then_else)   → join of branch types (with guard narrowing)
+  type_of(assignment)     → side-effect on var env; expr yields RHS type
+  type_of(yield/block)    → block signature applied to arg types
+  ...
+
+`type_of(node) = combine(types of children) per node kind`. That's
+Hindley-Milner's "Algorithm W" structurally, but over our lattice
+instead of an ML-flavored type system.
+
+**Single primitive**: this design collapses every TI query to the
+same shape. "What's the receiver type at this call site?" is just
+"type of the receiver subexpression of this call node." "What's the
+return type of method M?" is "type of M's terminal expression." No
+separate query kinds.
+
+**Codegen integration becomes uniform**: every `emit_expr(node)`
+call site does `t = ti.type_of(node); emit("#{cpp_for(t)} _tmp = …")`.
+No conditional "did TI know? else use Universal" — the lattice
+always has an answer (Universal being the legitimate top, not a
+fallback). This is exactly what `[[feedback_no_auto_in_cpp]]`
+forces: no escape hatch, every emission site has a concrete type.
+
+**Memory cost concern**. A typical Ruby program has tens to hundreds
+of thousands of AST expression nodes; cache size scales with that.
+Mitigations:
+
+- Don't cache trivials. Literals and simple variable reads are
+  O(1) to recompute — leave them off the cache, recompute on
+  demand.
+- Two storage choices:
+  - **Annotate the AST in place** (`node.inferred_type = T`).
+    Clean emission ("just read the attr") but mutates the AST and
+    couples nodes to the analysis lifecycle.
+  - **Side-map keyed by object_id**. Decouples analysis from AST,
+    nodes stay immutable, slightly higher per-lookup cost.
+
+Default to the side-map for clean separation. Codegen and analysis
+can be developed independently; AST nodes don't need to know
+they're being typed.
+
+**Connection to demand-driven analysis**: this design is
+demand-driven by construction. Codegen queries `cache[node]`; if
+cached, return; if not, recursively compute (which may trigger
+re-queries for child nodes, transitive method bodies, etc.). The
+engine never needs to be "run" explicitly — it's pulled by the
+codegen's emission walk.
 
 ## 4. The TI tenant specifically
 

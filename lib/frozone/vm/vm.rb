@@ -22,7 +22,7 @@ require_relative 'wq_parser'
 # are dead — eval paths never instantiate Parser directly.
 module Frozone
   module Vm
-    EVAL_PARSER_CLASS = ENV['FROZONE_BOX_FIRST'] ? WqParser : Parser
+    EVAL_PARSER_CLASS = WqParser
   end
 end
 
@@ -606,7 +606,7 @@ module Frozone
         # module / method / const defs in execute phase, or requires
         # for files outside BUILD_FILES. See
         # docs/box-first-load-execute-split.md.
-        if ENV['FROZONE_BOX_FIRST'] == '1'
+        if ENV['FROZONE_CPP'] == '1'
           require_relative '../compiler/closed_world_validator'
           build_files = Vm.build_files_at_load_phase_end || Set.new
           Frozone::Compiler::ClosedWorldValidator.validate!(

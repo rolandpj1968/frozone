@@ -27,7 +27,7 @@ def aot(name, natural_args:)
   Dir.chdir(PROJECT_ROOT) do
     FileUtils.rm_rf(Dir.glob(File.join(GEN_DIR, "#{name}*")))
     FileUtils.rm_rf(File.join(GEN_DIR, 'class'))
-    env = { 'FROZONE_CPP' => '1', 'FROZONE_BOX_FIRST' => '1' }
+    env = { 'FROZONE_CPP' => '1' }
     env['FROZONE_NATURAL_ARGS'] = '1' if natural_args
     out, status = Open3.capture2e(env, 'bundle', 'exec', 'ruby', 'frozone.rb', '--aot', "bench/stubs/#{name}.rb")
     return false, out unless status.success?

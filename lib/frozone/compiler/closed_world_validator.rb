@@ -13,9 +13,7 @@
 # Each violation includes file:line + a brief explanation of the
 # contract that was broken.
 #
-# Currently triggered only by box-first AOT (FROZONE_BOX_FIRST=1) —
-# the legacy backend's failure modes are different and predate this
-# work. Wire here when the legacy backend benefits.
+# Triggered during AOT (FROZONE_CPP=1); skipped at interpreted runs.
 
 require 'set'
 
