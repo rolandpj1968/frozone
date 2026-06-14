@@ -80,8 +80,11 @@ module Frozone
           # Today's universal-signature emission. Body unpacks args via
           # array_at, runs under try/catch ReturnException for
           # return-from-block semantics.
-          def self.write_universal_method(emit, _name, method, cpp_name)
+          def self.write_universal_method(emit, name, method, cpp_name)
             captured = method.body ? collect_method_captured(method) : Set.new
+            vis_prologue = visibility_prologue_text(
+              emit.visibility_survey, name, method.visibility, body: method.body
+            )
             body_buf = emit.cpp.with_captured_locals(captured) do
             emit.capture do
               locals = unpack_params(emit, method)
@@ -93,7 +96,10 @@ module Frozone
             end
             end
             emit.line "virtual BasicObject* #{cpp_name}(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) {"
-            emit.indented { body_buf.each_line { |l| emit.line l.chomp } }
+            emit.indented do
+              vis_prologue.each_line { |l| emit.line l.chomp } unless vis_prologue.empty?
+              body_buf.each_line { |l| emit.line l.chomp }
+            end
             emit.line "}"
           end
 
@@ -114,7 +120,7 @@ module Frozone
           # (signature enforces), no kwargs-fold (eligibility implies
           # no kw params), no block alias (eligibility implies no
           # caller passes a block and no body yields).
-          def self.write_natural_arity_method(emit, _name, method, cpp_name, sig)
+          def self.write_natural_arity_method(emit, name, method, cpp_name, sig)
             required = method.required_params || []
             req_kw = (method.required_kw_params || []).map(&:to_sym).sort
             # The slot signature has arity_req positional slots,
@@ -144,6 +150,9 @@ module Frozone
             # the duration of body emission. Body epilogue restores.
             prev_block_nullable = emit.cpp.block_is_nullable
             emit.cpp.block_is_nullable = sig.has_block
+            vis_prologue = visibility_prologue_text(
+              emit.visibility_survey, name, method.visibility, body: method.body
+            )
             body_buf = emit.cpp.with_captured_locals(captured) do
             emit.capture do
               locals = Set.new
@@ -190,7 +199,10 @@ module Frozone
             end
             emit.cpp.block_is_nullable = prev_block_nullable
             emit.line "virtual BasicObject* #{cpp_name}(#{param_decls.join(', ')}) {"
-            emit.indented { body_buf.each_line { |l| emit.line l.chomp } }
+            emit.indented do
+              vis_prologue.each_line { |l| emit.line l.chomp } unless vis_prologue.empty?
+              body_buf.each_line { |l| emit.line l.chomp }
+            end
             emit.line "}"
           end
 
@@ -200,12 +212,15 @@ module Frozone
           # decl_local_line) before running the shared body. Method
           # body emission is the same as natural-arity; only the
           # default-fill prefix differs across entries.
-          def self.write_multi_arity_method(emit, _name, method, cpp_name, family)
+          def self.write_multi_arity_method(emit, name, method, cpp_name, family)
             required = method.required_params || []
             optional = method.optional_params || []
             arity_req = required.length
             arity_max = arity_req + optional.length
             captured = method.body ? collect_method_captured(method) : Set.new
+            vis_prologue = visibility_prologue_text(
+              emit.visibility_survey, name, method.visibility, body: method.body
+            )
             family.arities.to_a.sort.each do |k|
               params = (0...k).map { |i| "BasicObject* _arg#{i}" }.join(', ')
               if k < arity_req || k > arity_max
@@ -253,7 +268,10 @@ module Frozone
                 end
               end
               emit.line "virtual BasicObject* #{cpp_name}(#{params}) {"
-              emit.indented { body_buf.each_line { |l| emit.line l.chomp } }
+              emit.indented do
+                vis_prologue.each_line { |l| emit.line l.chomp } unless vis_prologue.empty?
+                body_buf.each_line { |l| emit.line l.chomp }
+              end
               emit.line "}"
             end
           end
@@ -262,7 +280,7 @@ module Frozone
           # pos → opt pos (UNSET-able) → kws alphabetical. Body declares
           # locals from slot params, default-filling UNSET-marked slots
           # in source order so later defaults can read earlier params.
-          def self.write_kw_unset_method(emit, _name, method, cpp_name, sig)
+          def self.write_kw_unset_method(emit, name, method, cpp_name, sig)
             required = method.required_params || []
             optional = method.optional_params || []
             opt_kw_pairs = method.optional_kw_params || []
@@ -274,6 +292,9 @@ module Frozone
               raise Cpp::EmissionError, "kw-unset shape mismatch for #{cpp_name}"
             end
             captured = method.body ? collect_method_captured(method) : Set.new
+            vis_prologue = visibility_prologue_text(
+              emit.visibility_survey, name, method.visibility, body: method.body
+            )
             body_buf = emit.cpp.with_captured_locals(captured) do
               emit.capture do
                 locals = Set.new
@@ -311,7 +332,10 @@ module Frozone
                          (0...sig.opt).map { |i| "BasicObject* _arg#{sig.arity_req + i}" }
             kw_params = sig.all_kw_names.map { |kn| "BasicObject* _kw_#{kn}" }
             emit.line "virtual BasicObject* #{cpp_name}(#{(pos_params + kw_params).join(', ')}) {"
-            emit.indented { body_buf.each_line { |l| emit.line l.chomp } }
+            emit.indented do
+              vis_prologue.each_line { |l| emit.line l.chomp } unless vis_prologue.empty?
+              body_buf.each_line { |l| emit.line l.chomp }
+            end
             emit.line "}"
           end
 

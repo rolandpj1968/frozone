@@ -60,7 +60,7 @@ UNIFIED_STUBS = %w[
   kw_test kw_unset_test leaf_dispatch_test math_test multi_arity_test
   nqueens_small random_test return_in_rescue_test splat_test
   string_test super_test ternary_test visibility_test
-  visibility_arg_clobber_test
+  visibility_arg_clobber_test visibility_main_object_test
 ].freeze
 
 # Cache: env_extras (sorted-array form) → { stub_name => stdout-section }.
@@ -323,6 +323,30 @@ RSpec.describe 'box-first end-to-end' do
         'bare: OK — NoMethodError raised',
         'clobber_implicit: OK — NoMethodError raised',
         'clobber_explicit_self: OK — NoMethodError raised',
+      ]
+    )
+  end
+
+  # MainObject's inline method emissions (write_universal_method,
+  # write_natural_arity_method, write_multi_arity_method,
+  # write_kw_unset_method) previously skipped the visibility prologue,
+  # so explicit-other dispatch to a top-level private def landed in the
+  # body without checking g_caller_self. Each variant exercises one
+  # write_* path. Names are forced P4 via VariantPublic* classes so
+  # the call site emits the dynamic wrap+prologue path rather than a
+  # static P2 raise_private_call.
+  it 'emits visibility prologue on MainObject inline NA/multi/kw/universal methods' do
+    expect(unified_stub_out('visibility_main_object_test', env_extras: env_extras).strip.split("\n")).to eq(
+      [
+        'p4-touch-na:        public na: hi',
+        'p4-touch-multi:     public multi: hi 0',
+        'p4-touch-kw:        public kw: hi key=1',
+        'p4-touch-universal: public universal: ["hi", "there"]',
+        'na: OK',
+        'multi (1 arg): OK',
+        'multi (2 args): OK',
+        'kw: OK',
+        'universal (splat): OK',
       ]
     )
   end
