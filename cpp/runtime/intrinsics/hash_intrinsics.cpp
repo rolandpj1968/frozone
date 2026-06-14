@@ -113,5 +113,35 @@ BasicObject* intrinsic_hash_new(BasicObject* default_val, BasicObject* block) {
   return _h;
 }
 
+BasicObject* intrinsic_hash_transform_keys_bang(BasicObject* self_, BasicObject* hash_arg,
+                                                BasicObject* block) {
+  auto* _h = static_cast<Hash*>(self_);
+  // Snapshot live (k, v) pairs in insertion order before mutating.
+  std::vector<std::pair<BasicObject*, BasicObject*>> _pairs;
+  _pairs.reserve(_h->live);
+  for (BasicObject* _k : _h->insertion_order) {
+    if (!_k) continue;
+    auto _it = _h->data.find(_k);
+    if (_it == _h->data.end()) continue;
+    _pairs.emplace_back(_k, _it->second);
+  }
+  _h->clear_kvps();
+  Proc* _b = (block != nil_instance()) ? static_cast<Proc*>(block) : nullptr;
+  Hash* _ha = (hash_arg != nil_instance()) ? static_cast<Hash*>(hash_arg) : nullptr;
+  for (auto& _p : _pairs) {
+    BasicObject* _nk;
+    if (_ha) {
+      auto _hit = _ha->data.find(_p.first);
+      _nk = (_hit != _ha->data.end()) ? _hit->second : (_b ? _b->call1(_p.first) : _p.first);
+    } else if (_b) {
+      _nk = _b->call1(_p.first);
+    } else {
+      _nk = _p.first;
+    }
+    _h->put(_nk, _p.second);
+  }
+  return _h;
+}
+
 
 }  // namespace Ruby

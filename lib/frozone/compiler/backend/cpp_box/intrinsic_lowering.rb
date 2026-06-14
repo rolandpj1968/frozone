@@ -68,13 +68,11 @@ module Frozone
           # reachable auto-stubs (loud abort). The benchmark round upgrades
           # demand-proven stubs into this queue / into real impls.
           IMPLEMENT_QUEUE = Set.new(%i[
-            fiber_storage_hash fiber_storage_hash_set
             string_append_as_bytes string_append_bytes string_bytesplice
             string_capitalize_opts string_delete_raw
             string_downcase_opts string_squeeze_raw
             string_swapcase_opts string_upcase_opts
             array_pack
-            hash_transform_keys_bang
             float_rationalize
           ]).freeze
 
@@ -99,7 +97,7 @@ module Frozone
             regexp_match_index regexp_match regexp_last_match
             match_data_to_a match_data_captures match_data_pre_match
             match_data_post_match match_data_match_length
-            hash_each hash_delete hash_new
+            hash_each hash_delete hash_new hash_transform_keys_bang
             hash_compare_by_identity hash_compare_by_identity_q
             hash_reset_compare_by_identity
             hash_get_default hash_set_default
@@ -114,6 +112,7 @@ module Frozone
             kernel_rand kernel_integer kernel_float kernel_raise kernel_exit
             process_clock_gettime
             fiber_storage_get fiber_storage_set
+            fiber_storage_hash fiber_storage_hash_set
             os_stat os_lstat os_access os_realpath os_readlink os_euid os_egid
             os_unlink os_rename os_link os_symlink os_chmod os_truncate
             os_utimes os_mkfifo os_umask os_fnmatch

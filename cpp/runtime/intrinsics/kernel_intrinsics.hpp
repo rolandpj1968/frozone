@@ -93,6 +93,16 @@ BasicObject* intrinsic_fiber_storage_get(BasicObject* /*self_*/, BasicObject* ke
 // `Fiber[:k] = v` — write to process-global storage Hash.
 BasicObject* intrinsic_fiber_storage_set(BasicObject* /*self_*/, BasicObject* key, BasicObject* val);
 
+// `Fiber#storage` — return the storage Hash for self. Box-first runs
+// a single fiber, so we just hand back the process-global storage.
+BasicObject* intrinsic_fiber_storage_hash(BasicObject* /*self_*/);
+
+// `Fiber#storage=(h)` — replace the storage hash contents. With a
+// single-fiber runtime there is no per-fiber slot to swap; copy the
+// k/v pairs of `h` (must be a Hash or nil) into the global storage,
+// clearing anything that was there before. Returns h.
+BasicObject* intrinsic_fiber_storage_hash_set(BasicObject* /*self_*/, BasicObject* h);
+
 }  // namespace Ruby
 
 #endif  // FROZONE_KERNEL_INTRINSICS_HPP

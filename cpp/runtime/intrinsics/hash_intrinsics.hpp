@@ -59,6 +59,15 @@ BasicObject* intrinsic_hash_set_default_proc(BasicObject* self_, BasicObject* pr
 // default value. A bare `Hash.new` is `(nil, nil)` → both fields nil.
 BasicObject* intrinsic_hash_new(BasicObject* default_val, BasicObject* block);
 
+// `Hash#transform_keys!(hash, &block)` — rewrite keys in place. For
+// each existing key k, the new key is hash[k] when hash is given and
+// has k, otherwise block.call(k) if a block is given, otherwise k
+// itself. Values are preserved. Late-binding collisions keep the
+// last write per MRI. The Ruby wrapper handles the
+// no-args-return-Enumerator case and frozen-check before calling.
+BasicObject* intrinsic_hash_transform_keys_bang(BasicObject* self_, BasicObject* hash_arg,
+                                                BasicObject* block);
+
 }  // namespace Ruby
 
 #endif  // FROZONE_HASH_INTRINSICS_HPP

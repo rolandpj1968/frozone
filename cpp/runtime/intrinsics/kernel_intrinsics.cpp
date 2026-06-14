@@ -115,5 +115,19 @@ BasicObject* intrinsic_fiber_storage_set(BasicObject* /*self_*/, BasicObject* ke
   return val;
 }
 
+BasicObject* intrinsic_fiber_storage_hash(BasicObject* /*self_*/) {
+  return g_fiber_storage();
+}
+
+BasicObject* intrinsic_fiber_storage_hash_set(BasicObject* /*self_*/, BasicObject* h) {
+  auto* _g = g_fiber_storage();
+  _g->clear_kvps();
+  if (h != nil_instance()) {
+    auto* _src = static_cast<Hash*>(h);
+    _g->copy_kvps_from(*_src);
+  }
+  return h;
+}
+
 
 }  // namespace Ruby
