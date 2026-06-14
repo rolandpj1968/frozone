@@ -437,7 +437,7 @@ module Frozone
                   if (args->data.size() == 2) {
                     start = coerce_to_int(args->data[0]);
                     len   = coerce_to_int(args->data[1]);
-                  } else if (args->data[0] && args->data[0]->m_class(univ) == (BasicObject*)(&Range_CLASS)) {
+                  } else if (args->data[0] && args->data[0]->typeid_eq_q<Range>()) {
                     auto* r = static_cast<Range*>(args->data[0]);
                     // Beginless `(..n)` → start = 0; endless `(n..)` →
                     // stop = sz. Beginless+endless `(..)` → whole array.
@@ -568,7 +568,7 @@ module Frozone
                 body: <<~CPP.chomp,
                   if (args->data.empty()) return this;
                   BasicObject* arg0 = args->data[0];
-                  if (arg0->m_class(univ) == (BasicObject*)(&Array_CLASS)) {
+                  if (arg0->typeid_eq_q<Array>()) {
                     data = static_cast<Array*>(arg0)->data;
                     return this;
                   }
@@ -1837,13 +1837,13 @@ module Frozone
             name: "splat_to_array",
             signature: "Array* splat_to_array(BasicObject* x)",
             body: <<~CPP.chomp,
-              if (x->m_class(univ) == (BasicObject*)(&Array_CLASS)) return static_cast<Array*>(x);
+              if (x->typeid_eq_q<Array>()) return static_cast<Array*>(x);
               if (x == nil_instance()) return new Array();
               if (truthy(x->mm_is_a_q(univ, new Array({(BasicObject*)(&Array_CLASS)})))) {
                 return static_cast<Array*>(x);
               }
               BasicObject* coerced = x->m_to_a(univ);
-              if (coerced && coerced->m_class(univ) == (BasicObject*)(&Array_CLASS)) {
+              if (coerced && coerced->typeid_eq_q<Array>()) {
                 return static_cast<Array*>(coerced);
               }
               Array* r = new Array();
@@ -1937,7 +1937,11 @@ module Frozone
           )
 
           # Coerce a BasicObject* to int64_t via Ruby's `to_int` protocol.
-          # Integer fast-path is pointer-class compare (avoids dynamic_cast).
+          # Integer fast-path is a typeid pointer-compare against
+          # &typeid(Integer) (single-DSO, see project_typeid_single_dso) —
+          # avoids both dynamic_cast AND a virtual m_class() dispatch.
+          # The latter showed up as 2.93% of cycles in the sudoku profile
+          # because Array#[] / #[]= calls coerce_to_int on every index.
           # Anything else: dispatch m_to_int and accept only an Integer
           # result. Failure raises TypeError, matching MRI's
           # `no implicit conversion of <Class> into Integer`.
@@ -1945,14 +1949,14 @@ module Frozone
             name: "coerce_to_int",
             signature: "int64_t coerce_to_int(BasicObject* v)",
             body: <<~CPP.chomp,
-              if (v && v->m_class(univ) == (BasicObject*)(&Integer_CLASS)) return static_cast<Integer*>(v)->raw_;
+              if (v && v->typeid_eq_q<Integer>()) return static_cast<Integer*>(v)->raw_;
               // Only dispatch m_to_int if the receiver actually responds.
               // Otherwise the universal-vtable fallthrough raises
               // NoMethodError, which masks the TypeError MRI expects
               // (Array#[] with a non-coercible index, etc.).
               if (v && v != nil_instance() && v->mm_respond_to_q(univ, new Array({intern("to_int")})) == true_instance()) {
                 BasicObject* r = v->m_to_int(univ);
-                if (r && r->m_class(univ) == (BasicObject*)(&Integer_CLASS)) return static_cast<Integer*>(r)->raw_;
+                if (r && r->typeid_eq_q<Integer>()) return static_cast<Integer*>(r)->raw_;
               }
               const char* cn = v ? v->ruby_class_name() : "nil";
               std::size_t cnlen = std::strlen(cn);
