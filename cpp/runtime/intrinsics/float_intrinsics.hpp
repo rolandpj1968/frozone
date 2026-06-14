@@ -46,6 +46,11 @@ BasicObject* intrinsic_float_frexp(BasicObject* self_);
 // Math.lgamma(x) → [log|gamma(x)|, sign]. lgamma_r supplies the sign.
 BasicObject* intrinsic_float_lgamma(BasicObject* self_);
 
+// Math.gamma(x) — true gamma function. tgamma() handles negatives,
+// poles at non-positive integers, and overflow per IEEE 754 (returns
+// Infinity for poles / overflow; NaN for invalid inputs).
+BasicObject* intrinsic_float_gamma(BasicObject* self_);
+
 
 }  // namespace Ruby
 

@@ -41,7 +41,6 @@ class Array
   alias inspect to_s
   def to_ary = self
   def dup = Intrinsics.array_dup(self)
-  def clone(freeze: nil) = Intrinsics.array_clone(self, freeze, self.class)
   def pack(fmt, buffer: nil) = Intrinsics.array_pack(self, fmt, buffer)
   def compact = reject { |x| x.nil? }
   def compact! = __bang__ { compact }
@@ -56,6 +55,16 @@ class Array
   def sort!(&block) = __bang_self__ { sort(&block) }
 
   def at(i) = Intrinsics.array_at(self, __coerce_to_int__(i))
+
+  def clone(freeze: nil)
+    r = Intrinsics.array_dup(self)
+    if freeze.nil?
+      r.freeze if frozen?
+    elsif freeze
+      r.freeze
+    end
+    r
+  end
 
   def [](i, len = nil)
     if len

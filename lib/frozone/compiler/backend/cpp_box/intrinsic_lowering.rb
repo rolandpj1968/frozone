@@ -73,11 +73,9 @@ module Frozone
             string_capitalize_opts string_delete_raw
             string_downcase_opts string_squeeze_raw
             string_swapcase_opts string_upcase_opts
-            array_clone array_index_write array_initialize array_pack
-            array_sample array_sample_n array_slice_write array_unshift
+            array_initialize array_pack
             hash_new hash_transform_keys_bang
-            float_gamma float_rationalize float_to_r
-            object_clone
+            float_rationalize float_to_r
           ]).freeze
 
           # Names with `intrinsic_<name>(...)` definitions in
@@ -90,7 +88,7 @@ module Frozone
           HPP_INTRINSICS = Set.new(%i[
             dbg_write
             float_ceil float_floor float_truncate float_round
-            float_frexp float_lgamma
+            float_frexp float_lgamma float_gamma
             io_raw_write_stdout io_raw_write_stderr
             string_index string_slice string_split string_chars
             string_inspect string_hash string_to_sym string_to_i_base
@@ -107,6 +105,8 @@ module Frozone
             hash_get_default hash_set_default
             hash_get_default_proc hash_set_default_proc
             array_to_s
+            array_unshift array_index_write array_slice_write
+            array_sample array_sample_n
             integer_bit_length
             object_dup object_public_send
             basic_object___send__ basic_object_method_missing

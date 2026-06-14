@@ -964,4 +964,96 @@ BasicObject* intrinsic_string_to_c(BasicObject* /*s*/) {
   throw_not_implemented("String#to_c not yet supported in box-first (Complex class not wired up)");
 }
 
+// ---- Array mutators (Tier 4 IMPLEMENT_QUEUE) -----------------------
+
+BasicObject* intrinsic_array_unshift(BasicObject* self_, BasicObject* elems) {
+  auto* _a = static_cast<Array*>(self_);
+  auto* _e = static_cast<Array*>(elems);
+  _a->data.insert(_a->data.begin(), _e->data.begin(), _e->data.end());
+  return self_;
+}
+
+BasicObject* intrinsic_array_index_write(BasicObject* self_, BasicObject* i, BasicObject* val) {
+  auto* _a = static_cast<Array*>(self_);
+  int64_t _i = static_cast<Integer*>(i)->raw_;
+  int64_t _sz = static_cast<int64_t>(_a->data.size());
+  if (_i < 0) _i += _sz;
+  if (_i < 0) {
+    throw_index_error("index out of range");
+  }
+  if (_i >= _sz) {
+    _a->data.resize(static_cast<std::size_t>(_i + 1), nil_instance());
+  }
+  _a->data[_i] = val;
+  return val;
+}
+
+BasicObject* intrinsic_array_slice_write(BasicObject* self_, BasicObject* start, BasicObject* length, BasicObject* val) {
+  auto* _a = static_cast<Array*>(self_);
+  int64_t _st = static_cast<Integer*>(start)->raw_;
+  int64_t _len = static_cast<Integer*>(length)->raw_;
+  int64_t _sz = static_cast<int64_t>(_a->data.size());
+  if (_st < 0) _st += _sz;
+  if (_st < 0) {
+    throw_index_error("index out of range");
+  }
+  if (_len < 0) {
+    throw_index_error("negative length");
+  }
+  // Collect replacement elements. nil → delete slice (no elements);
+  // Array → its data; bare value not expected here (Ruby side coerces).
+  // Must use Array's allocator type so we can assign from _v->data.
+  std::vector<BasicObject*, GcAllocator<BasicObject*>> _repl;
+  if (val != nil_instance()) {
+    auto* _v = static_cast<Array*>(val);
+    _repl = _v->data;
+  }
+  // Pad with nils when start is past the end (MRI semantics).
+  if (_st > _sz) {
+    _a->data.resize(static_cast<std::size_t>(_st), nil_instance());
+    _sz = _st;
+  }
+  int64_t _end = _st + _len;
+  if (_end > _sz) _end = _sz;
+  _a->data.erase(_a->data.begin() + _st, _a->data.begin() + _end);
+  _a->data.insert(_a->data.begin() + _st, _repl.begin(), _repl.end());
+  return val;
+}
+
+// Process-wide PRNG used by array_sample / array_sample_n. Lazy-init;
+// keeping it separate from kernel_rand's _g so deterministic Random
+// instances passed at the Ruby level can still bypass this path.
+namespace {
+  std::mt19937& sample_rng_() {
+    static std::mt19937 _r(std::random_device{}());
+    return _r;
+  }
+}
+
+BasicObject* intrinsic_array_sample(BasicObject* self_) {
+  auto* _a = static_cast<Array*>(self_);
+  if (_a->data.empty()) return nil_instance();
+  std::uniform_int_distribution<std::size_t> _d(0, _a->data.size() - 1);
+  return _a->data[_d(sample_rng_())];
+}
+
+BasicObject* intrinsic_array_sample_n(BasicObject* self_, BasicObject* n) {
+  auto* _a = static_cast<Array*>(self_);
+  int64_t _n = static_cast<Integer*>(n)->raw_;
+  int64_t _sz = static_cast<int64_t>(_a->data.size());
+  if (_n > _sz) _n = _sz;
+  // Fisher-Yates partial shuffle on a copy.
+  std::vector<BasicObject*, GcAllocator<BasicObject*>> _pool = _a->data;
+  auto& _r = sample_rng_();
+  auto* _result = new Array();
+  _result->data.reserve(static_cast<std::size_t>(_n));
+  for (int64_t i = 0; i < _n; i++) {
+    std::uniform_int_distribution<std::size_t> _d(static_cast<std::size_t>(i), _pool.size() - 1);
+    std::size_t _j = _d(_r);
+    std::swap(_pool[static_cast<std::size_t>(i)], _pool[_j]);
+    _result->data.push_back(_pool[static_cast<std::size_t>(i)]);
+  }
+  return _result;
+}
+
 }  // namespace Ruby

@@ -72,5 +72,9 @@ BasicObject* intrinsic_float_lgamma(BasicObject* self_) {
                      static_cast<BasicObject*>(new Integer(static_cast<std::int64_t>(sgn))) });
 }
 
+BasicObject* intrinsic_float_gamma(BasicObject* self_) {
+  return new Float(std::tgamma(static_cast<Float*>(self_)->raw_));
+}
+
 
 }  // namespace Ruby

@@ -8,7 +8,6 @@ class Object < BasicObject
   def extend(*mods) = Intrinsics.object_extend_multi(self, mods)
   def instance_exec(*args, &block) = Intrinsics.object_instance_exec(self, args, block)
   def dup = Intrinsics.object_dup(self)
-  def clone(freeze: nil) = Intrinsics.object_clone(self, freeze)
   def itself = self
   def singleton_class = Intrinsics.object_singleton_class(self)
   def to_s = "#<#{self.class}:0x#{__id__.to_s(16)}>"
@@ -21,6 +20,16 @@ class Object < BasicObject
   def <=>(other)
     eq = (self == other)
     eq.nil? ? nil : (eq ? 0 : nil)
+  end
+
+  def clone(freeze: nil)
+    r = Intrinsics.object_dup(self)
+    if freeze.nil?
+      r.freeze if frozen?
+    elsif freeze
+      r.freeze
+    end
+    r
   end
 
   def instance_eval(*args, &block)

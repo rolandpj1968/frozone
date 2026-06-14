@@ -135,6 +135,32 @@ BasicObject* intrinsic_string_count_raw(BasicObject* self_, BasicObject* args_ob
 // on each element. `[]` for empty.
 BasicObject* intrinsic_array_to_s(BasicObject* self_);
 
+// `Array#unshift(*elems)` / `Array#prepend` — splat folds into a single
+// elems Array per the IntrinsicCall splat convention (cpp.rb:from_intrinsic_call).
+// Inserts elems' contents at index 0 in source order: `[].unshift(1, 2)` → [1, 2].
+BasicObject* intrinsic_array_unshift(BasicObject* self_, BasicObject* elems);
+
+// `Array#[]=(i, val)` — single-index assignment. `i` is the integer
+// index (Ruby-side coerce_to_int already applied). Negative i wraps
+// from the end. Out-of-range i grows the array, padding with nil.
+BasicObject* intrinsic_array_index_write(BasicObject* self_, BasicObject* i, BasicObject* val);
+
+// `Array#[]=(start, length) = val` — slice assignment. start/length
+// already int-coerced on the Ruby side. val is an Array (or nil for
+// the delete-slice case). Replaces self.data[start, length] with val's
+// elements; if start is past the end, extends with nils.
+BasicObject* intrinsic_array_slice_write(BasicObject* self_, BasicObject* start, BasicObject* length, BasicObject* val);
+
+// `Array#sample` (no random:) — pick one element using the process's
+// global PRNG. Returns nil for empty. Random source override is
+// handled Ruby-side; this is the no-source fast path.
+BasicObject* intrinsic_array_sample(BasicObject* self_);
+
+// `Array#sample(n)` (no random:) — pick n distinct elements. n is
+// already int-coerced and clamped to [0, length] on the Ruby side.
+// Returns a new Array of n elements (Fisher-Yates partial shuffle).
+BasicObject* intrinsic_array_sample_n(BasicObject* self_, BasicObject* n);
+
 // `String#match(pattern)` — same as Regexp#match with self/str swapped.
 BasicObject* intrinsic_string_match(BasicObject* self_, BasicObject* pat);
 
