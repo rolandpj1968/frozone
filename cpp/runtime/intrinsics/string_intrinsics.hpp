@@ -173,6 +173,24 @@ BasicObject* intrinsic_array_sample_n(BasicObject* self_, BasicObject* n);
 BasicObject* intrinsic_array_initialize(BasicObject* self_, BasicObject* size_or_array,
                                         BasicObject* fill, BasicObject* block);
 
+// `String#append_as_bytes(*args)` / `String#append_bytes(*args)` —
+// extend self's byte vector with bytes drawn from each arg without any
+// encoding validation. String arg → its bytes appended verbatim;
+// Integer arg → low byte (`arg & 0xFF`). Self's encoding is preserved.
+// Ruby wrapper passes the splat args through as a single Array.
+// append_as_bytes and append_bytes have the same semantics here; the
+// Ruby surface difference is encoding-flag bookkeeping handled outside.
+BasicObject* intrinsic_string_append_as_bytes(BasicObject* self_, BasicObject* args);
+BasicObject* intrinsic_string_append_bytes(BasicObject* self_, BasicObject* args);
+
+// `String#bytesplice(idx, len, replacement)` — byte-indexed splice.
+// Replaces self.bytes[idx, len] with replacement.bytes (a String).
+// MRI's full signature (range form, source-substring form) is not
+// implemented; callers that pass anything other than three args
+// (Integer, Integer, String) get a not-implemented abort. The Ruby
+// wrapper handles the frozen check before calling.
+BasicObject* intrinsic_string_bytesplice(BasicObject* self_, BasicObject* args);
+
 // `String#match(pattern)` — same as Regexp#match with self/str swapped.
 BasicObject* intrinsic_string_match(BasicObject* self_, BasicObject* pat);
 

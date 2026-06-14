@@ -1037,6 +1037,75 @@ BasicObject* intrinsic_array_sample(BasicObject* self_) {
   return _a->data[_d(sample_rng_())];
 }
 
+// append_as_bytes / append_bytes — Ruby 3.4 byte-extension methods.
+// Both flavours: walk `args`; each element is either a String (append
+// its bytes verbatim) or an Integer (append the low byte). Encoding
+// untouched. The Ruby surface flavour difference (cached ascii_only?
+// invalidation, encoding compat flag) is bookkeeping outside our
+// scope here; the byte effect is identical.
+namespace {
+  inline BasicObject* __append_bytes_inner__(BasicObject* self_, BasicObject* args) {
+    auto* _s = static_cast<String*>(self_);
+    auto* _a = static_cast<Array*>(args);
+    for (BasicObject* _arg : _a->data) {
+      if (&typeid(*_arg) == &typeid(String)) {
+        auto* _src = static_cast<String*>(_arg);
+        _s->bytes.insert(_s->bytes.end(), _src->bytes.begin(), _src->bytes.end());
+      } else if (&typeid(*_arg) == &typeid(Integer)) {
+        std::int64_t _v = static_cast<Integer*>(_arg)->raw_;
+        _s->bytes.push_back(static_cast<std::uint8_t>(_v & 0xFF));
+      } else {
+        std::string _m = std::string("wrong argument type ") + _arg->ruby_class_name() +
+                         " (expected String or Integer)";
+        throw_type_error(_m.c_str());
+      }
+    }
+    _s->cp_cache_idx_ = 0;
+    _s->cp_cache_byte_ = 0;
+    return _s;
+  }
+}
+
+BasicObject* intrinsic_string_append_as_bytes(BasicObject* self_, BasicObject* args) {
+  return __append_bytes_inner__(self_, args);
+}
+
+BasicObject* intrinsic_string_append_bytes(BasicObject* self_, BasicObject* args) {
+  return __append_bytes_inner__(self_, args);
+}
+
+// bytesplice(idx, len, str) — replace self.bytes[idx, len] with str.bytes.
+// Other MRI signatures (Range, source-substring) abort: niche enough that
+// callers will hit a loud failure rather than silently corrupt bytes.
+BasicObject* intrinsic_string_bytesplice(BasicObject* self_, BasicObject* args) {
+  auto* _s = static_cast<String*>(self_);
+  auto* _a = static_cast<Array*>(args);
+  if (_a->data.size() != 3) {
+    throw_type_error("bytesplice: only the (index, length, str) form is implemented");
+  }
+  BasicObject* _i = _a->data[0];
+  BasicObject* _l = _a->data[1];
+  BasicObject* _r = _a->data[2];
+  if (&typeid(*_i) != &typeid(Integer) || &typeid(*_l) != &typeid(Integer) ||
+      &typeid(*_r) != &typeid(String)) {
+    throw_type_error("bytesplice: expected (Integer, Integer, String)");
+  }
+  std::int64_t _idx = static_cast<Integer*>(_i)->raw_;
+  std::int64_t _len = static_cast<Integer*>(_l)->raw_;
+  std::int64_t _sz = static_cast<std::int64_t>(_s->bytes.size());
+  if (_idx < 0) _idx += _sz;
+  if (_idx < 0 || _idx > _sz) throw_index_error("byte index out of string");
+  if (_len < 0) throw_index_error("negative length");
+  std::int64_t _end = _idx + _len;
+  if (_end > _sz) _end = _sz;
+  auto* _rs = static_cast<String*>(_r);
+  _s->bytes.erase(_s->bytes.begin() + _idx, _s->bytes.begin() + _end);
+  _s->bytes.insert(_s->bytes.begin() + _idx, _rs->bytes.begin(), _rs->bytes.end());
+  _s->cp_cache_idx_ = 0;
+  _s->cp_cache_byte_ = 0;
+  return _s;
+}
+
 BasicObject* intrinsic_array_initialize(BasicObject* self_, BasicObject* size_or_array,
                                         BasicObject* fill, BasicObject* block) {
   auto* _a = static_cast<Array*>(self_);
