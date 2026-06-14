@@ -1150,4 +1150,150 @@ BasicObject* intrinsic_array_sample_n(BasicObject* self_, BasicObject* n) {
   return _result;
 }
 
+// ---- Unicode case mapping ------------------------------------------
+//
+// String#upcase / downcase / swapcase / capitalize with optional
+// :ascii / :fold / :turkic / :lithuanian options. We dispatch to
+// Onigmo's onigenc_unicode_case_map (the same code path MRI uses
+// internally for these methods), so we get the Unicode 11 case
+// tables — ß → SS, Greek sigma context-sensitive lowering,
+// case-folding-only forms, locale-tailored mappings — for free.
+//
+// The Ruby wrapper (lib/core/4.0/string.rb) only routes ASCII-only,
+// no-arg calls through pure Ruby; we handle the rest. Reaching this
+// path implies either an option was passed or the string had
+// non-ASCII bytes, so we always run through case_map (no fast path).
+namespace {
+  // Translate the splat-args (Array of symbols) into a base-flag bitmap.
+  // Returns 0 if there's an unknown option (callers can then complain).
+  OnigCaseFoldType __case_opts_flags__(Array* _opts) {
+    OnigCaseFoldType _f = 0;
+    for (BasicObject* _o : _opts->data) {
+      if (_o == intern("ascii")) {
+        _f |= ONIGENC_CASE_ASCII_ONLY;
+      } else if (_o == intern("fold")) {
+        _f |= ONIGENC_CASE_FOLD;
+      } else if (_o == intern("turkic")) {
+        _f |= ONIGENC_CASE_FOLD_TURKISH_AZERI;
+      } else if (_o == intern("lithuanian")) {
+        _f |= ONIGENC_CASE_FOLD_LITHUANIAN;
+      } else {
+        std::string _m = std::string("invalid option for case method: ") + _o->ruby_class_name();
+        throw_type_error(_m.c_str());
+      }
+    }
+    return _f;
+  }
+
+  String* __case_map_run__(String* _s, OnigCaseFoldType _flags) {
+    // For BINARY strings non-ASCII bytes don't have case mappings.
+    // ASCII-only path is identical in either encoding; let Onigmo
+    // walk it. Picking UTF-8 keeps the codepoint logic active for
+    // the non-ASCII case.
+    OnigEncoding _enc = (_s->enc == String::BINARY)
+                          ? ONIG_ENCODING_ASCII
+                          : ONIG_ENCODING_UTF_8;
+    // Worst-case growth for Unicode case mapping is roughly 3×
+    // (e.g. ß → SS in upcase, ffi ligature → ffi titlecase). UTF-8
+    // codepoints span up to 4 bytes, so 4× input + 16 leaves slack.
+    std::size_t _in_sz = _s->bytes.size();
+    std::vector<std::uint8_t, GcAllocator<std::uint8_t>> _buf;
+    _buf.resize(_in_sz * 4 + 32);
+    const OnigUChar* _pp = _s->bytes.data();
+    const OnigUChar* _end = _pp + _in_sz;
+    OnigUChar* _to = _buf.data();
+    OnigUChar* _to_end = _to + _buf.size();
+    OnigCaseFoldType _f = _flags;
+    while (_pp < _end) {
+      int _written = _enc->case_map(&_f, &_pp, _end, _to, _to_end, _enc);
+      if (_written < 0) {
+        throw_type_error("invalid byte sequence in encoding for case mapping");
+      }
+      _to += _written;
+      if (_pp < _end) {
+        // Output buffer ran low (function reserves 12-byte slack).
+        // Grow and continue.
+        std::size_t _off = _to - _buf.data();
+        _buf.resize(_buf.size() * 2 + 32);
+        _to = _buf.data() + _off;
+        _to_end = _buf.data() + _buf.size();
+      }
+    }
+    auto* _r = new String();
+    _r->bytes.assign(_buf.data(), _to);
+    _r->enc = _s->enc;
+    return _r;
+  }
+}
+
+BasicObject* intrinsic_string_upcase_opts(BasicObject* self_, BasicObject* opts) {
+  auto* _s = static_cast<String*>(self_);
+  OnigCaseFoldType _f = __case_opts_flags__(static_cast<Array*>(opts));
+  return __case_map_run__(_s, _f | ONIGENC_CASE_UPCASE);
+}
+
+BasicObject* intrinsic_string_downcase_opts(BasicObject* self_, BasicObject* opts) {
+  auto* _s = static_cast<String*>(self_);
+  OnigCaseFoldType _f = __case_opts_flags__(static_cast<Array*>(opts));
+  // The Ruby :fold option folds (via ONIGENC_CASE_FOLD) instead of
+  // downcasing — but the function dispatches on the FOLD flag bit
+  // alone, so combining ONIGENC_CASE_DOWNCASE here doesn't hurt;
+  // ASCII handling matches MRI's downcase regardless.
+  return __case_map_run__(_s, _f | ONIGENC_CASE_DOWNCASE);
+}
+
+BasicObject* intrinsic_string_swapcase_opts(BasicObject* self_, BasicObject* opts) {
+  auto* _s = static_cast<String*>(self_);
+  OnigCaseFoldType _f = __case_opts_flags__(static_cast<Array*>(opts));
+  return __case_map_run__(_s, _f | ONIGENC_CASE_UPCASE | ONIGENC_CASE_DOWNCASE);
+}
+
+BasicObject* intrinsic_string_capitalize_opts(BasicObject* self_, BasicObject* opts) {
+  auto* _s = static_cast<String*>(self_);
+  OnigCaseFoldType _f = __case_opts_flags__(static_cast<Array*>(opts));
+  if (_s->bytes.empty()) return new String();
+  // Capitalize = titlecase the first codepoint, downcase the rest.
+  // Onigmo's case_map keeps no "char index" state, so we split the
+  // run: feed one codepoint with TITLECASE, then the tail with
+  // DOWNCASE. Both passes share output buffers via the helper.
+  OnigEncoding _enc = (_s->enc == String::BINARY)
+                        ? ONIG_ENCODING_ASCII
+                        : ONIG_ENCODING_UTF_8;
+  std::size_t _in_sz = _s->bytes.size();
+  std::vector<std::uint8_t, GcAllocator<std::uint8_t>> _buf;
+  _buf.resize(_in_sz * 4 + 32);
+  const OnigUChar* _pp = _s->bytes.data();
+  const OnigUChar* _end = _pp + _in_sz;
+  // Find end-of-first-codepoint.
+  int _cp_len = ONIGENC_PRECISE_MBC_ENC_LEN(_enc, _pp, _end);
+  if (_cp_len < 0) throw_type_error("invalid byte sequence in encoding");
+  const OnigUChar* _cp_end = _pp + _cp_len;
+  OnigUChar* _to = _buf.data();
+  OnigUChar* _to_end = _to + _buf.size();
+  // Pass 1: first codepoint as titlecase + upcase (titlecase-where-
+  // available, upcase elsewhere — matches MRI's capitalize first-char
+  // treatment).
+  OnigCaseFoldType _ftitle = _f | ONIGENC_CASE_TITLECASE | ONIGENC_CASE_UPCASE;
+  int _w = _enc->case_map(&_ftitle, &_pp, _cp_end, _to, _to_end, _enc);
+  if (_w < 0) throw_type_error("invalid byte sequence in encoding for capitalize");
+  _to += _w;
+  // Pass 2: remainder as downcase.
+  OnigCaseFoldType _fdown = _f | ONIGENC_CASE_DOWNCASE;
+  while (_pp < _end) {
+    int _written = _enc->case_map(&_fdown, &_pp, _end, _to, _to_end, _enc);
+    if (_written < 0) throw_type_error("invalid byte sequence in encoding for capitalize");
+    _to += _written;
+    if (_pp < _end) {
+      std::size_t _off = _to - _buf.data();
+      _buf.resize(_buf.size() * 2 + 32);
+      _to = _buf.data() + _off;
+      _to_end = _buf.data() + _buf.size();
+    }
+  }
+  auto* _r = new String();
+  _r->bytes.assign(_buf.data(), _to);
+  _r->enc = _s->enc;
+  return _r;
+}
+
 }  // namespace Ruby

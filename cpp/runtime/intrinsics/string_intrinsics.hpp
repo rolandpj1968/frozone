@@ -173,6 +173,21 @@ BasicObject* intrinsic_array_sample_n(BasicObject* self_, BasicObject* n);
 BasicObject* intrinsic_array_initialize(BasicObject* self_, BasicObject* size_or_array,
                                         BasicObject* fill, BasicObject* block);
 
+// `String#upcase(*opts)` / `#downcase` / `#swapcase` / `#capitalize`
+// — Unicode-aware case mapping. Routes through Onigmo's
+// onigenc_unicode_case_map (the same code MRI uses internally), so we
+// get the full Unicode 11 case tables, ß→SS, Greek-sigma context,
+// case-folding-only forms, plus the :turkic and :lithuanian locale
+// tailorings. Args is the splat-wrapped Array of symbols.
+//
+// Returns a freshly-allocated String (these methods don't mutate self
+// in MRI; the `!` siblings are pure-Ruby wrappers that swap bytes via
+// String#replace).
+BasicObject* intrinsic_string_upcase_opts(BasicObject* self_, BasicObject* opts);
+BasicObject* intrinsic_string_downcase_opts(BasicObject* self_, BasicObject* opts);
+BasicObject* intrinsic_string_swapcase_opts(BasicObject* self_, BasicObject* opts);
+BasicObject* intrinsic_string_capitalize_opts(BasicObject* self_, BasicObject* opts);
+
 // `String#append_as_bytes(*args)` / `String#append_bytes(*args)` —
 // extend self's byte vector with bytes drawn from each arg without any
 // encoding validation. String arg → its bytes appended verbatim;
