@@ -305,49 +305,6 @@ BasicObject* intrinsic_string_split(BasicObject* self_, BasicObject* sep, BasicO
 //  - to empty: delete those bytes
 // Optparse uses the simplest form ("_" -> "-"); fuller MRI conformance
 // (Unicode chars, multi-byte ranges) is a follow-up.
-// Expand a tr-style single-set string into a 256-byte boolean mask.
-// Honours leading "^" (negation) and "a-z" ranges. Byte-level —
-// matches the rest of the tr/delete/squeeze family's known ASCII-only
-// limitation.
-namespace {
-  void __byte_set_from_pattern__(const String* _pat, std::array<bool, 256>& _mask) {
-    bool _negate = !_pat->bytes.empty() && _pat->bytes[0] == '^';
-    std::array<bool, 256> _hits{};
-    std::size_t i = _negate ? 1 : 0;
-    while (i < _pat->bytes.size()) {
-      std::uint8_t b = _pat->bytes[i];
-      if (i + 2 < _pat->bytes.size() && _pat->bytes[i + 1] == '-') {
-        std::uint8_t hi = _pat->bytes[i + 2];
-        if (b <= hi) {
-          for (int c = b; c <= hi; ++c) _hits[c] = true;
-        }
-        i += 3;
-      } else {
-        _hits[b] = true;
-        i += 1;
-      }
-    }
-    if (_negate) {
-      for (int c = 0; c < 256; ++c) _mask[c] = !_hits[c];
-    } else {
-      for (int c = 0; c < 256; ++c) _mask[c] = _hits[c];
-    }
-  }
-
-  // Intersect every pattern in `args` into a single 256-byte mask.
-  // Empty args list → mask is all-true (delete/squeeze treat that as
-  // "every byte qualifies"; squeeze's zero-arg form does collapse all
-  // consecutive duplicates).
-  void __byte_set_intersect_args__(const Array* _args, std::array<bool, 256>& _mask) {
-    _mask.fill(true);
-    for (BasicObject* _a : _args->data) {
-      std::array<bool, 256> _m{};
-      __byte_set_from_pattern__(static_cast<const String*>(_a), _m);
-      for (int c = 0; c < 256; ++c) _mask[c] = _mask[c] && _m[c];
-    }
-  }
-}
-
 BasicObject* intrinsic_string_tr_raw(BasicObject* self_, BasicObject* from_, BasicObject* to_) {
   auto* _s = static_cast<String*>(self_);
   auto* _f = static_cast<String*>(from_);
@@ -1289,53 +1246,6 @@ BasicObject* intrinsic_string_swapcase_opts(BasicObject* self_, BasicObject* opt
   auto* _s = static_cast<String*>(self_);
   OnigCaseFoldType _f = __case_opts_flags__(static_cast<Array*>(opts));
   return __case_map_run__(_s, _f | ONIGENC_CASE_UPCASE | ONIGENC_CASE_DOWNCASE);
-}
-
-// String#delete(*args) — drop every byte in the intersection of args'
-// tr-style sets. No args → returns a copy (vacuously nothing matches
-// an empty intersection target, but MRI raises ArgumentError; we
-// match by treating empty-args as a no-op copy here since the Ruby
-// surface should never reach us with empty args — String#delete in
-// MRI requires at least one).
-BasicObject* intrinsic_string_delete_raw(BasicObject* self_, BasicObject* args) {
-  auto* _s = static_cast<String*>(self_);
-  auto* _a = static_cast<Array*>(args);
-  std::array<bool, 256> _mask{};
-  __byte_set_intersect_args__(_a, _mask);
-  auto* _r = new String();
-  _r->enc = _s->enc;
-  _r->bytes.reserve(_s->bytes.size());
-  // With empty args the intersection is all-true; preserve nothing.
-  // With at least one arg, only drop bytes in the matched set.
-  bool _any = !_a->data.empty();
-  for (auto b : _s->bytes) {
-    if (_any && _mask[b]) continue;
-    _r->bytes.push_back(b);
-  }
-  return _r;
-}
-
-// String#squeeze(*args) — collapse runs of consecutive identical
-// bytes. With no args, every consecutive duplicate collapses. With
-// args, only runs of bytes in the intersection of all sets collapse;
-// other runs are preserved untouched.
-BasicObject* intrinsic_string_squeeze_raw(BasicObject* self_, BasicObject* args) {
-  auto* _s = static_cast<String*>(self_);
-  auto* _a = static_cast<Array*>(args);
-  std::array<bool, 256> _mask{};
-  bool _any = !_a->data.empty();
-  if (_any) __byte_set_intersect_args__(_a, _mask);
-  auto* _r = new String();
-  _r->enc = _s->enc;
-  _r->bytes.reserve(_s->bytes.size());
-  std::int64_t _prev = -1;
-  for (auto b : _s->bytes) {
-    bool _eligible = !_any || _mask[b];
-    if (_eligible && static_cast<std::int64_t>(b) == _prev) continue;
-    _r->bytes.push_back(b);
-    _prev = b;
-  }
-  return _r;
 }
 
 BasicObject* intrinsic_string_capitalize_opts(BasicObject* self_, BasicObject* opts) {

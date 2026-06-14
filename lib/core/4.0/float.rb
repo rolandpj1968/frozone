@@ -55,7 +55,21 @@ class Float
   def divmod(v) = Intrinsics.float_divmod(self, v)
   def div(v) = (self / v).floor
   def remainder(n) = Intrinsics.float_remainder(self, n)
-  def rationalize(eps = nil) = Intrinsics.float_rationalize(self, eps)
+  def rationalize(eps = nil)
+    raise FloatDomainError, "Infinity" if infinite?
+    raise FloatDomainError, "NaN" if nan?
+    return to_r if eps.nil?
+    e = eps.to_f.abs
+    return to_r if e == 0.0
+    # Stern-Brocot search for the simplest p/q in [|self|-e, |self|+e].
+    # Endpoints stay as Floats; the recursion only needs floor +
+    # reciprocal at each step. Final Rational built once at the top
+    # — no big-Rational cross-products downstream.
+    neg = self < 0.0
+    ax = neg ? -self : self
+    n, d = __simplest_in_range__(ax - e, ax + e, 0)
+    Rational.send(:__construct__, neg ? -n : n, d)
+  end
   def between?(min, max) = min <= self && self <= max
   def next_float = Intrinsics.float_next_float(self)
   def prev_float = Intrinsics.float_prev_float(self)
@@ -195,6 +209,28 @@ class Float
     a.send(op, b)
   rescue TypeError, NoMethodError
     raise ArgumentError, "comparison of #{self.class} with #{other.class} failed"
+  end
+
+  # Returns [numerator, denominator] of the simplest rational in [lo, hi].
+  # Both endpoints are non-negative Floats. Depth-bounded to bail on
+  # pathological inputs (CF expansion is normally O(log denom)).
+  def __simplest_in_range__(lo, hi, depth)
+    return [lo.to_i, 1] if depth > 100
+    flo = lo.floor
+    fhi = hi.floor
+    if flo < fhi
+      # An integer fits strictly inside [lo, hi]; pick the smallest.
+      # If lo is itself an integer, it's simplest; otherwise floor+1.
+      return [flo, 1] if lo == flo
+      return [flo + 1, 1]
+    end
+    # Same integer part. Strip it, invert, recurse on [1/(hi-flo), 1/(lo-flo)].
+    return [flo, 1] if lo == flo  # exact integer at the low end
+    inv_lo = 1.0 / (hi - flo)
+    inv_hi = 1.0 / (lo - flo)
+    n, d = __simplest_in_range__(inv_lo, inv_hi, depth + 1)
+    # Reassemble flo + d/n  →  (flo * n + d) / n
+    [flo * n + d, n]
   end
 
 end

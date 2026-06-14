@@ -51,9 +51,27 @@ class String
   def lstrip = sub(/\A[[:space:]\x00]+/, '')
   def strip = lstrip.rstrip
   def tr(from, to) = Intrinsics.string_tr_raw(self, __coerce_to_str__(from), __coerce_to_str__(to))
-  def squeeze(*args) = Intrinsics.string_squeeze_raw(self, *__str_args__(*args))
+  def squeeze(*args)
+    args = __str_args__(*args)
+    mask = args.empty? ? nil : __tr_byte_mask__(args)
+    result = String.new
+    prev = -1
+    each_byte do |b|
+      next if (mask.nil? || mask[b]) && b == prev
+      result << b.chr
+      prev = b
+    end
+    result
+  end
   def count(*args) = Intrinsics.string_count_raw(self, *__str_args__(*args))
-  def delete(*args) = Intrinsics.string_delete_raw(self, *__str_args__(*args))
+  def delete(*args)
+    args = __str_args__(*args)
+    return dup if args.empty?
+    mask = __tr_byte_mask__(args)
+    result = String.new
+    each_byte { |b| result << b.chr unless mask[b] }
+    result
+  end
   def index(sub, offset = :__unset__) = Intrinsics.string_index(self, sub, offset)
   def replace(other) = Intrinsics.string_replace(self, other)
   def force_encoding(enc) = Intrinsics.string_force_encoding(self, enc)
@@ -992,6 +1010,42 @@ class String
   def __str_args__(*args) = args.map { |a| __coerce_to_str__(a) }
   def __ascii_upper__(b) = (b >= LOWER_A && b <= LOWER_Z) ? b - 32 : b
   def __ascii_lower__(b) = (b >= UPPER_A && b <= UPPER_Z) ? b + 32 : b
+
+  # Tr-style char-set parser: each pattern handles leading ^ negation
+  # and `a-z` ranges. Multiple patterns → intersection of their
+  # 256-byte masks. Result is a 256-element Array of bool. Same
+  # byte-level limitation as String#tr.
+  def __tr_pattern_mask__(pat)
+    bs = pat.bytes
+    neg = !bs.empty? && bs[0] == 94 # '^'
+    hit = Array.new(256, false)
+    i = neg ? 1 : 0
+    while i < bs.length
+      b = bs[i]
+      if i + 2 < bs.length && bs[i + 1] == 45 # '-'
+        hi = bs[i + 2]
+        (b..hi).each { |c| hit[c] = true } if b <= hi
+        i += 3
+      else
+        hit[b] = true
+        i += 1
+      end
+    end
+    neg ? hit.map { |x| !x } : hit
+  end
+
+  def __tr_byte_mask__(patterns)
+    mask = nil
+    patterns.each do |p|
+      m = __tr_pattern_mask__(p)
+      if mask
+        mask = mask.each_with_index.map { |v, i| v && m[i] }
+      else
+        mask = m
+      end
+    end
+    mask
+  end
   # Bytes are already copied by the intrinsic; skip Kernel's frozen check.
   def initialize_copy(source) = self
   # Build a pad string of exactly +total+ characters by repeating +padstr+.

@@ -188,17 +188,6 @@ BasicObject* intrinsic_string_downcase_opts(BasicObject* self_, BasicObject* opt
 BasicObject* intrinsic_string_swapcase_opts(BasicObject* self_, BasicObject* opts);
 BasicObject* intrinsic_string_capitalize_opts(BasicObject* self_, BasicObject* opts);
 
-// `String#delete(*args)` — return a copy with every byte that matches
-// the intersection of args' tr-style sets removed. Byte-level
-// (matches String#tr_raw's existing limitation; full Unicode-aware
-// char-set semantics is a follow-up).
-BasicObject* intrinsic_string_delete_raw(BasicObject* self_, BasicObject* args);
-
-// `String#squeeze(*args)` — collapse runs of consecutive identical
-// bytes. No args → every consecutive duplicate collapses; with args
-// only runs of bytes inside the intersection of all sets collapse.
-BasicObject* intrinsic_string_squeeze_raw(BasicObject* self_, BasicObject* args);
-
 // `String#append_as_bytes(*args)` / `String#append_bytes(*args)` —
 // extend self's byte vector with bytes drawn from each arg without any
 // encoding validation. String arg → its bytes appended verbatim;
