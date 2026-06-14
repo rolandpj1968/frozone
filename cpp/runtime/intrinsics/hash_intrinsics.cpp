@@ -103,5 +103,15 @@ BasicObject* intrinsic_hash_set_default_proc(BasicObject* self_, BasicObject* pr
   return prc;
 }
 
+BasicObject* intrinsic_hash_new(BasicObject* default_val, BasicObject* block) {
+  auto* _h = new Hash();
+  if (block != nil_instance()) {
+    _h->default_proc_ = block;
+  } else if (default_val != nil_instance()) {
+    _h->default_value_ = default_val;
+  }
+  return _h;
+}
+
 
 }  // namespace Ruby

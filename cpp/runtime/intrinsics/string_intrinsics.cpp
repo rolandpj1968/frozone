@@ -1037,6 +1037,31 @@ BasicObject* intrinsic_array_sample(BasicObject* self_) {
   return _a->data[_d(sample_rng_())];
 }
 
+BasicObject* intrinsic_array_initialize(BasicObject* self_, BasicObject* size_or_array,
+                                        BasicObject* fill, BasicObject* block) {
+  auto* _a = static_cast<Array*>(self_);
+  _a->data.clear();
+  if (size_or_array == nil_instance()) return _a;
+  if (&typeid(*size_or_array) == &typeid(Array)) {
+    auto* _src = static_cast<Array*>(size_or_array);
+    _a->data = _src->data;
+    return _a;
+  }
+  // Integer path (Ruby wrapper already coerced).
+  std::int64_t _n = static_cast<Integer*>(size_or_array)->raw_;
+  if (block != nil_instance()) {
+    auto* _b = static_cast<Proc*>(block);
+    _a->data.reserve(static_cast<std::size_t>(_n));
+    for (std::int64_t i = 0; i < _n; i++) {
+      _a->data.push_back(_b->call1(new Integer(i)));
+    }
+  } else {
+    BasicObject* _fv = (fill == nil_instance()) ? nil_instance() : fill;
+    _a->data.assign(static_cast<std::size_t>(_n), _fv);
+  }
+  return _a;
+}
+
 BasicObject* intrinsic_array_sample_n(BasicObject* self_, BasicObject* n) {
   auto* _a = static_cast<Array*>(self_);
   int64_t _n = static_cast<Integer*>(n)->raw_;

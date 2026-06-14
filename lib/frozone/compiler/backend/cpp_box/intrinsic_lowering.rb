@@ -73,9 +73,9 @@ module Frozone
             string_capitalize_opts string_delete_raw
             string_downcase_opts string_squeeze_raw
             string_swapcase_opts string_upcase_opts
-            array_initialize array_pack
-            hash_new hash_transform_keys_bang
-            float_rationalize float_to_r
+            array_pack
+            hash_transform_keys_bang
+            float_rationalize
           ]).freeze
 
           # Names with `intrinsic_<name>(...)` definitions in
@@ -99,14 +99,14 @@ module Frozone
             regexp_match_index regexp_match regexp_last_match
             match_data_to_a match_data_captures match_data_pre_match
             match_data_post_match match_data_match_length
-            hash_each hash_delete
+            hash_each hash_delete hash_new
             hash_compare_by_identity hash_compare_by_identity_q
             hash_reset_compare_by_identity
             hash_get_default hash_set_default
             hash_get_default_proc hash_set_default_proc
             array_to_s
             array_unshift array_index_write array_slice_write
-            array_sample array_sample_n
+            array_sample array_sample_n array_initialize
             integer_bit_length
             object_dup object_public_send
             basic_object___send__ basic_object_method_missing

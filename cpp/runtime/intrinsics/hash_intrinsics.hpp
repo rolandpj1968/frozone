@@ -53,6 +53,12 @@ BasicObject* intrinsic_hash_get_default_proc(BasicObject* self_);
 
 BasicObject* intrinsic_hash_set_default_proc(BasicObject* self_, BasicObject* prc);
 
+// Hash.new(default=nil, &block) class-method ctor. `default` populates
+// default_value_; `block` (Proc* or nil_instance()) populates
+// default_proc_. MRI's exclusivity rule: a non-nil block clears the
+// default value. A bare `Hash.new` is `(nil, nil)` → both fields nil.
+BasicObject* intrinsic_hash_new(BasicObject* default_val, BasicObject* block);
+
 }  // namespace Ruby
 
 #endif  // FROZONE_HASH_INTRINSICS_HPP

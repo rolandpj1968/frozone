@@ -161,6 +161,18 @@ BasicObject* intrinsic_array_sample(BasicObject* self_);
 // Returns a new Array of n elements (Fisher-Yates partial shuffle).
 BasicObject* intrinsic_array_sample_n(BasicObject* self_, BasicObject* n);
 
+// `Array#initialize(size_or_array, fill, &block)`. The Ruby wrapper
+// (lib/core/4.0/array.rb) already validates args, performs
+// __coerce_to_int__ on size, and routes the to_ary path. We see exactly
+// one of these shapes:
+//   * size_or_array is Array  → copy its data into self
+//   * size_or_array is Integer + block nil → fill n slots with `fill`
+//   * size_or_array is Integer + block Proc → call block(i) for i in 0..n-1
+//   * size_or_array is nil    → leave self empty
+// Returns self.
+BasicObject* intrinsic_array_initialize(BasicObject* self_, BasicObject* size_or_array,
+                                        BasicObject* fill, BasicObject* block);
+
 // `String#match(pattern)` — same as Regexp#match with self/str swapped.
 BasicObject* intrinsic_string_match(BasicObject* self_, BasicObject* pat);
 
