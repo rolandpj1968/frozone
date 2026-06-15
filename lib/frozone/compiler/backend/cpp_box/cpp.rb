@@ -122,6 +122,41 @@ module Frozone
             "sm_#{base}__from_#{origin_flat}"
           end
 
+          # Wrap a sequence of C++ statements plus a final value expression
+          # into a single C++ expression. The shape is controlled by
+          # `FROZONE_BOX_BLOCK_EXPR_FORM` (default: `iile`):
+          #   - `iile`: `([&]() -> #{type} { stmt1; stmt2; return v; }())`
+          #     — portable, captures by reference, gcc inlines under -O2.
+          #   - `stmt_expr`: `({ stmt1; stmt2; v; })`
+          #     — gcc/clang statement expression. No closure, but is a
+          #     gcc extension and disallows C++ `return` for early exit
+          #     inside the block.
+          # `stmts` may contain semicolons (each element is one C++
+          # statement string). `value_expr` must NOT end in `;`.
+          # Use this for STRAIGHT-LINE blocks: declarations + side-effects
+          # + a single final value. For early-return shapes, use
+          # `block_expr_with_returns` (TODO) or restructure as a ternary.
+          def self.block_expr(stmts, value_expr, type: 'BasicObject*')
+            joined = stmts.empty? ? '' : "#{stmts.join(' ')} "
+            case block_expr_form
+            when :stmt_expr
+              "({ #{joined}#{value_expr}; })"
+            else
+              "([&]() -> #{type} { #{joined}return #{value_expr}; }())"
+            end
+          end
+
+          # Form to use for `block_expr`. Cached per process — the env
+          # var is read once at startup. To experiment, set
+          # `FROZONE_BOX_BLOCK_EXPR_FORM=stmt_expr` before invoking
+          # the AOT compiler.
+          def self.block_expr_form
+            @block_expr_form ||= case ENV['FROZONE_BOX_BLOCK_EXPR_FORM']
+                                 when 'stmt_expr' then :stmt_expr
+                                 else :iile
+                                 end
+          end
+
           # Nodes that produce a value usable in expression position.
           # Statement-only nodes don't get wrapped in implicit-return;
           # they handle their own control flow or have void value.
@@ -968,8 +1003,12 @@ module Frozone
             # pairs, then copy each splat source's entries on top.
             splat_pushes = kw_splat_nodes.map do |s|
               "_h->copy_kvps_from(*static_cast<Hash*>(#{from_expr(s, locals)}));"
-            end.join(' ')
-            "([&]() -> Hash* { Hash* _h = new Hash({#{entries.join(', ')}}); #{splat_pushes} return _h; }())"
+            end
+            Cpp.block_expr(
+              ["Hash* _h = new Hash({#{entries.join(', ')}});"] + splat_pushes,
+              "_h",
+              type: 'Hash*'
+            )
           end
 
           # Compose the trailing `(args, kwargs, block)` of a method
@@ -1042,7 +1081,11 @@ module Frozone
                   "_r->data.push_back(#{from_expr(a, locals)});"
                 end
               end
-              "([&]() -> Array* { Array* _r = new Array(); #{push_lines.join(' ')} return _r; }())"
+              Cpp.block_expr(
+                ["Array* _r = new Array();"] + push_lines,
+                "_r",
+                type: 'Array*'
+              )
             else
               args = arg_nodes.map { |a| from_expr(a, locals) }
               "(new Array({#{args.join(", ")}}))"
@@ -1138,7 +1181,11 @@ module Frozone
               key_lit = k_node.respond_to?(:value) ? k_node.value.to_s.inspect : k_node.to_s.inspect
               "_kw->put(intern(#{key_lit}), #{from_expr(v_node, locals)});"
             end
-            kw_expr = "[&]() -> Hash* { Hash* _kw = new Hash(); #{kw_pairs.join(' ')} return _kw; }()"
+            kw_expr = Cpp.block_expr(
+              ["Hash* _kw = new Hash();"] + kw_pairs,
+              "_kw",
+              type: 'Hash*'
+            )
             "_block->m_call(univ, #{args_expr}, #{kw_expr})"
           end
 
@@ -1214,7 +1261,11 @@ module Frozone
             # `recv->aref(idx) op val` → `recv->aset(idx, that)`. Op
             # arg shape via na_or_wrap_args.
             op_arg = na_or_wrap_args(op, [val_str])
-            "([&]() -> BasicObject* { auto* #{recv_t} = #{recv_str}; auto* _idx = #{idx_array}; return #{recv_t}->op_aset(univ, new Array({#{idx_strs.join(", ")}, #{recv_t}->op_aref(univ, _idx)->#{cpp_op}(#{op_arg})})); }())"
+            Cpp.block_expr(
+              ["auto* #{recv_t} = #{recv_str};",
+               "auto* _idx = #{idx_array};"],
+              "#{recv_t}->op_aset(univ, new Array({#{idx_strs.join(", ")}, #{recv_t}->op_aref(univ, _idx)->#{cpp_op}(#{op_arg})}))"
+            )
           end
 
           # `recv[idx] ||= val` — read once, return if truthy, else
@@ -1304,14 +1355,14 @@ module Frozone
           def from_and(node, locals)
             l = from_expr(node.left_node, locals)
             r = from_expr(node.right_node, locals)
-            "([&]() -> BasicObject* { auto* _l = #{l}; return truthy(_l) ? (#{r}) : _l; }())"
+            Cpp.block_expr(["auto* _l = #{l};"], "truthy(_l) ? (#{r}) : _l")
           end
 
           # Ruby's `||` returns the first truthy value, else the last.
           def from_or(node, locals)
             l = from_expr(node.left_node, locals)
             r = from_expr(node.right_node, locals)
-            "([&]() -> BasicObject* { auto* _l = #{l}; return truthy(_l) ? _l : (#{r}); }())"
+            Cpp.block_expr(["auto* _l = #{l};"], "truthy(_l) ? _l : (#{r})")
           end
 
           # If-as-expression — `cond ? a : b` and `if cond; a; else; b; end`
@@ -1377,7 +1428,11 @@ module Frozone
                   "_r->data.push_back(#{from_expr(e, locals)});"
                 end
               end
-              "([&]() -> Array* { Array* _r = new Array(); #{push_lines.join(' ')} return _r; }())"
+              Cpp.block_expr(
+                ["Array* _r = new Array();"] + push_lines,
+                "_r",
+                type: 'Array*'
+              )
             else
               "(new Array({#{elems.map { |e| from_expr(e, locals) }.join(", ")}}))"
             end
@@ -1438,7 +1493,14 @@ module Frozone
             b = node.begin_node ? from_expr(node.begin_node, locals) : "nil_instance()"
             e = node.end_node   ? from_expr(node.end_node,   locals) : "nil_instance()"
             excl = node.exclusive ? "true" : "false"
-            "([&]() -> BasicObject* { Range* _r = new Range(); _r->begin_ = #{b}; _r->end_ = #{e}; _r->exclude_end_ = #{excl}; _r->initialized_ = true; return _r; }())"
+            Cpp.block_expr(
+              ["Range* _r = new Range();",
+               "_r->begin_ = #{b};",
+               "_r->end_ = #{e};",
+               "_r->exclude_end_ = #{excl};",
+               "_r->initialized_ = true;"],
+              "_r"
+            )
           end
 
           # `super` / `super(args)` — closed-world dispatch. The chain
@@ -1668,7 +1730,12 @@ module Frozone
           def from_regexp_literal(node)
             src_bytes = node.source.to_s.bytes
             literal = "(new String(#{cpp_string_literal(node.source.to_s)}, #{src_bytes.size}))"
-            "([&]() -> BasicObject* { Regexp* _re = new Regexp(); Array* _a = new Array({static_cast<BasicObject*>(#{literal}), static_cast<BasicObject*>(new Integer(#{node.flags.to_i}))}); _re->m_initialize(univ, _a); return _re; }())"
+            Cpp.block_expr(
+              ["Regexp* _re = new Regexp();",
+               "Array* _a = new Array({static_cast<BasicObject*>(#{literal}), static_cast<BasicObject*>(new Integer(#{node.flags.to_i}))});",
+               "_re->m_initialize(univ, _a);"],
+              "_re"
+            )
           end
 
           # `/foo#{bar}baz/` — build the source String at runtime by
@@ -1687,7 +1754,12 @@ module Frozone
                          end
               chain << "->op_plus(univ, new Array({#{part_str}}))"
             end
-            "([&]() -> BasicObject* { Regexp* _re = new Regexp(); Array* _a = new Array({static_cast<BasicObject*>(#{chain}), static_cast<BasicObject*>(new Integer(#{node.flags.to_i}))}); _re->m_initialize(univ, _a); return _re; }())"
+            Cpp.block_expr(
+              ["Regexp* _re = new Regexp();",
+               "Array* _a = new Array({static_cast<BasicObject*>(#{chain}), static_cast<BasicObject*>(new Integer(#{node.flags.to_i}))});",
+               "_re->m_initialize(univ, _a);"],
+              "_re"
+            )
           end
 
           # Float literal — Ruby's Float::INFINITY / Float::NAN
@@ -1718,7 +1790,12 @@ module Frozone
             when Vm::RegexpObject
               src = val.raw.source
               flags = val.raw.options
-              "([&]() -> BasicObject* { Regexp* _re = new Regexp(); Array* _a = new Array({static_cast<BasicObject*>((new String(#{cpp_string_literal(src)}, #{src.bytesize}))), static_cast<BasicObject*>(new Integer(#{flags}))}); _re->m_initialize(univ, _a); return _re; }())"
+              Cpp.block_expr(
+                ["Regexp* _re = new Regexp();",
+                 "Array* _a = new Array({static_cast<BasicObject*>((new String(#{cpp_string_literal(src)}, #{src.bytesize}))), static_cast<BasicObject*>(new Integer(#{flags}))});",
+                 "_re->m_initialize(univ, _a);"],
+                "_re"
+              )
             when Vm::ClassObject, Vm::ModuleObject
               flat = class_object_to_flat(val)
               raise EmissionError, "emit_leaf: #{val.class.name.split('::').last} #{val.full_name} not in emitted set" unless flat
@@ -1778,7 +1855,12 @@ module Frozone
               # value's source + options (raw.source / raw.options).
               src = val.raw.source
               flags = val.raw.options
-              "([&]() -> BasicObject* { Regexp* _re = new Regexp(); Array* _a = new Array({static_cast<BasicObject*>((new String(#{cpp_string_literal(src)}, #{src.bytesize}))), static_cast<BasicObject*>(new Integer(#{flags}))}); _re->m_initialize(univ, _a); return _re; }())"
+              Cpp.block_expr(
+                ["Regexp* _re = new Regexp();",
+                 "Array* _a = new Array({static_cast<BasicObject*>((new String(#{cpp_string_literal(src)}, #{src.bytesize}))), static_cast<BasicObject*>(new Integer(#{flags}))});",
+                 "_re->m_initialize(univ, _a);"],
+                "_re"
+              )
             when Vm::ClassObject, Vm::ModuleObject
               flat = class_object_to_flat(val)
               raise EmissionError, "emit_vm_value: #{val.class.name.split('::').last} #{val.full_name} not in emitted set" unless flat
