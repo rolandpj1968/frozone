@@ -157,6 +157,25 @@ module Frozone
                                  end
           end
 
+          # Wrap a try/catch in expression position. `try_expr` is the
+          # value-yielding expression for the success path; `catch_expr`
+          # is the value-yielding expression for the matched-exception
+          # path. `exception_decl` is the C++ exception declarator
+          # (e.g. `BreakException& e_`, `Exception* e_`, `...`).
+          #   - `iile`: `[&]() -> BO* { try { return T; } catch (D) { return C; } }()`
+          #   - `stmt_expr`: `({ BO* _r; try { _r = T; } catch (D) { _r = C; } _r; })`
+          # The stmt_expr form drops the closure overhead. The temp is
+          # needed because both paths yield a value into the surrounding
+          # expression context.
+          def self.try_catch_expr(try_expr, exception_decl, catch_expr)
+            case block_expr_form
+            when :stmt_expr
+              "({ BO* _r; try { _r = #{try_expr}; } catch (#{exception_decl}) { _r = #{catch_expr}; } _r; })"
+            else
+              "([&]() -> BO* { try { return #{try_expr}; } catch (#{exception_decl}) { return #{catch_expr}; } }())"
+            end
+          end
+
           # Wrap a sequence of statements that ends in a `throw` (or a
           # noreturn-call like `raise_private_call(...)`) into a
           # `BO*`-typed expression. The throw/noreturn never
@@ -1002,7 +1021,7 @@ module Frozone
           end
 
           def wrap_break_catch(call_expr)
-            "([&]() -> BO* { try { return #{call_expr}; } catch (BreakException& e_) { return e_.value; } }())"
+            Cpp.try_catch_expr(call_expr, "BreakException& e_", "e_.value")
           end
 
           # Stack-alloc the Proc instance when the call target is a known

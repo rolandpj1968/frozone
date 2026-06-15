@@ -70,6 +70,7 @@ module Frozone
           # ensure guard.
           def from_rescue(node, locals)
             check_no_break_next!(node, "rescue")
+            return from_rescue_stmt_expr(node, locals) if Cpp.block_expr_form == :stmt_expr
             # Every clause body is rendered as a nested C++ IIFE
             # (`[&]() -> BO* { ... }()`). A Ruby `return` inside
             # any of them must escape the IIFE — bare C++ `return` would
@@ -114,6 +115,56 @@ module Frozone
               buf << "throw; } }())"
               buf
             end
+          end
+
+          # stmt-expr form of from_rescue. No outer IILE wrap, no
+          # with_in_block: the surrounding in_block state propagates
+          # through the body / arm stmt-exprs unchanged, so Ruby `return v`
+          # at method-tail context becomes a direct C++ `return v;`
+          # (exits the method through EnsureGuard's destructor — correct
+          # because Ruby return runs `ensure` but skips `rescue`).
+          # A result temp `_r` collects the value from the success path
+          # OR the matching rescue arm; the stmt-expr yields it.
+          def from_rescue_stmt_expr(node, locals)
+            buf = +"({ "
+            if node.ensure_node
+              buf << "EnsureGuard _eg([&]() #{body_as_block(node.ensure_node, locals, last_is_return: false)}); "
+            end
+            buf << "BO* _r; try { "
+            if node.else_node
+              # Body's value discarded; else_node provides the value.
+              buf << "#{body_as_lambda_call(node.body, locals)}; "
+              buf << "_r = #{body_as_lambda_call(node.else_node, locals)}; "
+            else
+              buf << "_r = #{body_as_lambda_call(node.body, locals)}; "
+            end
+            buf << "} catch (Exception* e_) { "
+            first = true
+            (node.rescue_clauses || []).each do |clause|
+              cond = rescue_clause_condition(clause, locals)
+              bind_locals = locals.dup
+              bind_str = ""
+              if clause.var_name
+                bind_locals << clause.var_name.to_s
+                cpp_name = MethodEmitter.local_cpp_name(clause.var_name)
+                bind_str =
+                  if captured?(clause.var_name)
+                    "BO** #{cpp_name} = gc_box<BO*>(e_); "
+                  else
+                    "BO* #{cpp_name} = e_; "
+                  end
+              end
+              arm_call = body_as_lambda_call(clause.body, bind_locals)
+              keyword = first ? "if" : "else if"
+              buf << "#{keyword} (#{cond}) { #{bind_str}_r = #{arm_call}; } "
+              first = false
+            end
+            # No arm matched → rethrow (propagates through ensure guard).
+            # When there are no clauses (bare `begin/end/ensure`),
+            # the catch block just rethrows.
+            buf << (first ? "throw;" : "else { throw; }")
+            buf << " } _r; })"
+            buf
           end
 
           # Build the LUT-based condition for one rescue clause. Bare

@@ -67,7 +67,11 @@ module Frozone
               recv = receiver_node ? from_expr(receiver_node, locals) : "this"
               # Use the boolean form of respond_to? — mm_respond_to_q
               # returns true_instance/false_instance.
-              return %|([&]() -> BO* { try { return truthy(#{recv}->mm_respond_to_q(univ, new Array({intern(#{cpp_string_literal(method_name.to_s)})}))) ? static_cast<BO*>(new String("method", 6)) : nil_instance(); } catch (...) { return nil_instance(); } }())|
+              return Cpp.try_catch_expr(
+                %|truthy(#{recv}->mm_respond_to_q(univ, new Array({intern(#{cpp_string_literal(method_name.to_s)})}))) ? static_cast<BO*>(new String("method", 6)) : nil_instance()|,
+                "...",
+                "nil_instance()"
+              )
             end
             raise Cpp::EmissionError, "defined?(#{kind}) not yet supported in box-first"
           end

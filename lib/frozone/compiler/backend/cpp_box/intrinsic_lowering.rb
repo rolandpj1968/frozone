@@ -426,7 +426,13 @@ module Frozone
             },
             # Stubs for box-first; implement properly later. See aotcompile note.
             string_to_f: ->(self_) {
-              "([&]() -> BO* { auto* _s = static_cast<String*>(#{self_}); std::string _str(reinterpret_cast<const char*>(_s->bytes.data()), _s->bytes.size()); double _d = 0.0; try { _d = std::stod(_str); } catch (...) {} return new Float(_d); }())"
+              Cpp.block_expr(
+                ["auto* _s = static_cast<String*>(#{self_});",
+                 "std::string _str(reinterpret_cast<const char*>(_s->bytes.data()), _s->bytes.size());",
+                 "double _d = 0.0;",
+                 "try { _d = std::stod(_str); } catch (...) {}"],
+                "new Float(_d)"
+              )
             },
             string_to_r: ->(_self_) {
               "(&Rational_CLASS)->m_new(univ, new Array({static_cast<BO*>(new Integer(0)), static_cast<BO*>(new Integer(1))}))"
