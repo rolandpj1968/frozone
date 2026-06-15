@@ -688,10 +688,14 @@ module Frozone
             # auto-emits an m_new override that does
             # `Foo* obj = new Foo(); obj->m_initialize(args, ...); return obj;`.
 
-            # Block-bearing call site (other than the .times for-loop
-            # special-case which write_stmt handles): wrap the block as
-            # a Proc and pass as the third call-protocol arg.
-            has_block = node.block_node && !(name == :times && recv)
+            # Block-bearing call site: wrap the block as a Proc and pass
+            # as the third call-protocol arg. (`recv.times { ... }` in
+            # statement context is special-cased to a C++ for-loop by
+            # ExprEmitter#write_stmt BEFORE from_expr is reached; here
+            # we always preserve the block — dropping it in expression
+            # context would silently produce `m_times(nullptr)` and
+            # never execute the body. Soundness > slight Proc-alloc cost.)
+            has_block = !!node.block_node
             block_arg = has_block ? from_block_as_proc(node.block_node, locals) : "nil_instance()"
 
             # Natural-arity dispatch. If the target name is eligible
