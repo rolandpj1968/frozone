@@ -758,6 +758,7 @@ module Frozone
           # (cpp.in_block) so explicit Break/Return inside the branches
           # throw rather than fall through.
           def from_if_as_lambda(node, locals)
+            return from_if_as_stmt_expr(node, locals) if Cpp.block_expr_form == :stmt_expr
             # We wrap the if's branches in a C++ IIFE. A Ruby `return`
             # inside either branch must escape both the IIFE and the
             # enclosing method body — bare C++ `return` would only exit
@@ -787,6 +788,22 @@ module Frozone
               end
               "([&]() -> BO* { #{buf.gsub(/\s+/, ' ').strip} }())"
             end
+          end
+
+          # stmt-expr form of from_if_as_lambda — emits a plain C++
+          # ternary with stmt-expr arms, no IILE wrap, no with_in_block
+          # forcing. The outer in_block state propagates naturally:
+          # at method tail (in_block=false) a Ruby `return v` inside an
+          # arm becomes a direct C++ `return v;`, which exits the
+          # enclosing method correctly — no ReturnException + frame-id
+          # try/catch overhead. Inside a Proc block (in_block=true) the
+          # original ReturnException throw is still emitted, preserving
+          # block-return semantics.
+          def from_if_as_stmt_expr(node, locals)
+            pred = from_expr(node.pred_node, locals)
+            then_str = node.then_node ? body_as_stmt_expr_call(node.then_node, locals, next_returns: true) : "nil_instance()"
+            else_str = node.else_node ? body_as_stmt_expr_call(node.else_node, locals, next_returns: true) : "nil_instance()"
+            "(truthy(#{pred}) ? #{then_str} : #{else_str})"
           end
 
           # Pre-walk: among `own_local_names`, return the subset that
@@ -859,6 +876,7 @@ module Frozone
           # inside a lambda, which is invalid (lambda blocks loop scope).
           def from_case(node, locals)
             check_no_break_next!(node, "case-as-expression")
+            return from_case_stmt_expr(node, locals) if Cpp.block_expr_form == :stmt_expr
             # Each case-arm body is rendered via body_as_lambda_call —
             # nested C++ IIFE. Any Ruby `return` inside must escape both
             # the IIFE and the enclosing method. Force `in_block` so
@@ -866,6 +884,44 @@ module Frozone
             # break/next are pre-filtered by check_no_break_next!.
             emit.cpp.with_in_block do
               from_case_body(node, locals)
+            end
+          end
+
+          # stmt-expr form of from_case — ternary chain, no IILE wrap,
+          # no with_in_block forcing. Subject (when present) is declared
+          # once in an outer stmt-expr so the chain references `_subj`
+          # without re-evaluating the subject expression. Direct C++
+          # `return` inside an arm exits the enclosing method when the
+          # outer in_block is false (the common method-tail case).
+          def from_case_stmt_expr(node, locals)
+            default_str =
+              if node.else_node.nil?
+                "nil_instance()"
+              elsif contains_loop_escape?(node.else_node, allow_next: false)
+                from_expr(node.else_node, locals)
+              else
+                body_as_stmt_expr_call(node.else_node, locals)
+              end
+
+            result = default_str
+            node.whens.reverse_each do |w|
+              cond_strs = w.condition_nodes.map { |c|
+                c_s = from_expr(c, locals)
+                node.subject_node ? "truthy(#{c_s}->op_case_eq(univ, new Array({_subj})))" : "truthy(#{c_s})"
+              }
+              body_str =
+                if contains_loop_escape?(w.body_node, allow_next: false)
+                  from_expr(w.body_node, locals)
+                else
+                  body_as_stmt_expr_call(w.body_node, locals)
+                end
+              result = "((#{cond_strs.join(" || ")}) ? #{body_str} : #{result})"
+            end
+
+            if node.subject_node
+              "({ auto* _subj = #{from_expr(node.subject_node, locals)}; #{result}; })"
+            else
+              result
             end
           end
 
