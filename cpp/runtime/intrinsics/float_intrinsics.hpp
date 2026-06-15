@@ -51,6 +51,14 @@ BasicObject* intrinsic_float_lgamma(BasicObject* self_);
 // Infinity for poles / overflow; NaN for invalid inputs).
 BasicObject* intrinsic_float_gamma(BasicObject* self_);
 
+// IEEE 754 round-trip primitives used by Array#pack / String#unpack.
+// width is 4 (binary32 — coerce double to float) or 8 (binary64 raw).
+// Returns big-endian byte string; the Ruby pack/unpack code reverses
+// the bytes for little-endian directives. Keeping these BE-only here
+// halves the surface; reversing 4-8 bytes in Ruby is cheap.
+BasicObject* intrinsic_float_to_ieee_be(BasicObject* self_, BasicObject* width_);
+BasicObject* intrinsic_float_from_ieee_be(BasicObject* str_, BasicObject* width_);
+
 
 }  // namespace Ruby
 

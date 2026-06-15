@@ -76,5 +76,50 @@ BasicObject* intrinsic_float_gamma(BasicObject* self_) {
   return new Float(std::tgamma(static_cast<Float*>(self_)->raw_));
 }
 
+BasicObject* intrinsic_float_to_ieee_be(BasicObject* self_, BasicObject* width_) {
+  double d = static_cast<Float*>(self_)->raw_;
+  std::int64_t w = static_cast<Integer*>(width_)->raw_;
+  auto* r = new String();
+  r->enc = String::BINARY;
+  if (w == 8) {
+    std::uint64_t bits;
+    std::memcpy(&bits, &d, 8);
+    r->bytes.resize(8);
+    for (int i = 0; i < 8; i++) r->bytes[i] = static_cast<std::uint8_t>((bits >> ((7 - i) * 8)) & 0xFF);
+  } else if (w == 4) {
+    float f = static_cast<float>(d);
+    std::uint32_t bits;
+    std::memcpy(&bits, &f, 4);
+    r->bytes.resize(4);
+    for (int i = 0; i < 4; i++) r->bytes[i] = static_cast<std::uint8_t>((bits >> ((3 - i) * 8)) & 0xFF);
+  } else {
+    throw_type_error("float_to_ieee_be: width must be 4 or 8");
+  }
+  return r;
+}
+
+BasicObject* intrinsic_float_from_ieee_be(BasicObject* str_, BasicObject* width_) {
+  auto* s = static_cast<String*>(str_);
+  std::int64_t w = static_cast<Integer*>(width_)->raw_;
+  if (static_cast<std::int64_t>(s->bytes.size()) < w) {
+    throw_index_error("float_from_ieee_be: not enough bytes");
+  }
+  if (w == 8) {
+    std::uint64_t bits = 0;
+    for (int i = 0; i < 8; i++) bits = (bits << 8) | s->bytes[i];
+    double d;
+    std::memcpy(&d, &bits, 8);
+    return new Float(d);
+  } else if (w == 4) {
+    std::uint32_t bits = 0;
+    for (int i = 0; i < 4; i++) bits = (bits << 8) | s->bytes[i];
+    float f;
+    std::memcpy(&f, &bits, 4);
+    return new Float(static_cast<double>(f));
+  }
+  throw_type_error("float_from_ieee_be: width must be 4 or 8");
+  return nil_instance();
+}
+
 
 }  // namespace Ruby

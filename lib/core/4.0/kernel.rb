@@ -614,4 +614,51 @@ module Kernel
     symbol = symbol.to_sym if symbol.is_a?(String)
     Intrinsics.globals_trace_var_remove(self, symbol, cmd)
   end
+
+  # Parse an Array#pack / String#unpack format string into a list of
+  # [directive_char_byte, count, endian] tuples. `count` is nil
+  # (no count), :star (`*`), or a positive Integer. `endian` is :le
+  # (`<` modifier), :be (`>` modifier), or nil (use directive's
+  # default). Whitespace is skipped; `_` / `!` (native-size markers)
+  # are recognised but treated as no-ops since we always use the
+  # explicit-width directives' fixed sizes.
+  def __parse_pack_format__(fmt)
+    result = []
+    bs = fmt.bytes
+    i = 0
+    n = bs.length
+    while i < n
+      ch = bs[i]
+      i += 1
+      next if ch == 0x20 || ch == 0x09 || ch == 0x0A
+      endian = nil
+      while i < n
+        c = bs[i]
+        if c == 0x3C
+          endian = :le
+          i += 1
+        elsif c == 0x3E
+          endian = :be
+          i += 1
+        elsif c == 0x5F || c == 0x21
+          i += 1
+        else
+          break
+        end
+      end
+      count = nil
+      if i < n && bs[i] == 0x2A
+        count = :star
+        i += 1
+      elsif i < n && bs[i] >= 0x30 && bs[i] <= 0x39
+        count = 0
+        while i < n && bs[i] >= 0x30 && bs[i] <= 0x39
+          count = count * 10 + (bs[i] - 0x30)
+          i += 1
+        end
+      end
+      result << [ch, count, endian]
+    end
+    result
+  end
 end

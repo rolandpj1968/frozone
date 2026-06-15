@@ -77,11 +77,18 @@ RSpec.describe "Float intrinsic lowering" do
     end
   end
 
-  describe "still-deferred (Rational / domain-raise) intrinsics raise" do
-    %i[float_to_r float_rationalize float_gamma].each do |name|
-      it "#{name} is not yet lowered" do
-        expect { lower(name, "x") }.to raise_error(Frozone::Compiler::Backend::CppBox::Cpp::EmissionError)
-      end
+  describe "auto-stubs for not-yet-implemented intrinsics" do
+    it "float_to_r emits a not_implemented stub" do
+      expect(lower(:float_to_r, "x")).to eq('intrinsic_not_implemented("float_to_r")')
+    end
+  end
+
+  describe "now-lowered (Phase 2 / Tier 3 graduations)" do
+    it "float_rationalize is pure Ruby now, the intrinsic auto-stubs" do
+      expect(lower(:float_rationalize, "x")).to eq('intrinsic_not_implemented("float_rationalize")')
+    end
+    it "float_gamma lowers via HPP_INTRINSICS" do
+      expect(lower(:float_gamma, "x")).to eq("intrinsic_float_gamma(x)")
     end
   end
 end

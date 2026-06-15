@@ -105,6 +105,19 @@ module Frozone
             raise FrozoneException.new(FrozoneException.wrap_mri(e), e.message)
           end
         end
+
+        # IEEE 754 round-trip — leverage MRI's pack/unpack for the
+        # bridge so interpreted-mode behaviour matches the box-first
+        # C++ intrinsic to the bit.
+        def float_to_ieee_be(_, v, width)
+          fmt = width.raw == 8 ? 'G' : 'g'
+          n2f_str([v.raw].pack(fmt).force_encoding(::Encoding::BINARY))
+        end
+
+        def float_from_ieee_be(_, s, width)
+          fmt = width.raw == 8 ? 'G' : 'g'
+          n2f_float(s.raw.unpack1(fmt))
+        end
       end
     end
   end

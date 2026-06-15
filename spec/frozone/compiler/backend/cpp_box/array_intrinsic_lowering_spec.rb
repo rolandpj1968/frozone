@@ -23,11 +23,9 @@ RSpec.describe "Array intrinsic lowering" do
     end
   end
 
-  describe "Phase 2 (RNG / freeze / splat / complex) still deferred" do
-    %i[array_sample array_clone array_unshift array_initialize].each do |name|
-      it "#{name} is not yet lowered" do
-        expect { lower(name, "a") }.to raise_error(Frozone::Compiler::Backend::CppBox::Cpp::EmissionError)
-      end
+  describe "auto-stubs for not-yet-implemented intrinsics" do
+    it "array_clone emits a not_implemented stub" do
+      expect(lower(:array_clone, "a")).to eq('intrinsic_not_implemented("array_clone")')
     end
   end
 end

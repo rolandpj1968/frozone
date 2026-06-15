@@ -68,7 +68,6 @@ module Frozone
           # reachable auto-stubs (loud abort). The benchmark round upgrades
           # demand-proven stubs into this queue / into real impls.
           IMPLEMENT_QUEUE = Set.new(%i[
-            array_pack
           ]).freeze
 
           # Names with `intrinsic_<name>(...)` definitions in
@@ -82,6 +81,7 @@ module Frozone
             dbg_write
             float_ceil float_floor float_truncate float_round
             float_frexp float_lgamma float_gamma
+            float_to_ieee_be float_from_ieee_be
             io_raw_write_stdout io_raw_write_stderr
             string_index string_slice string_split string_chars
             string_inspect string_hash string_to_sym string_to_i_base

@@ -41,7 +41,97 @@ class Array
   alias inspect to_s
   def to_ary = self
   def dup = Intrinsics.array_dup(self)
-  def pack(fmt, buffer: nil) = Intrinsics.array_pack(self, fmt, buffer)
+  def pack(fmt, buffer: nil)
+    result = buffer || String.new
+    result.force_encoding(Encoding::BINARY)
+    arg_idx = 0
+    __parse_pack_format__(fmt).each do |dir, count, endian|
+      case dir
+      when 0x43, 0x63 # 'C' 'c' — 1-byte
+        n = __pack_repeat__(count, arg_idx, length)
+        n.times { result << (self[arg_idx].to_int & 0xFF); arg_idx += 1 }
+      when 0x53, 0x73 # 'S' 's' — 2-byte (native = LE)
+        n = __pack_repeat__(count, arg_idx, length)
+        n.times { result << __pack_int_bytes__(self[arg_idx].to_int, 2, endian == :be); arg_idx += 1 }
+      when 0x6E # 'n' — 2-byte BE
+        n = __pack_repeat__(count, arg_idx, length)
+        n.times { result << __pack_int_bytes__(self[arg_idx].to_int, 2, true); arg_idx += 1 }
+      when 0x76 # 'v' — 2-byte LE
+        n = __pack_repeat__(count, arg_idx, length)
+        n.times { result << __pack_int_bytes__(self[arg_idx].to_int, 2, false); arg_idx += 1 }
+      when 0x4C, 0x6C # 'L' 'l' — 4-byte (native = LE)
+        n = __pack_repeat__(count, arg_idx, length)
+        n.times { result << __pack_int_bytes__(self[arg_idx].to_int, 4, endian == :be); arg_idx += 1 }
+      when 0x4E # 'N' — 4-byte BE
+        n = __pack_repeat__(count, arg_idx, length)
+        n.times { result << __pack_int_bytes__(self[arg_idx].to_int, 4, true); arg_idx += 1 }
+      when 0x56 # 'V' — 4-byte LE
+        n = __pack_repeat__(count, arg_idx, length)
+        n.times { result << __pack_int_bytes__(self[arg_idx].to_int, 4, false); arg_idx += 1 }
+      when 0x51, 0x71, 0x4A, 0x6A # 'Q' 'q' 'J' 'j' — 8-byte
+        n = __pack_repeat__(count, arg_idx, length)
+        n.times { result << __pack_int_bytes__(self[arg_idx].to_int, 8, endian == :be); arg_idx += 1 }
+      when 0x46, 0x66 # 'F' 'f' — 4-byte float (native = LE)
+        n = __pack_repeat__(count, arg_idx, length)
+        n.times { result << __pack_float_bytes__(self[arg_idx].to_f, 4, endian == :be); arg_idx += 1 }
+      when 0x44, 0x64 # 'D' 'd' — 8-byte double (native = LE)
+        n = __pack_repeat__(count, arg_idx, length)
+        n.times { result << __pack_float_bytes__(self[arg_idx].to_f, 8, endian == :be); arg_idx += 1 }
+      when 0x65 # 'e' — 4-byte LE float
+        n = __pack_repeat__(count, arg_idx, length)
+        n.times { result << __pack_float_bytes__(self[arg_idx].to_f, 4, false); arg_idx += 1 }
+      when 0x67 # 'g' — 4-byte BE float
+        n = __pack_repeat__(count, arg_idx, length)
+        n.times { result << __pack_float_bytes__(self[arg_idx].to_f, 4, true); arg_idx += 1 }
+      when 0x45 # 'E' — 8-byte LE double
+        n = __pack_repeat__(count, arg_idx, length)
+        n.times { result << __pack_float_bytes__(self[arg_idx].to_f, 8, false); arg_idx += 1 }
+      when 0x47 # 'G' — 8-byte BE double
+        n = __pack_repeat__(count, arg_idx, length)
+        n.times { result << __pack_float_bytes__(self[arg_idx].to_f, 8, true); arg_idx += 1 }
+      when 0x41, 0x61, 0x5A # 'A' 'a' 'Z' — string
+        str = self[arg_idx].to_s
+        arg_idx += 1
+        pad = (dir == 0x41) ? 0x20 : 0x00
+        if count == :star
+          result << str.b
+          result << "\x00".b if dir == 0x5A
+        else
+          n = count.nil? ? 1 : count
+          bs = str.b.bytes
+          if bs.length >= n
+            n.times { |i| result << bs[i] }
+          else
+            bs.each { |b| result << b }
+            (n - bs.length).times { result << pad }
+          end
+        end
+      when 0x55 # 'U' — UTF-8 codepoint
+        n = __pack_repeat__(count, arg_idx, length)
+        n.times do
+          cp = self[arg_idx].to_int
+          arg_idx += 1
+          result << __utf8_encode_codepoint__(cp)
+        end
+      when 0x78 # 'x' — null byte
+        n = count.nil? ? 1 : (count == :star ? 0 : count)
+        n.times { result << "\x00" }
+      when 0x58 # 'X' — back up one byte
+        n = count.nil? ? 1 : (count == :star ? 0 : count)
+        result.bytesize >= n ? (result.bytesplice(result.bytesize - n, n, "")) : (raise ArgumentError, "X outside of string")
+      when 0x40 # '@' — absolute position
+        n = count.nil? ? 0 : (count == :star ? result.bytesize : count)
+        if n > result.bytesize
+          (n - result.bytesize).times { result << "\x00" }
+        elsif n < result.bytesize
+          result.bytesplice(n, result.bytesize - n, "")
+        end
+      else
+        raise ArgumentError, "unsupported pack directive: #{dir.chr}"
+      end
+    end
+    result
+  end
   def compact = reject { |x| x.nil? }
   def compact! = __bang__ { compact }
   def include?(elem) = any? { |x| x == elem }
@@ -1744,6 +1834,74 @@ class Array
     end
     raise ArgumentError, "wrong array length at #{idx} (expected 2, was #{pair.length})" unless pair.length == 2
     pair
+  end
+
+  # Repeat count for one pack directive. nil → 1 element; :star →
+  # consume all remaining; Integer → that many.
+  def __pack_repeat__(count, arg_idx, len)
+    case count
+    when nil then 1
+    when :star then len - arg_idx
+    else count
+    end
+  end
+
+  # Emit `width` bytes of a 2's-complement integer in BE/LE order.
+  # Ruby's signed shift gives the right bit pattern for negative `v`
+  # (e.g. -1 → 0xFF...F per width), so no explicit unsigned mask
+  # needed even at width 8 (where 1 << 64 would overflow Int64).
+  # On a BINARY receiver, `<< Integer` appends a single raw byte.
+  def __pack_int_bytes__(v, width, big_endian)
+    s = String.new(encoding: Encoding::BINARY)
+    if big_endian
+      i = width - 1
+      while i >= 0
+        s << ((v >> (i * 8)) & 0xFF)
+        i -= 1
+      end
+    else
+      i = 0
+      while i < width
+        s << ((v >> (i * 8)) & 0xFF)
+        i += 1
+      end
+    end
+    s
+  end
+
+  # Float to IEEE 754 bytes. Calls the BE intrinsic, byte-reverses
+  # for LE. width is 4 (binary32) or 8 (binary64).
+  def __pack_float_bytes__(f, width, big_endian)
+    be = Intrinsics.float_to_ieee_be(f, width)
+    big_endian ? be : __reverse_bytes__(be)
+  end
+
+  def __reverse_bytes__(s)
+    out = String.new(encoding: Encoding::BINARY)
+    bs = s.bytes
+    (bs.length - 1).downto(0) { |i| out << bs[i] }
+    out
+  end
+
+  # Encode an Integer codepoint as UTF-8 bytes into a BINARY String.
+  def __utf8_encode_codepoint__(cp)
+    s = String.new(encoding: Encoding::BINARY)
+    if cp < 0x80
+      s << cp
+    elsif cp < 0x800
+      s << (0xC0 | (cp >> 6))
+      s << (0x80 | (cp & 0x3F))
+    elsif cp < 0x10000
+      s << (0xE0 | (cp >> 12))
+      s << (0x80 | ((cp >> 6) & 0x3F))
+      s << (0x80 | (cp & 0x3F))
+    else
+      s << (0xF0 | (cp >> 18))
+      s << (0x80 | ((cp >> 12) & 0x3F))
+      s << (0x80 | ((cp >> 6) & 0x3F))
+      s << (0x80 | (cp & 0x3F))
+    end
+    s
   end
 
 end

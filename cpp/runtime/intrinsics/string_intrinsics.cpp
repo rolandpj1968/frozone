@@ -412,7 +412,7 @@ namespace {
       return __string_bytes_eq_lit__(enc, "ASCII-8BIT") ||
              __string_bytes_eq_lit__(enc, "BINARY");
     }
-    BasicObject* name_obj = enc->m_name();
+    BasicObject* name_obj = enc->m_name(univ, &EMPTY_ARGS, &EMPTY_KWARGS, nil_instance());
     return __string_bytes_eq_lit__(name_obj, "ASCII-8BIT");
   }
 }
@@ -720,9 +720,16 @@ BasicObject* intrinsic_string_concat(BasicObject* self_, BasicObject* other) {
 }
 
 BasicObject* intrinsic_string_concat_codepoint(BasicObject* self_, BasicObject* cp) {
-  // cp is an Integer codepoint — encode as UTF-8 onto self.
+  // cp is an Integer codepoint — encode as UTF-8 onto self, except
+  // for BINARY strings where 0..255 push as a raw byte (matches MRI's
+  // `bin_str << 255` → single-byte append, used by pack code).
   auto* s = static_cast<String*>(self_);
   int64_t c = static_cast<Integer*>(cp)->raw_;
+  if (s->enc == String::BINARY && c >= 0 && c < 0x100) {
+    s->bytes.push_back(static_cast<uint8_t>(c));
+    s->length_cache_ = -1;
+    return s;
+  }
   if (c < 0x80) {
     s->bytes.push_back(static_cast<uint8_t>(c));
   } else if (c < 0x800) {

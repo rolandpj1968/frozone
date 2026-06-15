@@ -120,8 +120,111 @@ class String
   def [](idx, len = :__unset__) = Intrinsics.string_slice(self, idx, len)
   alias slice []
   def b = dup.tap { |r| r.force_encoding(Encoding::BINARY) }
-  def unpack(fmt, offset: nil) = Intrinsics.string_unpack(self, __coerce_to_str__(fmt), offset)
-  def unpack1(fmt, offset: nil) = Intrinsics.string_unpack1(self, __coerce_to_str__(fmt), offset)
+  def unpack1(fmt, offset: nil)
+    r = unpack(fmt, offset: offset)
+    r.empty? ? nil : r.first
+  end
+
+  def unpack(fmt, offset: nil)
+    fmt = __coerce_to_str__(fmt)
+    bs = bytes
+    pos = offset || 0
+    out = []
+    __parse_pack_format__(fmt).each do |dir, count, endian|
+      case dir
+      when 0x43 # 'C' — unsigned 8-bit
+        pos = __unpack_ints__(out, bs, pos, count, 1, false, false)
+      when 0x63 # 'c' — signed 8-bit
+        pos = __unpack_ints__(out, bs, pos, count, 1, false, true)
+      when 0x53 # 'S' — unsigned 16-bit native(LE)/<>
+        pos = __unpack_ints__(out, bs, pos, count, 2, endian == :be, false)
+      when 0x73 # 's' — signed 16-bit
+        pos = __unpack_ints__(out, bs, pos, count, 2, endian == :be, true)
+      when 0x6E # 'n' — unsigned 16-bit BE
+        pos = __unpack_ints__(out, bs, pos, count, 2, true, false)
+      when 0x76 # 'v' — unsigned 16-bit LE
+        pos = __unpack_ints__(out, bs, pos, count, 2, false, false)
+      when 0x4C # 'L' — unsigned 32-bit
+        pos = __unpack_ints__(out, bs, pos, count, 4, endian == :be, false)
+      when 0x6C # 'l' — signed 32-bit
+        pos = __unpack_ints__(out, bs, pos, count, 4, endian == :be, true)
+      when 0x4E # 'N' — unsigned 32-bit BE
+        pos = __unpack_ints__(out, bs, pos, count, 4, true, false)
+      when 0x56 # 'V' — unsigned 32-bit LE
+        pos = __unpack_ints__(out, bs, pos, count, 4, false, false)
+      when 0x51, 0x4A # 'Q' 'J' — unsigned 64-bit (treated as signed at Int64 limit)
+        pos = __unpack_ints__(out, bs, pos, count, 8, endian == :be, true)
+      when 0x71, 0x6A # 'q' 'j' — signed 64-bit
+        pos = __unpack_ints__(out, bs, pos, count, 8, endian == :be, true)
+      when 0x46, 0x66 # 'F' 'f' — 4-byte float
+        pos = __unpack_floats__(out, bs, pos, count, 4, endian == :be)
+      when 0x44, 0x64 # 'D' 'd' — 8-byte double
+        pos = __unpack_floats__(out, bs, pos, count, 8, endian == :be)
+      when 0x65 # 'e' — 4-byte LE
+        pos = __unpack_floats__(out, bs, pos, count, 4, false)
+      when 0x67 # 'g' — 4-byte BE
+        pos = __unpack_floats__(out, bs, pos, count, 4, true)
+      when 0x45 # 'E' — 8-byte LE
+        pos = __unpack_floats__(out, bs, pos, count, 8, false)
+      when 0x47 # 'G' — 8-byte BE
+        pos = __unpack_floats__(out, bs, pos, count, 8, true)
+      when 0x41, 0x61, 0x5A # 'A' 'a' 'Z'
+        len = case count
+              when nil then 1
+              when :star then bs.length - pos
+              else [count, bs.length - pos].min
+              end
+        slice_bytes = bs[pos, len] || []
+        s = String.new(encoding: Encoding::BINARY)
+        # 'A' (space-padded) and 'Z' (null-terminated) trim trailing
+        # padding; 'a' returns the raw slice.
+        if dir == 0x5A && count == :star
+          stop = slice_bytes.index(0)
+          slice_bytes = stop ? slice_bytes[0, stop] : slice_bytes
+          slice_bytes.each { |b| s << b }
+        elsif dir == 0x41
+          slice_bytes.each { |b| s << b }
+          while !s.empty? && (s.bytes.last == 0x20 || s.bytes.last == 0x00)
+            s.bytesplice(s.bytesize - 1, 1, "")
+          end
+        elsif dir == 0x5A
+          slice_bytes.each { |b| s << b }
+          stop = s.bytes.index(0)
+          s = s[0, stop].b if stop
+        else
+          slice_bytes.each { |b| s << b }
+        end
+        out << s
+        pos += len
+      when 0x55 # 'U' — UTF-8 codepoint
+        n = count.nil? ? 1 : (count == :star ? -1 : count)
+        emitted = 0
+        while n < 0 || emitted < n
+          break if pos >= bs.length
+          cp, consumed = __utf8_decode_codepoint__(bs, pos)
+          break if cp.nil?
+          out << cp
+          pos += consumed
+          emitted += 1
+        end
+      when 0x78 # 'x' — skip forward
+        n = count.nil? ? 1 : (count == :star ? bs.length - pos : count)
+        raise ArgumentError, "x outside of string" if pos + n > bs.length
+        pos += n
+      when 0x58 # 'X' — back up
+        n = count.nil? ? 1 : (count == :star ? 0 : count)
+        raise ArgumentError, "X outside of string" if pos < n
+        pos -= n
+      when 0x40 # '@' — absolute position
+        n = count.nil? ? 0 : (count == :star ? bs.length : count)
+        raise ArgumentError, "@ outside of string" if n < 0 || n > bs.length
+        pos = n
+      else
+        raise ArgumentError, "unsupported unpack directive: #{dir.chr}"
+      end
+    end
+    out
+  end
   def tr_s(from, to) = Intrinsics.string_tr_s(self, __coerce_to_str__(from), __coerce_to_str__(to))
   def include?(s) = !index(__coerce_to_str__(s)).nil?
 
@@ -1181,5 +1284,75 @@ class String
     padstr = __coerce_to_str__(padstr)
     raise ArgumentError, "zero width padding" if padstr.empty?
     [width, padstr]
+  end
+
+  # Read `count` integers of `width` bytes each from `bs` starting at
+  # `pos`. nil count → 1, :star → as many as fit. Returns the new
+  # position. Pushes each Integer into `out`.
+  def __unpack_ints__(out, bs, pos, count, width, big_endian, signed)
+    available = (bs.length - pos) / width
+    n = case count
+        when nil then 1
+        when :star then available
+        else [count, available].min
+        end
+    n.times do
+      v = 0
+      if big_endian
+        width.times { |i| v = (v << 8) | bs[pos + i] }
+      else
+        (width - 1).downto(0) { |i| v = (v << 8) | bs[pos + i] }
+      end
+      # Sign-extend for widths < 8. Width 8 already gets a signed
+      # bit pattern in Int64 from the bit-or chain (the high byte
+      # populates the sign bit), so the resulting Integer is
+      # already negative when it should be. Width 8 unsigned with
+      # bit 63 set is the known soundness gap (no BigInt yet).
+      if signed && width < 8 && (v & (1 << (width * 8 - 1))) != 0
+        v -= (1 << (width * 8))
+      end
+      out << v
+      pos += width
+    end
+    pos
+  end
+
+  # Read `count` floats of `width` bytes each. Same shape as ints.
+  def __unpack_floats__(out, bs, pos, count, width, big_endian)
+    available = (bs.length - pos) / width
+    n = case count
+        when nil then 1
+        when :star then available
+        else [count, available].min
+        end
+    n.times do
+      slice_bytes = bs[pos, width]
+      s = String.new(encoding: Encoding::BINARY)
+      if big_endian
+        slice_bytes.each { |b| s << b }
+      else
+        (width - 1).downto(0) { |i| s << slice_bytes[i] }
+      end
+      out << Intrinsics.float_from_ieee_be(s, width)
+      pos += width
+    end
+    pos
+  end
+
+  # Decode a UTF-8 codepoint starting at bs[pos]. Returns [cp, bytes_consumed].
+  def __utf8_decode_codepoint__(bs, pos)
+    b0 = bs[pos]
+    return [nil, 0] if b0.nil?
+    if b0 < 0x80
+      [b0, 1]
+    elsif (b0 & 0xE0) == 0xC0 && pos + 1 < bs.length
+      [((b0 & 0x1F) << 6) | (bs[pos + 1] & 0x3F), 2]
+    elsif (b0 & 0xF0) == 0xE0 && pos + 2 < bs.length
+      [((b0 & 0x0F) << 12) | ((bs[pos + 1] & 0x3F) << 6) | (bs[pos + 2] & 0x3F), 3]
+    elsif (b0 & 0xF8) == 0xF0 && pos + 3 < bs.length
+      [((b0 & 0x07) << 18) | ((bs[pos + 1] & 0x3F) << 12) | ((bs[pos + 2] & 0x3F) << 6) | (bs[pos + 3] & 0x3F), 4]
+    else
+      [b0, 1]
+    end
   end
 end
