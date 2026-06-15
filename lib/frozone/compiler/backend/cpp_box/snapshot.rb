@@ -115,14 +115,14 @@ module Frozone
               # matching the prior ObjectObject-constant accessor shape.
               KernelFn.new(
                 name: n.accessor,
-                signature: "BasicObject*& #{n.accessor}()",
-                body: "static BasicObject* val = static_cast<BasicObject*>(#{alloc_expr(n)}); return val;",
+                signature: "BO*& #{n.accessor}()",
+                body: "static BO* val = static_cast<BO*>(#{alloc_expr(n)}); return val;",
               )
             end
             routers = @aliases.map do |name, target|
               KernelFn.new(
                 name: name,
-                signature: "BasicObject* #{name}()",
+                signature: "BO* #{name}()",
                 body: "return #{target}();",
               )
             end
@@ -141,7 +141,7 @@ module Frozone
           # `structs` are the class flat-names whose definitions the lines
           # need *complete* (cast targets / constructed types) — for precise
           # per-TU includes, so the per-owner TU never parses full layouts.
-          # Element/value references are BasicObject* accessors, so they add
+          # Element/value references are BO* accessors, so they add
           # nothing.
           def wire_groups
             groups = Hash.new { |h, k| h[k] = { lines: [], structs: Set.new } }

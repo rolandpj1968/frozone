@@ -136,7 +136,7 @@ module Frozone
           # Use this for STRAIGHT-LINE blocks: declarations + side-effects
           # + a single final value. For early-return shapes, use
           # `block_expr_with_returns` (TODO) or restructure as a ternary.
-          def self.block_expr(stmts, value_expr, type: 'BasicObject*')
+          def self.block_expr(stmts, value_expr, type: 'BO*')
             joined = stmts.empty? ? '' : "#{stmts.join(' ')} "
             case block_expr_form
             when :stmt_expr
@@ -159,15 +159,15 @@ module Frozone
 
           # Wrap a sequence of statements that ends in a `throw` (or a
           # noreturn-call like `raise_private_call(...)`) into a
-          # `BasicObject*`-typed expression. The throw/noreturn never
+          # `BO*`-typed expression. The throw/noreturn never
           # returns, so there's no need for the caller to use the value.
-          #   - `iile`: `([&]() -> BasicObject* { stmts }())` (no return —
-          #     the lambda still has type `BasicObject*` because the
+          #   - `iile`: `([&]() -> BO* { stmts }())` (no return —
+          #     the lambda still has type `BO*` because the
           #     declared return type wins).
           #   - `stmt_expr`: `({ stmts nil_instance(); })` — gcc's
           #     stmt-expr types as its last expression, which is `void`
           #     for a bare `throw;`. Append a `nil_instance()` sentinel
-          #     to give the construct a `BasicObject*` type, matching
+          #     to give the construct a `BO*` type, matching
           #     the codegen's standard "no useful value" idiom (cf.
           #     missing-else branches that lower to `else { nil_instance(); }`).
           #     The trailing `nil_instance()` load is unreachable —
@@ -178,7 +178,7 @@ module Frozone
             when :stmt_expr
               "({ #{joined}nil_instance(); })"
             else
-              "([&]() -> BasicObject* { #{joined}}())"
+              "([&]() -> BO* { #{joined}}())"
             end
           end
 
@@ -221,7 +221,7 @@ module Frozone
           # Set of local-variable NAMES (as Strings) that are captured
           # by an inner Block/Lambda within the currently-emitting
           # scope. Captured locals are emitted as heap-allocated cells
-          # (`BasicObject** l_x = gc_box<BasicObject*>(initial);`) and
+          # (`BO** l_x = gc_box<BO*>(initial);`) and
           # accessed via `*deref` so that an inner lambda can capture
           # the cell pointer by value and outlive the enclosing stack
           # frame — fixes the dangling-by-reference closure bug.
@@ -264,13 +264,13 @@ module Frozone
           # NA-with-block declares `Proc* block = nullptr`; bodies use
           # `_block != nullptr` for block_given?. Universal-slot bodies
           # use `_block != nil_instance()` (Phase-1 invariant: block
-          # is BasicObject* and never C++ nullptr). The block_given?
+          # is BO* and never C++ nullptr). The block_given?
           # lowering in from_method_call switches on this flag.
           attr_accessor :block_is_nullable
           # Class variables seen during emission. Mapped: host-class flat
           # name (e.g. `:Frozone_Vm_ObjectObject`) → set of cvar names
           # (without the `@@` prefix). Each entry becomes a top-level
-          # `static BasicObject* cv_<flat>__<name> = nil_instance();`
+          # `static BO* cv_<flat>__<name> = nil_instance();`
           # in the post-class out-of-line section.
           attr_reader :class_vars
 
@@ -441,7 +441,7 @@ module Frozone
               rhs = from_expr(node.value_node, locals)
               if locals.include?(node.name.to_s)
                 cpp = MethodEmitter.local_cpp_name(node.name)
-                # Captured locals are heap cells (BasicObject**) — write
+                # Captured locals are heap cells (BO**) — write
                 # via *deref so inner lambdas that captured the cell
                 # pointer see the same heap memory.
                 captured?(node.name) ? "(*#{cpp} = #{rhs})" : "(#{cpp} = #{rhs})"
@@ -604,7 +604,7 @@ module Frozone
                 @cst_lift_cache = prev_cache
               end
               tmp = "_csat_#{next_tmp_id}"
-              tmp_decls << "BasicObject* #{tmp} = #{rendered};"
+              tmp_decls << "BO* #{tmp} = #{rendered};"
               @cst_lift_cache[sub.object_id] = tmp
             end
             lift.call(recv) if recv
@@ -910,7 +910,7 @@ module Frozone
                 kn = k.value.to_sym
                 ["_kw_#{kn}_v", from_expr(v, locals)]
               end
-              decls = (pos_temps + kw_source_temps).map { |n, e| "BasicObject* #{n} = #{e};" }.join(' ')
+              decls = (pos_temps + kw_source_temps).map { |n, e| "BO* #{n} = #{e};" }.join(' ')
               pos_refs = pos_temps.map(&:first)
               pos_pad_refs = Array.new(kw_sig.arity_req + kw_sig.opt - arg_nodes.length, "unset_instance()")
               kw_refs = kw_sig.all_kw_names.map do |kn|
@@ -919,7 +919,7 @@ module Frozone
               call_csv = (pos_refs + pos_pad_refs + kw_refs).join(', ')
               if recv && node.safe_nav
                 recv_str = from_expr(recv, locals)  # safe_nav: visibility check deferred — would need to fold into the nil short-circuit IIFE
-                return "([&]() -> BasicObject* { auto* _r = #{recv_str}; if (_r == nil_instance()) return nil_instance(); #{decls} return _r->#{Cpp.method_name(name)}(#{call_csv}); }())"
+                return "([&]() -> BO* { auto* _r = #{recv_str}; if (_r == nil_instance()) return nil_instance(); #{decls} return _r->#{Cpp.method_name(name)}(#{call_csv}); }())"
               elsif recv
                 recv_str = recv_with_visibility_check(recv, locals)
                 return Cpp.block_expr(
@@ -982,7 +982,7 @@ module Frozone
                 # intrinsic_kernel_puts's empty-array branch.
                 args = arg_nodes.map { |a| from_arg(a, locals) }
                 if args.empty?
-                  "(ruby_puts(static_cast<BasicObject*>(nullptr)), nil_instance())"
+                  "(ruby_puts(static_cast<BO*>(nullptr)), nil_instance())"
                 else
                   "(#{args.map { |a| "ruby_puts(#{a})" }.join(", ")}, nil_instance())"
                 end
@@ -1002,12 +1002,12 @@ module Frozone
           end
 
           def wrap_break_catch(call_expr)
-            "([&]() -> BasicObject* { try { return #{call_expr}; } catch (BreakException& e_) { return e_.value; } }())"
+            "([&]() -> BO* { try { return #{call_expr}; } catch (BreakException& e_) { return e_.value; } }())"
           end
 
           # Stack-alloc the Proc instance when the call target is a known
           # non-escaping iterator. block_arg has the shape
-          # `(new ProcN([CAP](ARGS)->BasicObject*{BODY}))` — strip the
+          # `(new ProcN([CAP](ARGS)->BO*{BODY}))` — strip the
           # `new`+`)` to get the ctor body, declare a stack ProcN inside
           # a self-invoking lambda whose frame outlives the call,
           # substitute the heap form with a pointer-to-stack ref.
@@ -1048,7 +1048,7 @@ module Frozone
             entries = kw_arg_nodes.map do |key_node, value_node|
               key_name = key_node.is_a?(Ast::SymbolLiteral) ? key_node.value.to_s : nil
               raise EmissionError, "non-symbol kw key not supported" unless key_name
-              "{intern(#{cpp_string_literal(key_name)}), static_cast<BasicObject*>(#{from_expr(value_node, locals)})}"
+              "{intern(#{cpp_string_literal(key_name)}), static_cast<BO*>(#{from_expr(value_node, locals)})}"
             end
             # Pure single-splat (`**h` with no literal pairs) — forward
             # the source Hash directly, avoiding the alloc + copy.
@@ -1181,10 +1181,10 @@ module Frozone
           # Templates are explicit per-intrinsic (no name-based
           # heuristic — too many edge cases). Unknown intrinsic →
           # EmissionError → method skipped (graceful degradation).
-          # Captured locals are stored as heap cells (`BasicObject**`)
+          # Captured locals are stored as heap cells (`BO**`)
           # so a Proc that captures the cell pointer outlives the
           # enclosing stack frame. Reads dereference; non-captured
-          # locals stay on the stack as bare `BasicObject*`.
+          # locals stay on the stack as bare `BO*`.
           def from_local_variable_read(node)
             cpp = MethodEmitter.local_cpp_name(node.name)
             captured?(node.name) ? "(*#{cpp})" : cpp
@@ -1196,7 +1196,7 @@ module Frozone
             # `def count(*args) = Intrinsics.string_count_raw(self, *__str_args__(*args))`.
             # Lower the splat by passing the inner expression (which
             # yields an Array) directly. The C++ intrinsic must accept
-            # Array* (or BasicObject*) at that position — i.e. the
+            # Array* (or BO*) at that position — i.e. the
             # variadic Ruby signature becomes a single Array param in C++.
             args = node.param_nodes.map do |p|
               p.is_a?(Ast::SplatArg) ? from_expr(p.value_node, locals) : from_expr(p, locals)
@@ -1337,7 +1337,7 @@ module Frozone
             cur_t = "__iorw_cur_#{tag}__"
             new_t = "__iorw_new_#{tag}__"
             idx_array = "(new Array({#{idx_strs.join(", ")}}))"
-            "([&]() -> BasicObject* { auto* #{recv_t} = #{recv_str}; auto* #{cur_t} = #{recv_t}->op_aref(univ, #{idx_array}); if (truthy(#{cur_t})) return #{cur_t}; auto* #{new_t} = #{val_str}; #{recv_t}->op_aset(univ, new Array({#{idx_strs.join(", ")}, #{new_t}})); return #{new_t}; }())"
+            "([&]() -> BO* { auto* #{recv_t} = #{recv_str}; auto* #{cur_t} = #{recv_t}->op_aref(univ, #{idx_array}); if (truthy(#{cur_t})) return #{cur_t}; auto* #{new_t} = #{val_str}; #{recv_t}->op_aset(univ, new Array({#{idx_strs.join(", ")}, #{new_t}})); return #{new_t}; }())"
           end
 
           # `recv[idx] &&= val` — read once, return if falsy, else
@@ -1351,7 +1351,7 @@ module Frozone
             cur_t = "__iaw_cur_#{tag}__"
             new_t = "__iaw_new_#{tag}__"
             idx_array = "(new Array({#{idx_strs.join(", ")}}))"
-            "([&]() -> BasicObject* { auto* #{recv_t} = #{recv_str}; auto* #{cur_t} = #{recv_t}->op_aref(univ, #{idx_array}); if (!truthy(#{cur_t})) return #{cur_t}; auto* #{new_t} = #{val_str}; #{recv_t}->op_aset(univ, new Array({#{idx_strs.join(", ")}, #{new_t}})); return #{new_t}; }())"
+            "([&]() -> BO* { auto* #{recv_t} = #{recv_str}; auto* #{cur_t} = #{recv_t}->op_aref(univ, #{idx_array}); if (!truthy(#{cur_t})) return #{cur_t}; auto* #{new_t} = #{val_str}; #{recv_t}->op_aset(univ, new Array({#{idx_strs.join(", ")}, #{new_t}})); return #{new_t}; }())"
           end
 
           # `recv.b ||= val` — read recv.b once; return it if truthy;
@@ -1383,7 +1383,7 @@ module Frozone
             safe_guard = node.safe_nav ? "if (#{recv_t} == nil_instance()) return nil_instance(); " : ""
             read_args = na_or_wrap_args(node.read_name, [], wrap_parens: false)
             write_args = na_or_wrap_args(node.write_name, [new_t], wrap_parens: false)
-            "([&]() -> BasicObject* { auto* #{recv_t} = #{recv_str}; #{safe_guard}auto* #{cur_t} = #{recv_t}->#{read_cpp}(#{read_args}); if (#{condition}(#{cur_t})) return #{cur_t}; auto* #{new_t} = #{val_str}; #{recv_t}->#{write_cpp}(#{write_args}); return #{new_t}; }())"
+            "([&]() -> BO* { auto* #{recv_t} = #{recv_str}; #{safe_guard}auto* #{cur_t} = #{recv_t}->#{read_cpp}(#{read_args}); if (#{condition}(#{cur_t})) return #{cur_t}; auto* #{new_t} = #{val_str}; #{recv_t}->#{write_cpp}(#{write_args}); return #{new_t}; }())"
           end
 
           # `recv.b += val` (and -=/*=/etc.) — read once, compute
@@ -1403,7 +1403,7 @@ module Frozone
             read_args = na_or_wrap_args(node.read_name, [], wrap_parens: false)
             op_args = na_or_wrap_args(node.operator, [val_str], wrap_parens: false)
             write_args = na_or_wrap_args(node.write_name, [new_t], wrap_parens: false)
-            "([&]() -> BasicObject* { auto* #{recv_t} = #{recv_str}; #{safe_guard}auto* #{cur_t} = #{recv_t}->#{read_cpp}(#{read_args}); auto* #{new_t} = #{cur_t}->#{op_cpp}(#{op_args}); #{recv_t}->#{write_cpp}(#{write_args}); return #{new_t}; }())"
+            "([&]() -> BO* { auto* #{recv_t} = #{recv_str}; #{safe_guard}auto* #{cur_t} = #{recv_t}->#{read_cpp}(#{read_args}); auto* #{new_t} = #{cur_t}->#{op_cpp}(#{op_args}); #{recv_t}->#{write_cpp}(#{write_args}); return #{new_t}; }())"
           end
 
           # Ruby's `&&` returns the last truthy value or the first falsy.
@@ -1443,14 +1443,14 @@ module Frozone
             cond = from_expr(node.pred_node, locals)
             t = node.then_node ? from_expr(node.then_node, locals) : "nil_instance()"
             e = node.else_node ? from_expr(node.else_node, locals) : "nil_instance()"
-            # Cast both arms to BasicObject*. C++ ternary requires the
+            # Cast both arms to BO*. C++ ternary requires the
             # two arms to share a common type, which doesn't always
             # follow from Ruby semantics — e.g. `cond ? FooClass :
             # BarClass` produces &Foo_eigenclass* and &Bar_eigenclass*,
             # distinct C++ types with no implicit conversion. Both ARE
-            # BasicObject*-convertible (every emitted class derives from
+            # BO*-convertible (every emitted class derives from
             # BasicObject), so the explicit cast unifies them. Cheap.
-            "(truthy(#{cond}) ? static_cast<BasicObject*>(#{t}) : static_cast<BasicObject*>(#{e}))"
+            "(truthy(#{cond}) ? static_cast<BO*>(#{t}) : static_cast<BO*>(#{e}))"
           end
 
           # When one of these AST node kinds appears in expression
@@ -1788,7 +1788,7 @@ module Frozone
             literal = "(new String(#{cpp_string_literal(node.source.to_s)}, #{src_bytes.size}))"
             Cpp.block_expr(
               ["Regexp* _re = new Regexp();",
-               "Array* _a = new Array({static_cast<BasicObject*>(#{literal}), static_cast<BasicObject*>(new Integer(#{node.flags.to_i}))});",
+               "Array* _a = new Array({static_cast<BO*>(#{literal}), static_cast<BO*>(new Integer(#{node.flags.to_i}))});",
                "_re->m_initialize(univ, _a);"],
               "_re"
             )
@@ -1812,7 +1812,7 @@ module Frozone
             end
             Cpp.block_expr(
               ["Regexp* _re = new Regexp();",
-               "Array* _a = new Array({static_cast<BasicObject*>(#{chain}), static_cast<BasicObject*>(new Integer(#{node.flags.to_i}))});",
+               "Array* _a = new Array({static_cast<BO*>(#{chain}), static_cast<BO*>(new Integer(#{node.flags.to_i}))});",
                "_re->m_initialize(univ, _a);"],
               "_re"
             )
@@ -1848,7 +1848,7 @@ module Frozone
               flags = val.raw.options
               Cpp.block_expr(
                 ["Regexp* _re = new Regexp();",
-                 "Array* _a = new Array({static_cast<BasicObject*>((new String(#{cpp_string_literal(src)}, #{src.bytesize}))), static_cast<BasicObject*>(new Integer(#{flags}))});",
+                 "Array* _a = new Array({static_cast<BO*>((new String(#{cpp_string_literal(src)}, #{src.bytesize}))), static_cast<BO*>(new Integer(#{flags}))});",
                  "_re->m_initialize(univ, _a);"],
                 "_re"
               )
@@ -1858,7 +1858,7 @@ module Frozone
               format_constant(flat)
             when Vm::ProcObject
               loc = val.block_object&.source_location || ["unknown", 0]
-              %{(new Proc([](Array*, Hash*) -> BasicObject* { /* snapshot Proc placeholder, defined at #{loc[0]}:#{loc[1]} */ return nil_instance(); }))}
+              %{(new Proc([](Array*, Hash*) -> BO* { /* snapshot Proc placeholder, defined at #{loc[0]}:#{loc[1]} */ return nil_instance(); }))}
             else
               raise EmissionError, "emit_leaf: #{val.class.name} is not a leaf value (String/Array/Hash/ObjectObject must be snapshot-slotted)"
             end
@@ -1913,7 +1913,7 @@ module Frozone
               flags = val.raw.options
               Cpp.block_expr(
                 ["Regexp* _re = new Regexp();",
-                 "Array* _a = new Array({static_cast<BasicObject*>((new String(#{cpp_string_literal(src)}, #{src.bytesize}))), static_cast<BasicObject*>(new Integer(#{flags}))});",
+                 "Array* _a = new Array({static_cast<BO*>((new String(#{cpp_string_literal(src)}, #{src.bytesize}))), static_cast<BO*>(new Integer(#{flags}))});",
                  "_re->m_initialize(univ, _a);"],
                 "_re"
               )
@@ -1941,7 +1941,7 @@ module Frozone
               # programs. Source location is captured in the lambda
               # comment for debuggability.
               loc = val.block_object&.source_location || ["unknown", 0]
-              %{(new Proc([](Array*, Hash*) -> BasicObject* { /* snapshot Proc placeholder, defined at #{loc[0]}:#{loc[1]} */ return nil_instance(); }))}
+              %{(new Proc([](Array*, Hash*) -> BO* { /* snapshot Proc placeholder, defined at #{loc[0]}:#{loc[1]} */ return nil_instance(); }))}
             when Vm::ObjectObject
               # If this object is itself one of our registered user
               # constants, emit a reference to its accessor (its ivars

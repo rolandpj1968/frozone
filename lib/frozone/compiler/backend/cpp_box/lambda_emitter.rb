@@ -1,7 +1,7 @@
 # Box-first lambda-wrapped emission.
 #
 # Several Ruby constructs lower to a self-invoking C++ lambda
-# (`[&]() -> BasicObject* { ... }()`) so that statement-position forms
+# (`[&]() -> BO* { ... }()`) so that statement-position forms
 # (if/case/MultipleAssignment) survive in expression context, and so
 # that early-return / multi-arm bodies get a clean implicit-return:
 #
@@ -43,7 +43,7 @@ module Frozone
               parts = first.is_a?(Ast::ConstantRead) ? [first.name.to_s] : collect_path(first)
               flat = resolve_constant(parts)
               raise Cpp::EmissionError, "raise: unknown exception class #{parts.join('::')}" unless flat && instantiable_class?(flat)
-              ctor_args = arg_nodes.drop(1).map { |a| "static_cast<BasicObject*>(#{from_arg(a, locals)})" }
+              ctor_args = arg_nodes.drop(1).map { |a| "static_cast<BO*>(#{from_arg(a, locals)})" }
               args_array = "(new Array({#{ctor_args.join(", ")}}))"
               return Cpp.throw_expr(["throw static_cast<Exception*>((&#{flat}_CLASS)->m_new(univ, #{args_array}));"])
             end
@@ -52,7 +52,7 @@ module Frozone
               # `raise "msg"` is sugar for `raise RuntimeError.new("msg")`.
               if first.is_a?(Ast::StringLiteral) || first.is_a?(Ast::InterpolatedString)
                 msg_str = from_expr(first, locals)
-                return Cpp.throw_expr(["throw static_cast<Exception*>((&RuntimeError_CLASS)->m_new(univ, new Array({static_cast<BasicObject*>(#{msg_str})})));"])
+                return Cpp.throw_expr(["throw static_cast<Exception*>((&RuntimeError_CLASS)->m_new(univ, new Array({static_cast<BO*>(#{msg_str})})));"])
               end
               expr_str = from_expr(first, locals)
               return Cpp.throw_expr(["throw static_cast<Exception*>(#{expr_str});"])
@@ -71,14 +71,14 @@ module Frozone
           def from_rescue(node, locals)
             check_no_break_next!(node, "rescue")
             # Every clause body is rendered as a nested C++ IIFE
-            # (`[&]() -> BasicObject* { ... }()`). A Ruby `return` inside
+            # (`[&]() -> BO* { ... }()`). A Ruby `return` inside
             # any of them must escape the IIFE — bare C++ `return` would
             # only exit the innermost lambda and the method body would
             # fall through. Force `in_block` so write_stmt emits
             # `throw ReturnException{...}` for Ast::Return, which the
             # enclosing method's frame-id try/catch unwraps.
             emit.cpp.with_in_block do
-              buf = +"([&]() -> BasicObject* { "
+              buf = +"([&]() -> BO* { "
               if node.ensure_node
                 buf << "EnsureGuard _eg([&]() #{body_as_block(node.ensure_node, locals, last_is_return: false)}); "
               end
@@ -103,9 +103,9 @@ module Frozone
                   # to be a heap cell. Otherwise a bare local is fine.
                   bind_str =
                     if captured?(clause.var_name)
-                      "BasicObject** #{cpp_name} = gc_box<BasicObject*>(e_); "
+                      "BO** #{cpp_name} = gc_box<BO*>(e_); "
                     else
-                      "BasicObject* #{cpp_name} = e_; "
+                      "BO* #{cpp_name} = e_; "
                     end
                 end
                 arm_call = body_as_lambda_call(clause.body, bind_locals)
@@ -155,7 +155,7 @@ module Frozone
             name
           end
 
-          # Render a body as `[&]() -> BasicObject* { ... return last; }()`
+          # Render a body as `[&]() -> BO* { ... return last; }()`
           # — the nested lambda captures all enclosing locals by reference
           # and returns the value of the last expression. Used by
           # from_rescue for body / else / arm bodies.
@@ -173,7 +173,7 @@ module Frozone
           end
 
           def body_as_lambda(body, locals, last_is_return:, next_returns: false)
-            "[&]() -> BasicObject* #{body_as_block(body, locals, last_is_return: last_is_return, next_returns: next_returns)}"
+            "[&]() -> BO* #{body_as_block(body, locals, last_is_return: last_is_return, next_returns: next_returns)}"
           end
 
           # Render `{ ... }` for a body — used both as the lambda body
@@ -193,7 +193,7 @@ module Frozone
             "{ #{inner.gsub("\n", " ")} return nil_instance(); }"
           end
 
-          # `each { |a, b| body }` etc → `(new Proc([&, this](Array*) -> BasicObject* { ... }))`.
+          # `each { |a, b| body }` etc → `(new Proc([&, this](Array*) -> BO* { ... }))`.
           # Block params unpack from `__blkargs__` Array. Required +
           # rest + post supported; optional params raise EmissionError
           # (uncommon in practice). Block body emits via write_body so
@@ -218,7 +218,7 @@ module Frozone
                 body << "if (__blkargs__->data.empty()) { "
                 body << "std::fprintf(stderr, \"[box-first] &:#{sym} Proc invoked with no args\\n\"); "
                 body << "std::abort(); } "
-                body << "BasicObject* __recv__ = __blkargs__->data[0]; "
+                body << "BO* __recv__ = __blkargs__->data[0]; "
                 # If `sym` is a natural-arity-eligible name, the
                 # universal Array path doesn't exist on that slot —
                 # unpack positional args inline from __blkargs__.
@@ -235,7 +235,7 @@ module Frozone
                   body << "__rest__->data.push_back(__blkargs__->data[_i]); } "
                   body << "return __recv__->#{m}(univ, __rest__);"
                 end
-                return "(new Proc([](Array* __blkargs__, Hash* __blkkwargs__) -> BasicObject* { #{body} }))"
+                return "(new Proc([](Array* __blkargs__, Hash* __blkkwargs__) -> BO* { #{body} }))"
               end
               return "static_cast<Proc*>(#{from_expr(block_node.value_node, locals)})"
             end
@@ -303,7 +303,7 @@ module Frozone
             # whose param appears in inner_captured OR in the outer's
             # captured_locals (inherited via with_captured_locals when
             # the body emits) needs the extra gc_box indirection — the
-            # universal Proc path emits `BasicObject**` for captured
+            # universal Proc path emits `BO**` for captured
             # params so inner lambdas can write through it, and
             # `from_local_variable_read` checks captured? to decide
             # whether to emit `l_x` or `(*l_x)`. The Proc0/1/2 lambda
@@ -346,7 +346,7 @@ module Frozone
                   if arity >= 2 || (params.length >= 1 && rest_param)
                     emit.line "if (__blkargs__->data.size() == 1) {"
                     emit.indented do
-                      emit.line "BasicObject* _a0 = __blkargs__->data[0];"
+                      emit.line "BO* _a0 = __blkargs__->data[0];"
                       emit.line "if (&typeid(*_a0) == &typeid(Array)) __blkargs__ = static_cast<Array*>(_a0);"
                     end
                     emit.line "}"
@@ -358,9 +358,9 @@ module Frozone
                     else
                       cpp = MethodEmitter.local_cpp_name(p)
                       if emit.cpp.captured?(p)
-                        emit.line "BasicObject** #{cpp} = gc_box<BasicObject*>(#{init});"
+                        emit.line "BO** #{cpp} = gc_box<BO*>(#{init});"
                       else
-                        emit.line "BasicObject* #{cpp} = #{init};"
+                        emit.line "BO* #{cpp} = #{init};"
                       end
                     end
                   end
@@ -380,9 +380,9 @@ module Frozone
                   init = "((int)__blkargs__->data.size() >= #{needed}) ? __blkargs__->data[#{idx}] : (#{default_str})"
                   cpp = MethodEmitter.local_cpp_name(p)
                   if emit.cpp.captured?(p)
-                    emit.line "BasicObject** #{cpp} = gc_box<BasicObject*>(#{init});"
+                    emit.line "BO** #{cpp} = gc_box<BO*>(#{init});"
                   else
-                    emit.line "BasicObject* #{cpp} = #{init};"
+                    emit.line "BO* #{cpp} = #{init};"
                   end
                 end
                 if rest_param
@@ -394,9 +394,9 @@ module Frozone
                   emit.line "Array* __blk_rest__ = new Array();"
                   emit.line "for (std::size_t _i = #{pre}; _i + #{post} < __blkargs__->data.size(); _i++) __blk_rest__->data.push_back(__blkargs__->data[_i]);"
                   if emit.cpp.captured?(rest_param)
-                    emit.line "BasicObject** #{rest_cpp} = gc_box<BasicObject*>(static_cast<BasicObject*>(__blk_rest__));"
+                    emit.line "BO** #{rest_cpp} = gc_box<BO*>(static_cast<BO*>(__blk_rest__));"
                   else
-                    emit.line "BasicObject* #{rest_cpp} = static_cast<BasicObject*>(__blk_rest__);"
+                    emit.line "BO* #{rest_cpp} = static_cast<BO*>(__blk_rest__);"
                   end
                 end
                 post_params.each_with_index do |p, j|
@@ -404,9 +404,9 @@ module Frozone
                   cpp = MethodEmitter.local_cpp_name(p)
                   init = "(#{back_idx} <= (int)__blkargs__->data.size()) ? __blkargs__->data[__blkargs__->data.size() - #{back_idx}] : nil_instance()"
                   if emit.cpp.captured?(p)
-                    emit.line "BasicObject** #{cpp} = gc_box<BasicObject*>(#{init});"
+                    emit.line "BO** #{cpp} = gc_box<BO*>(#{init});"
                   else
-                    emit.line "BasicObject* #{cpp} = #{init};"
+                    emit.line "BO* #{cpp} = #{init};"
                   end
                 end
                 # Keyword param extraction. Blocks are method-strict on
@@ -427,9 +427,9 @@ module Frozone
                     "_it->second"
                   )
                   if emit.cpp.captured?(kw_name)
-                    emit.line "BasicObject** #{cpp} = gc_box<BasicObject*>(#{init});"
+                    emit.line "BO** #{cpp} = gc_box<BO*>(#{init});"
                   else
-                    emit.line "BasicObject* #{cpp} = #{init};"
+                    emit.line "BO* #{cpp} = #{init};"
                   end
                   block_locals << kw_name.to_s
                 end
@@ -442,9 +442,9 @@ module Frozone
                     "_it == __blkkwargs__->data.end() ? (#{default_str}) : _it->second"
                   )
                   if emit.cpp.captured?(kw_name)
-                    emit.line "BasicObject** #{cpp} = gc_box<BasicObject*>(#{init});"
+                    emit.line "BO** #{cpp} = gc_box<BO*>(#{init});"
                   else
-                    emit.line "BasicObject* #{cpp} = #{init};"
+                    emit.line "BO* #{cpp} = #{init};"
                   end
                   block_locals << kw_name.to_s
                 end
@@ -461,9 +461,9 @@ module Frozone
                     type: 'Hash*'
                   )
                   if emit.cpp.captured?(kw_rest_param)
-                    emit.line "BasicObject** #{cpp} = gc_box<BasicObject*>(static_cast<BasicObject*>(#{init}));"
+                    emit.line "BO** #{cpp} = gc_box<BO*>(static_cast<BO*>(#{init}));"
                   else
-                    emit.line "BasicObject* #{cpp} = static_cast<BasicObject*>(#{init});"
+                    emit.line "BO* #{cpp} = static_cast<BO*>(#{init});"
                   end
                   block_locals << kw_rest_param.to_s
                 elsif !required_kw_params.empty? || !optional_kw_params.empty?
@@ -483,9 +483,9 @@ module Frozone
                   # inner block from yield/m_call is a follow-up.
                   cpp = MethodEmitter.local_cpp_name(block_param)
                   if emit.cpp.captured?(block_param)
-                    emit.line "BasicObject** #{cpp} = gc_box<BasicObject*>(static_cast<BasicObject*>(nil_instance()));"
+                    emit.line "BO** #{cpp} = gc_box<BO*>(static_cast<BO*>(nil_instance()));"
                   else
-                    emit.line "BasicObject* #{cpp} = nil_instance();"
+                    emit.line "BO* #{cpp} = nil_instance();"
                   end
                 end
                 if body
@@ -521,16 +521,16 @@ module Frozone
             body_text = body_buf.gsub(/\s+/, ' ').strip
             case specialized_kind
             when :proc0
-              "(new Proc0([#{cap_str}]() -> BasicObject* { #{body_text} }))"
+              "(new Proc0([#{cap_str}]() -> BO* { #{body_text} }))"
             when :proc1
               p0 = MethodEmitter.local_cpp_name(params[0])
-              "(new Proc1([#{cap_str}](BasicObject* #{p0}) -> BasicObject* { #{body_text} }))"
+              "(new Proc1([#{cap_str}](BO* #{p0}) -> BO* { #{body_text} }))"
             when :proc2
               p0 = MethodEmitter.local_cpp_name(params[0])
               p1 = MethodEmitter.local_cpp_name(params[1])
-              "(new Proc2([#{cap_str}](BasicObject* #{p0}, BasicObject* #{p1}) -> BasicObject* { #{body_text} }))"
+              "(new Proc2([#{cap_str}](BO* #{p0}, BO* #{p1}) -> BO* { #{body_text} }))"
             else
-              "(new Proc([#{cap_str}](Array* __blkargs__, Hash* __blkkwargs__) -> BasicObject* { #{body_text} }))"
+              "(new Proc([#{cap_str}](Array* __blkargs__, Hash* __blkkwargs__) -> BO* { #{body_text} }))"
             end
           end
 
@@ -546,7 +546,7 @@ module Frozone
           def self.emit_destructured_block_param(emit, hash_param, init_expr, block_locals)
             tag = emit.cpp.next_tmp_id
             tmp = "__blk_destr_#{tag}__"
-            emit.line "BasicObject* #{tmp} = #{init_expr};"
+            emit.line "BO* #{tmp} = #{init_expr};"
             ExprEmitter.emit_mass_destructure(emit, mass_targets_from_hash(hash_param), tmp, block_locals)
           end
 
@@ -656,9 +656,9 @@ module Frozone
                   else
                     cpp = MethodEmitter.local_cpp_name(p)
                     if emit.cpp.captured?(p)
-                      emit.line "BasicObject** #{cpp} = gc_box<BasicObject*>(#{init});"
+                      emit.line "BO** #{cpp} = gc_box<BO*>(#{init});"
                     else
-                      emit.line "BasicObject* #{cpp} = #{init};"
+                      emit.line "BO* #{cpp} = #{init};"
                     end
                   end
                 end
@@ -669,9 +669,9 @@ module Frozone
                   emit.line "Array* __blk_rest__ = new Array();"
                   emit.line "for (std::size_t _i = #{pre}; _i + #{post} < __blkargs__->data.size(); _i++) __blk_rest__->data.push_back(__blkargs__->data[_i]);"
                   if emit.cpp.captured?(rest_param)
-                    emit.line "BasicObject** #{rest_cpp} = gc_box<BasicObject*>(static_cast<BasicObject*>(__blk_rest__));"
+                    emit.line "BO** #{rest_cpp} = gc_box<BO*>(static_cast<BO*>(__blk_rest__));"
                   else
-                    emit.line "BasicObject* #{rest_cpp} = static_cast<BasicObject*>(__blk_rest__);"
+                    emit.line "BO* #{rest_cpp} = static_cast<BO*>(__blk_rest__);"
                   end
                 end
                 post_params.each_with_index do |p, j|
@@ -679,9 +679,9 @@ module Frozone
                   cpp = MethodEmitter.local_cpp_name(p)
                   init = "(#{back_idx} <= (int)__blkargs__->data.size()) ? __blkargs__->data[__blkargs__->data.size() - #{back_idx}] : nil_instance()"
                   if emit.cpp.captured?(p)
-                    emit.line "BasicObject** #{cpp} = gc_box<BasicObject*>(#{init});"
+                    emit.line "BO** #{cpp} = gc_box<BO*>(#{init});"
                   else
-                    emit.line "BasicObject* #{cpp} = #{init};"
+                    emit.line "BO* #{cpp} = #{init};"
                   end
                 end
                 # Lambda has its own __frame_id__ — `return` inside the
@@ -719,7 +719,7 @@ module Frozone
             referenced = LambdaEmitter.referenced_outer_locals(body, inner_own)
             cap_extras = (outer_captured_at_creation & referenced).to_a.map { |n| MethodEmitter.local_cpp_name(n) }
             cap_str = (["&", "this"] + cap_extras).join(", ")
-            "(new Proc([#{cap_str}](Array* __blkargs__, Hash* __blkkwargs__) -> BasicObject* { #{body_buf.gsub(/\s+/, ' ').strip} }))"
+            "(new Proc([#{cap_str}](Array* __blkargs__, Hash* __blkkwargs__) -> BO* { #{body_buf.gsub(/\s+/, ' ').strip} }))"
           end
 
           # If-as-expression where one or both branches contain Return /
@@ -755,14 +755,14 @@ module Frozone
                 end
                 emit.line "}"
               end
-              "([&]() -> BasicObject* { #{buf.gsub(/\s+/, ' ').strip} }())"
+              "([&]() -> BO* { #{buf.gsub(/\s+/, ' ').strip} }())"
             end
           end
 
           # Pre-walk: among `own_local_names`, return the subset that
           # is referenced (read or written) inside ANY nested
           # Block/Lambda within `body`. Those locals must be heap-
-          # allocated (`BasicObject** l_x = gc_box<BasicObject*>(initial);`)
+          # allocated (`BO** l_x = gc_box<BO*>(initial);`)
           # so an inner lambda can capture the cell pointer by value
           # and still access the live cell after our scope returns.
           # Walks across nested blocks (inner-inner captures of our
@@ -798,7 +798,7 @@ module Frozone
           # params) are NOT — collect_local_writes hoists them to
           # the enclosing method's scope, so a Ruby-level
           # `inner { remaining = ... }` becomes a method-scope
-          # `BasicObject* l_remaining` shared with the method body.
+          # `BO* l_remaining` shared with the method body.
           # For captured-set computation, only params shadow.
           def self.block_own_locals(node)
             params = (node.respond_to?(:required_params) ? (node.required_params || []) : []) +
@@ -840,7 +840,7 @@ module Frozone
           end
 
           def from_case_body(node, locals)
-            buf = +"([&]() -> BasicObject* { "
+            buf = +"([&]() -> BO* { "
             if node.subject_node
               buf << "auto* _subj = #{from_expr(node.subject_node, locals)}; "
             end

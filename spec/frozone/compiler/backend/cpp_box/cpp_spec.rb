@@ -347,7 +347,7 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
       # unpack needed. Captures `this` POINTER by value (`[&, this]`),
       # locals by ref — so Procs stored on ivars don't dangle.
       # See pitfalls #1.
-      expect(result).to include("(new Proc1([&, this](BasicObject* l_n) -> BasicObject*")
+      expect(result).to include("(new Proc1([&, this](BO* l_n) -> BO*")
       expect(result).to include("return")
     end
   end
@@ -388,16 +388,16 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
   end
 
   describe "#from_expr — If (ternary in expression position)" do
-    # Arms get `static_cast<BasicObject*>(...)` wrappers so the C++
+    # Arms get `static_cast<BO*>(...)` wrappers so the C++
     # ternary's type-deduction picks a common type when the two arms
     # are distinct pointer types (Integer* vs Nil*, etc.).
-    it "ternary `cond ? a : b` emits C++ ternary with BasicObject* casts" do
+    it "ternary `cond ? a : b` emits C++ ternary with BO* casts" do
       cond = lvr(:c)
       a = int(1)
       b = int(2)
       node = A::If.new(cond, a, b)
       expect(cpp.from_expr(node, locals))
-        .to eq("(truthy(l_c) ? static_cast<BasicObject*>((&_f_i_1)) : static_cast<BasicObject*>((&_f_i_2)))")
+        .to eq("(truthy(l_c) ? static_cast<BO*>((&_f_i_1)) : static_cast<BO*>((&_f_i_2)))")
     end
 
     it "if without else defaults else to nil_instance" do
@@ -405,7 +405,7 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
       a = int(1)
       node = A::If.new(cond, a, nil)
       expect(cpp.from_expr(node, locals))
-        .to eq("(truthy(l_c) ? static_cast<BasicObject*>((&_f_i_1)) : static_cast<BasicObject*>(nil_instance()))")
+        .to eq("(truthy(l_c) ? static_cast<BO*>((&_f_i_1)) : static_cast<BO*>(nil_instance()))")
     end
 
     it "if without then defaults then to nil_instance" do
@@ -413,7 +413,7 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
       b = int(2)
       node = A::If.new(cond, nil, b)
       expect(cpp.from_expr(node, locals))
-        .to eq("(truthy(l_c) ? static_cast<BasicObject*>(nil_instance()) : static_cast<BasicObject*>((&_f_i_2)))")
+        .to eq("(truthy(l_c) ? static_cast<BO*>(nil_instance()) : static_cast<BO*>((&_f_i_2)))")
     end
   end
 

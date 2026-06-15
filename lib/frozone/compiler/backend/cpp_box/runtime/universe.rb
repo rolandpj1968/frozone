@@ -25,7 +25,7 @@ module Frozone
           #   members    — array of freeform cpp lines emitted inside the
           #                class body (ctor, ruby_class_name override, etc.)
           #   overrides  — { cpp_method_name => { params: [...], body: cpp } }
-          #                each emitted as `BasicObject* name(...) override { body }`
+          #                each emitted as `BO* name(...) override { body }`
           #   singleton  — if non-nil, file-scope instance variable name
           #                ("NIL_INSTANCE" etc.)
           RubyClass = Struct.new(
@@ -46,7 +46,7 @@ module Frozone
           # Fields:
           #   name      — cpp function name
           #   signature — cpp signature without the body braces
-          #               ("BasicObject* boxed_bool(bool b)")
+          #               ("BO* boxed_bool(bool b)")
           #   body      — cpp body, the bit between the braces
           KernelFn = Struct.new(:name, :signature, :body, keyword_init: true)
 
@@ -94,37 +94,37 @@ module Frozone
               "// NoMethodError; user classes that `def method_missing`",
               "// override it via normal vtable lookup. args is",
               "// `[Symbol.method_name, *original_args]`.",
-              "virtual BasicObject* m_method_missing(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance());",
+              "virtual BO* m_method_missing(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BO* block = nil_instance());",
               "// m_const_missing — same shape but for constants (raised",
               "// from Module's c_X overrides). Default throws NameError.",
-              "virtual BasicObject* m_const_missing(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance());",
+              "virtual BO* m_const_missing(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BO* block = nil_instance());",
               "// constant_typeerror — BasicObject's default for c_X. Raised",
               "// when the receiver isn't a Module/Class at all (TypeError).",
               "// Distinct from m_const_missing — `nil::FOO` is unrecoverable;",
               "// user-overridable const_missing only fires for actual modules.",
-              "virtual BasicObject* constant_typeerror(const char* const_name);",
+              "virtual BO* constant_typeerror(const char* const_name);",
               "// == default — pointer identity (BasicObject#==).",
-              "virtual BasicObject* op_eq_q(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) {",
+              "virtual BO* op_eq_q(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BO* block = nil_instance()) {",
               "  return boxed_bool(this == array_at(args, 0));",
               "}",
-              "// m_hash_value — C++-internal hook for std::unordered_map<BasicObject*,…>.",
+              "// m_hash_value — C++-internal hook for std::unordered_map<BO*,…>.",
               "// Not a Ruby method (Ruby's #hash returns Integer; this returns size_t).",
               "virtual std::size_t m_hash_value() const { return reinterpret_cast<std::size_t>(this); }",
               "// equal? — pointer identity (BasicObject#equal?). Distinct from",
               "// `==` which subclasses often override for value equality.",
-              "virtual BasicObject* mm_equal_q(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) {",
+              "virtual BO* mm_equal_q(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BO* block = nil_instance()) {",
               "  return boxed_bool(this == array_at(args, 0));",
               "}",
               "// __id__ — pointer cast as integer. Closed-world: each",
               "// object has a unique address; that's the id. Note that",
               "// Ruby's #object_id is on Kernel, not BasicObject.",
-              "virtual BasicObject* m___id__(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) {",
+              "virtual BO* m___id__(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BO* block = nil_instance()) {",
               "  return int_box(reinterpret_cast<std::int64_t>(this));",
               "}",
               "// initialize default — no-op returning self. User classes",
               "// override; eigenclass m_new always invokes this after",
               "// allocating the new instance.",
-              "virtual BasicObject* m_initialize(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) {",
+              "virtual BO* m_initialize(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BO* block = nil_instance()) {",
               "  return this;",
               "}",
               "// __class_id__ — closed-world class identity. Returns -1",
@@ -137,7 +137,7 @@ module Frozone
               "// (avoids RTTI walk) and by non-leaf is_a?/kind_of?",
               "// lowering (avoids the Array wrap for universal-sig",
               "// dispatch). Body emitted out-of-line alongside mm_is_a_q.",
-              "bool mm_is_a_q_direct(BasicObject* target);",
+              "bool mm_is_a_q_direct(BO* target);",
               "// Leaf is_a?: pointer compare on the type_info instances.",
               "// Used by cpp.rb when it sees `recv.is_a?(LeafClass)` —",
               "// typeid match is sufficient for leaves (no subclasses by",
@@ -177,43 +177,43 @@ module Frozone
               "// C-form fusion; that made every gen depend on Frozone-internal",
               "// types only present when frozone-AOT was the build root.",
               "// Now Frozone_Vm_ObjectObject : Object inherits these naturally.",
-              "BasicObject* iv_class_object = nil_instance();",
-              "BasicObject* iv_eigenclass = nil_instance();",
-              "BasicObject* iv_instance_variables_hash = nil_instance();",
-              "BasicObject* iv_frozen_object = nil_instance();",
+              "BO* iv_class_object = nil_instance();",
+              "BO* iv_eigenclass = nil_instance();",
+              "BO* iv_instance_variables_hash = nil_instance();",
+              "BO* iv_frozen_object = nil_instance();",
               "// === defaults to ==. Module/Class override for `Class === obj`.",
-              "virtual BasicObject* op_case_eq(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
+              "virtual BO* op_case_eq(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BO* block = nil_instance()) override {",
               "  return op_eq_q(univ, args, kwargs, block);",
               "}",
               "// nil? defaults to false; NilClass overrides to true.",
-              "virtual BasicObject* mm_nil_q(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
+              "virtual BO* mm_nil_q(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BO* block = nil_instance()) override {",
               "  return false_instance();",
               "}",
               "// freeze / frozen? — we don't enforce frozen state, so",
               "// these are no-ops returning self / false. Lots of core",
               "// code calls .freeze on initialization; this stays cheap.",
-              "virtual BasicObject* m_freeze(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
+              "virtual BO* m_freeze(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BO* block = nil_instance()) override {",
               "  return this;",
               "}",
-              "virtual BasicObject* mm_frozen_q(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
+              "virtual BO* mm_frozen_q(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BO* block = nil_instance()) override {",
               "  return false_instance();",
               "}",
               "// object_id — Kernel#object_id. Same value as __id__.",
-              "virtual BasicObject* m_object_id(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
+              "virtual BO* m_object_id(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BO* block = nil_instance()) override {",
               "  return m___id__(univ, args, kwargs, block);",
               "}",
               "// is_a? / kind_of? / instance_of? — closed-world LUT. mm_is_a_q",
               "// body is emitted out-of-line by class_emitter (write_is_a_lut)",
               "// once all classes are complete.",
-              "virtual BasicObject* mm_is_a_q(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override;",
+              "virtual BO* mm_is_a_q(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BO* block = nil_instance()) override;",
               "// send / __send__ — METHOD_VT-based dispatch. Out-of-line body",
               "// emitted by class_emitter (write_send_body) once Array is complete.",
-              "virtual BasicObject* m_send(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override;",
-              "virtual BasicObject* m___send__(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override;",
-              "virtual BasicObject* mm_kind_of_q(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
+              "virtual BO* m_send(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BO* block = nil_instance()) override;",
+              "virtual BO* m___send__(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BO* block = nil_instance()) override;",
+              "virtual BO* mm_kind_of_q(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BO* block = nil_instance()) override {",
               "  return mm_is_a_q(univ, args, kwargs, block);",
               "}",
-              "virtual BasicObject* mm_instance_of_q(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
+              "virtual BO* mm_instance_of_q(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BO* block = nil_instance()) override {",
               "  return boxed_bool(m_class(univ, args, kwargs, block) == array_at(args, 0));",
               "}",
             ],
@@ -292,7 +292,7 @@ module Frozone
               # bypassing any user `def self.allocate` (e.g. Thread.allocate
               # raises). Universal-sig matches the auto-emit form so the
               # override resolves; args/kwargs/block ignored. Default aborts.
-              "virtual BasicObject* m_raw_allocate(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) {",
+              "virtual BO* m_raw_allocate(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BO* block = nil_instance()) {",
               %(  std::fprintf(stderr, "[box-first] m_raw_allocate called on non-class %s\\n", ruby_class_name());),
               "  std::abort();",
               "}",
@@ -402,11 +402,11 @@ module Frozone
             parent: "Object",
             members: [
               "// Vector uses GcAllocator so the buffer stays scanned by Boehm.",
-              "std::vector<BasicObject*, GcAllocator<BasicObject*>> data;",
+              "std::vector<BO*, GcAllocator<BO*>> data;",
               "Array() = default;",
-              "Array(std::initializer_list<BasicObject*> init) : data(init.begin(), init.end()) {}",
+              "Array(std::initializer_list<BO*> init) : data(init.begin(), init.end()) {}",
               "// Array.new(size) / Array.new(size, fill)",
-              "Array(BasicObject* size, BasicObject* fill = nullptr) {",
+              "Array(BO* size, BO* fill = nullptr) {",
               "  int64_t n = static_cast<Integer*>(size)->raw_;",
               "  data.assign(n, fill ? fill : nil_instance());",
               "}",
@@ -486,8 +486,8 @@ module Frozone
                     }
                     return args->data[2];
                   }
-                  BasicObject* idx = args->data[0];
-                  BasicObject* val = args->data[1];
+                  BO* idx = args->data[0];
+                  BO* val = args->data[1];
                   // 2-arg with Range idx: a[begin..end] = ary → slice replace.
                   if (&typeid(*idx) == &typeid(Range)) {
                     auto* r = static_cast<Range*>(idx);
@@ -526,12 +526,12 @@ module Frozone
                 CPP
               },
               "op_lshift" => {
-                params: ["BasicObject* val"],
+                params: ["BO* val"],
                 body: "data.push_back(val); return this;",
               },
               "m_clear" => { params: [], body: "data.clear(); return this;" },
-              "m_pop" => { params: [], body: "if (data.empty()) return nil_instance(); BasicObject* v = data.back(); data.pop_back(); return v;" },
-              "m_shift" => { params: [], body: "if (data.empty()) return nil_instance(); BasicObject* v = data.front(); data.erase(data.begin()); return v;" },
+              "m_pop" => { params: [], body: "if (data.empty()) return nil_instance(); BO* v = data.back(); data.pop_back(); return v;" },
+              "m_shift" => { params: [], body: "if (data.empty()) return nil_instance(); BO* v = data.front(); data.erase(data.begin()); return v;" },
               "m_unshift" => {
                 # Variadic — `a.unshift(x, y, z)` prepends in original
                 # order so `[1].unshift(2,3) == [2,3,1]`. Zero-arg call
@@ -544,7 +544,7 @@ module Frozone
                 CPP
               },
               "m_replace" => {
-                params: ["BasicObject* other"],
+                params: ["BO* other"],
                 body: "auto* o = static_cast<Array*>(other); data = o->data; return this;",
               },
               "m_dup" => {
@@ -552,7 +552,7 @@ module Frozone
                 body: "Array* r = new Array(); r->data = data; return r;",
               },
               "m_concat" => {
-                params: ["BasicObject* other"],
+                params: ["BO* other"],
                 body: "auto* o = static_cast<Array*>(other); data.insert(data.end(), o->data.begin(), o->data.end()); return this;",
               },
               # Array.new — three call shapes:
@@ -567,7 +567,7 @@ module Frozone
                 params: [],
                 body: <<~CPP.chomp,
                   if (args->data.empty()) return this;
-                  BasicObject* arg0 = args->data[0];
+                  BO* arg0 = args->data[0];
                   if (arg0->typeid_eq_q<Array>()) {
                     data = static_cast<Array*>(arg0)->data;
                     return this;
@@ -580,7 +580,7 @@ module Frozone
                       data.push_back(_b->m_call(univ, new Array({(new Integer(i))})));
                     }
                   } else {
-                    BasicObject* fill = args->data.size() >= 2 ? args->data[1] : nil_instance();
+                    BO* fill = args->data.size() >= 2 ? args->data[1] : nil_instance();
                     data.assign(n, fill);
                   }
                   return this;
@@ -713,19 +713,19 @@ module Frozone
               "mm_empty_q"  => { params: [], body: "return boxed_bool(bytes.empty());" },
               "m_to_s"     => { params: [], body: "return this;" },
               "op_eq_q"     => {
-                params: ["BasicObject* other"],
+                params: ["BO* other"],
                 body: "if (typeid(*other) != typeid(String)) return false_instance(); return boxed_bool(bytes == static_cast<String*>(other)->bytes);",
               },
               "op_ne_q"     => {
-                params: ["BasicObject* other"],
+                params: ["BO* other"],
                 body: "if (typeid(*other) != typeid(String)) return true_instance(); return boxed_bool(bytes != static_cast<String*>(other)->bytes);",
               },
-              "op_lt"       => { params: ["BasicObject* other"], body: "return boxed_bool(bytes <  static_cast<String*>(other)->bytes);" },
-              "op_gt"       => { params: ["BasicObject* other"], body: "return boxed_bool(bytes >  static_cast<String*>(other)->bytes);" },
-              "op_le"       => { params: ["BasicObject* other"], body: "return boxed_bool(bytes <= static_cast<String*>(other)->bytes);" },
-              "op_ge"       => { params: ["BasicObject* other"], body: "return boxed_bool(bytes >= static_cast<String*>(other)->bytes);" },
+              "op_lt"       => { params: ["BO* other"], body: "return boxed_bool(bytes <  static_cast<String*>(other)->bytes);" },
+              "op_gt"       => { params: ["BO* other"], body: "return boxed_bool(bytes >  static_cast<String*>(other)->bytes);" },
+              "op_le"       => { params: ["BO* other"], body: "return boxed_bool(bytes <= static_cast<String*>(other)->bytes);" },
+              "op_ge"       => { params: ["BO* other"], body: "return boxed_bool(bytes >= static_cast<String*>(other)->bytes);" },
               "op_plus"     => {
-                params: ["BasicObject* other"],
+                params: ["BO* other"],
                 body: <<~CPP.chomp,
                   auto* o = static_cast<String*>(other);
                   String* r = new String();
@@ -737,7 +737,7 @@ module Frozone
                 CPP
               },
               "op_lshift"   => {
-                params: ["BasicObject* other"],
+                params: ["BO* other"],
                 body: <<~CPP.chomp,
                   // MRI String#<<: Integer arg appends the codepoint;
                   // String arg appends bytes (with encoding promotion).
@@ -787,7 +787,7 @@ module Frozone
                   // character-aware generic slice so indices count codepoints,
                   // not bytes (MRI semantics). Keeps the hot ASCII path fast.
                   if (enc != BINARY && has_non_ascii()) {
-                    BasicObject* len = (args->data.size() >= 2) ? args->data[1] : intern("__unset__");
+                    BO* len = (args->data.size() >= 2) ? args->data[1] : intern("__unset__");
                     return intrinsic_string_slice(this, args->data[0], len);
                   }
                   // 2-arg form: s[start, len] → substring of `len` bytes
@@ -807,7 +807,7 @@ module Frozone
                   // override only fast-paths the Integer case. Without
                   // this, `"abc"[0..-1]` static_casts Range to Integer
                   // and returns garbage / nil.
-                  BasicObject* idx = args->data[0];
+                  BO* idx = args->data[0];
                   if (typeid(*idx) != typeid(Integer)) {
                     return intrinsic_string_slice(this, idx, intern("__unset__"));
                   }
@@ -846,7 +846,7 @@ module Frozone
           # args). Multi-arity / kw_args / block-from-method-object —
           # all deferred. Created at call sites where a block is
           # passed: `foo { |x| ... }` becomes
-          #   `(new Proc([&](BasicObject* arg) -> BasicObject* { ... }))`
+          #   `(new Proc([&](BO* arg) -> BO* { ... }))`
           # passed as last arg to foo. Methods containing `yield` get
           # an implicit `Proc* _block = nullptr` last param (added by
           # MethodEmitter.build_params).
@@ -864,11 +864,11 @@ module Frozone
               # std::function for type erasure of the captured lambda.
               # _Base_manager (the captures' heap home) is allocated via
               # global operator new which we override to GC_MALLOC (see
-              # box_first.hpp), so captured BasicObject* pointers are
+              # box_first.hpp), so captured BO* pointers are
               # Boehm-traced.
-              "std::function<BasicObject*(Array*, Hash*)> fn_;",
+              "std::function<BO*(Array*, Hash*)> fn_;",
               "Proc() = default;",
-              "explicit Proc(std::function<BasicObject*(Array*, Hash*)> f) : fn_(std::move(f)) {}",
+              "explicit Proc(std::function<BO*(Array*, Hash*)> f) : fn_(std::move(f)) {}",
               %(const char* ruby_class_name() const override { return "Proc"; }),
               # Arity-specialized call slots. Default impls allocate an
               # Array and delegate to m_call — semantics-preserving
@@ -882,9 +882,9 @@ module Frozone
               # See docs/box-first-optimization.md §5 for the design
               # context and Proc-flavor laxness rules embedded in the
               # cross-arity adapters.
-              "virtual BasicObject* call0() { return m_call(univ, &EMPTY_ARGS, &EMPTY_KWARGS, nil_instance()); }",
-              "virtual BasicObject* call1(BasicObject* a) { Array _t; _t.data.push_back(a); return m_call(univ, &_t, &EMPTY_KWARGS, nil_instance()); }",
-              "virtual BasicObject* call2(BasicObject* a, BasicObject* b) { Array _t; _t.data.push_back(a); _t.data.push_back(b); return m_call(univ, &_t, &EMPTY_KWARGS, nil_instance()); }",
+              "virtual BO* call0() { return m_call(univ, &EMPTY_ARGS, &EMPTY_KWARGS, nil_instance()); }",
+              "virtual BO* call1(BO* a) { Array _t; _t.data.push_back(a); return m_call(univ, &_t, &EMPTY_KWARGS, nil_instance()); }",
+              "virtual BO* call2(BO* a, BO* b) { Array _t; _t.data.push_back(a); _t.data.push_back(b); return m_call(univ, &_t, &EMPTY_KWARGS, nil_instance()); }",
             ],
             overrides: {
               "m_call" => { params: [], body: "return fn_(args, kwargs);" },
@@ -904,12 +904,12 @@ module Frozone
             name: "Proc0",
             parent: "Proc",
             members: [
-              "std::function<BasicObject*()> fn0_;",
+              "std::function<BO*()> fn0_;",
               "Proc0() = default;",
-              "explicit Proc0(std::function<BasicObject*()> f) : fn0_(std::move(f)) {}",
-              "BasicObject* call0() final { return fn0_(); }",
-              "BasicObject* call1(BasicObject*) final { return fn0_(); }",
-              "BasicObject* call2(BasicObject*, BasicObject*) final { return fn0_(); }",
+              "explicit Proc0(std::function<BO*()> f) : fn0_(std::move(f)) {}",
+              "BO* call0() final { return fn0_(); }",
+              "BO* call1(BO*) final { return fn0_(); }",
+              "BO* call2(BO*, BO*) final { return fn0_(); }",
             ],
             overrides: {
               "m_call" => { params: [], body: "return fn0_();" },
@@ -920,12 +920,12 @@ module Frozone
             name: "Proc1",
             parent: "Proc",
             members: [
-              "std::function<BasicObject*(BasicObject*)> fn1_;",
+              "std::function<BO*(BO*)> fn1_;",
               "Proc1() = default;",
-              "explicit Proc1(std::function<BasicObject*(BasicObject*)> f) : fn1_(std::move(f)) {}",
-              "BasicObject* call1(BasicObject* a) final { return fn1_(a); }",
-              "BasicObject* call0() final { return fn1_(nil_instance()); }",
-              "BasicObject* call2(BasicObject* a, BasicObject*) final { return fn1_(a); }",
+              "explicit Proc1(std::function<BO*(BO*)> f) : fn1_(std::move(f)) {}",
+              "BO* call1(BO* a) final { return fn1_(a); }",
+              "BO* call0() final { return fn1_(nil_instance()); }",
+              "BO* call2(BO* a, BO*) final { return fn1_(a); }",
             ],
             overrides: {
               "m_call" => {
@@ -939,27 +939,27 @@ module Frozone
             name: "Proc2",
             parent: "Proc",
             members: [
-              "std::function<BasicObject*(BasicObject*, BasicObject*)> fn2_;",
+              "std::function<BO*(BO*, BO*)> fn2_;",
               "Proc2() = default;",
-              "explicit Proc2(std::function<BasicObject*(BasicObject*, BasicObject*)> f) : fn2_(std::move(f)) {}",
-              "BasicObject* call2(BasicObject* a, BasicObject* b) final { return fn2_(a, b); }",
-              "BasicObject* call0() final { return fn2_(nil_instance(), nil_instance()); }",
+              "explicit Proc2(std::function<BO*(BO*, BO*)> f) : fn2_(std::move(f)) {}",
+              "BO* call2(BO* a, BO* b) final { return fn2_(a, b); }",
+              "BO* call0() final { return fn2_(nil_instance(), nil_instance()); }",
               # procarg0 (auto-splat): `yield array_of_pair` into a 2-param
               # block destructures the Array as if `*` had been splatted at
               # the yield site. Hash#each relies on this: it yields `[k, v]`
               # and the block sees `k, v` separately. Same logic as the
               # universal Proc's `__blkargs__` rebind in lambda_emitter.rb.
-              "BasicObject* call1(BasicObject* a) final { if (&typeid(*a) == &typeid(Array)) { auto* _arr = static_cast<Array*>(a); BasicObject* _x = _arr->data.size() > 0 ? _arr->data[0] : nil_instance(); BasicObject* _y = _arr->data.size() > 1 ? _arr->data[1] : nil_instance(); return fn2_(_x, _y); } return fn2_(a, nil_instance()); }",
+              "BO* call1(BO* a) final { if (&typeid(*a) == &typeid(Array)) { auto* _arr = static_cast<Array*>(a); BO* _x = _arr->data.size() > 0 ? _arr->data[0] : nil_instance(); BO* _y = _arr->data.size() > 1 ? _arr->data[1] : nil_instance(); return fn2_(_x, _y); } return fn2_(a, nil_instance()); }",
             ],
             overrides: {
               "m_call" => {
                 params: [],
-                body: "if (args->data.size() == 1) { BasicObject* _a0 = args->data[0]; if (&typeid(*_a0) == &typeid(Array)) { auto* _arr = static_cast<Array*>(_a0); BasicObject* _x = _arr->data.size() > 0 ? _arr->data[0] : nil_instance(); BasicObject* _y = _arr->data.size() > 1 ? _arr->data[1] : nil_instance(); return fn2_(_x, _y); } return fn2_(_a0, nil_instance()); } BasicObject* _a = args->data.size() > 0 ? args->data[0] : nil_instance(); BasicObject* _b = args->data.size() > 1 ? args->data[1] : nil_instance(); return fn2_(_a, _b);",
+                body: "if (args->data.size() == 1) { BO* _a0 = args->data[0]; if (&typeid(*_a0) == &typeid(Array)) { auto* _arr = static_cast<Array*>(_a0); BO* _x = _arr->data.size() > 0 ? _arr->data[0] : nil_instance(); BO* _y = _arr->data.size() > 1 ? _arr->data[1] : nil_instance(); return fn2_(_x, _y); } return fn2_(_a0, nil_instance()); } BO* _a = args->data.size() > 0 ? args->data[0] : nil_instance(); BO* _b = args->data.size() > 1 ? args->data[1] : nil_instance(); return fn2_(_a, _b);",
               },
             },
           )
 
-          # Hash — std::unordered_map keyed by BasicObject* with a
+          # Hash — std::unordered_map keyed by BO* with a
           # custom Hasher (calls m_hash_value via vtable) and KeyEq
           # (calls op_eq_q via vtable). Bucket storage uses GcAllocator
           # so Boehm traces the value pointers.
@@ -980,11 +980,11 @@ module Frozone
               "// setting one clears the other (handled by the setter",
               "// intrinsics; the getter just reads). Both default to",
               "// nil_instance().",
-              "BasicObject* default_value_ = nil_instance();",
-              "BasicObject* default_proc_ = nil_instance();",
+              "BO* default_value_ = nil_instance();",
+              "BO* default_proc_ = nil_instance();",
               "struct Hasher {",
               "  bool* by_identity;",
-              "  std::size_t operator()(BasicObject* v) const {",
+              "  std::size_t operator()(BO* v) const {",
               "    if (by_identity && *by_identity) return reinterpret_cast<std::size_t>(v);",
               "    // Use m_hash_value (the C++ hook) rather than the Ruby `hash`",
               "    // method, so it works regardless of NA-vs-universal vtable shape.",
@@ -996,7 +996,7 @@ module Frozone
               "};",
               "struct KeyEq {",
               "  bool* by_identity;",
-              "  bool operator()(BasicObject* a, BasicObject* b) const {",
+              "  bool operator()(BO* a, BO* b) const {",
               "    if (by_identity && *by_identity) return a == b;",
               "    Array tmp;",
               "    tmp.data.push_back(b);",
@@ -1004,12 +1004,12 @@ module Frozone
               "  }",
               "};",
               "using map_t = std::unordered_map<",
-              "  BasicObject*, BasicObject*, Hasher, KeyEq,",
-              "  GcAllocator<std::pair<BasicObject* const, BasicObject*>>>;",
+              "  BO*, BO*, Hasher, KeyEq,",
+              "  GcAllocator<std::pair<BO* const, BO*>>>;",
               "// Per-key index into `insertion_order` so erase is O(1).",
               "using idx_map_t = std::unordered_map<",
-              "  BasicObject*, std::size_t, Hasher, KeyEq,",
-              "  GcAllocator<std::pair<BasicObject* const, std::size_t>>>;",
+              "  BO*, std::size_t, Hasher, KeyEq,",
+              "  GcAllocator<std::pair<BO* const, std::size_t>>>;",
               "map_t data;",
               "idx_map_t order_idx;",
               "// MRI Hash preserves insertion order. We keep a side vector of",
@@ -1017,11 +1017,11 @@ module Frozone
               "// instead of shifting, and a compaction rebuilds the vector",
               "// when waste exceeds half. Amortized O(1) per op; iteration",
               "// is always O(live) within a 2x factor.",
-              "std::vector<BasicObject*, GcAllocator<BasicObject*>> insertion_order;",
+              "std::vector<BO*, GcAllocator<BO*>> insertion_order;",
               "std::size_t live = 0;",
               "Hash() : data(0, Hasher{&compare_by_identity_}, KeyEq{&compare_by_identity_}),",
               "         order_idx(0, Hasher{&compare_by_identity_}, KeyEq{&compare_by_identity_}) {}",
-              "Hash(std::initializer_list<std::pair<BasicObject*, BasicObject*>> init)",
+              "Hash(std::initializer_list<std::pair<BO*, BO*>> init)",
               "    : data(0, Hasher{&compare_by_identity_}, KeyEq{&compare_by_identity_}),",
               "      order_idx(0, Hasher{&compare_by_identity_}, KeyEq{&compare_by_identity_}) {",
               "  for (auto& p : init) {",
@@ -1040,7 +1040,7 @@ module Frozone
               "// Replaces the old `_h->data = kwargs->data;` idiom used by",
               "// codegen for kwargs-promote-to-trailing-arg conversions.",
               "void copy_kvps_from(const Hash& other) {",
-              "  for (BasicObject* _k : other.insertion_order) {",
+              "  for (BO* _k : other.insertion_order) {",
               "    if (!_k) continue;",
               "    auto _it = other.data.find(_k);",
               "    if (_it == other.data.end()) continue;",
@@ -1057,7 +1057,7 @@ module Frozone
               "// Mutation helpers — keep `data`/`order_idx`/`insertion_order`/",
               "// `live` in sync. Hand-written intrinsics and overrides call",
               "// these instead of poking `data` directly.",
-              "void put(BasicObject* k, BasicObject* v) {",
+              "void put(BO* k, BO* v) {",
               "  auto _r = data.try_emplace(k, v);",
               "  if (_r.second) {",
               "    order_idx[k] = insertion_order.size();",
@@ -1067,10 +1067,10 @@ module Frozone
               "    _r.first->second = v;",
               "  }",
               "}",
-              "BasicObject* erase_key(BasicObject* k) {",
+              "BO* erase_key(BO* k) {",
               "  auto _it = data.find(k);",
               "  if (_it == data.end()) return nullptr;",
-              "  BasicObject* _v = _it->second;",
+              "  BO* _v = _it->second;",
               "  auto _it2 = order_idx.find(k);",
               "  if (_it2 != order_idx.end()) {",
               "    insertion_order[_it2->second] = nullptr;",
@@ -1090,9 +1090,9 @@ module Frozone
               "void compact_order_if_needed() {",
               "  if (insertion_order.size() <= 8) return;",
               "  if (2 * live >= insertion_order.size()) return;",
-              "  std::vector<BasicObject*, GcAllocator<BasicObject*>> _nv;",
+              "  std::vector<BO*, GcAllocator<BO*>> _nv;",
               "  _nv.reserve(live);",
-              "  for (BasicObject* _k : insertion_order) {",
+              "  for (BO* _k : insertion_order) {",
               "    if (!_k) continue;",
               "    order_idx[_k] = _nv.size();",
               "    _nv.push_back(_k);",
@@ -1103,22 +1103,22 @@ module Frozone
             ],
             overrides: {
               "op_aref"   => {
-                params: ["BasicObject* k"],
+                params: ["BO* k"],
                 body: <<~CPP.chomp,
                   auto it = data.find(k);
                   return (it == data.end()) ? nil_instance() : it->second;
                 CPP
               },
               "op_aset"   => {
-                params: ["BasicObject* k", "BasicObject* v"],
+                params: ["BO* k", "BO* v"],
                 body: "put(k, v); return v;",
               },
               "mm_include_q" => {
-                params: ["BasicObject* k"],
+                params: ["BO* k"],
                 body: "return boxed_bool(data.find(k) != data.end());",
               },
               "mm_has_key_q" => {
-                params: ["BasicObject* k"],
+                params: ["BO* k"],
                 body: "return boxed_bool(data.find(k) != data.end());",
               },
             },
@@ -1134,8 +1134,8 @@ module Frozone
             name: "Range",
             parent: "Object",
             members: [
-              "BasicObject* begin_ = nullptr;",
-              "BasicObject* end_   = nullptr;",
+              "BO* begin_ = nullptr;",
+              "BO* end_   = nullptr;",
               "bool exclude_end_   = false;",
               "bool initialized_   = false;",
               "Range() = default;",
@@ -1258,7 +1258,7 @@ module Frozone
                   if (args->data.empty()) {
                     return new Float(mri_next_float());
                   }
-                  BasicObject* n = args->data[0];
+                  BO* n = args->data[0];
                   if (&typeid(*n) == &typeid(Integer)) {
                     auto* i = static_cast<Integer*>(n);
                     if (i->raw_ <= 0) return new Float(mri_next_float());
@@ -1300,7 +1300,7 @@ module Frozone
             name: "Regexp",
             parent: "Object",
             members: [
-              "BasicObject* source_ = nullptr;          // String*",
+              "BO* source_ = nullptr;          // String*",
               "int64_t options_ = 0;",
               "regex_t* compiled_ = nullptr;            // Onigmo state — libc-malloc",
               "bool initialized_ = false;",
@@ -1321,7 +1321,7 @@ module Frozone
                   auto* pat = static_cast<String*>(args->data[0]);
                   int64_t opts = 0;
                   if (args->data.size() >= 2) {
-                    BasicObject* a1 = args->data[1];
+                    BO* a1 = args->data[1];
                     if (&typeid(*a1) == &typeid(Integer)) opts = static_cast<Integer*>(a1)->raw_;
                   }
                   source_ = pat;
@@ -1362,8 +1362,8 @@ module Frozone
               # `@string` / `@regexp`. core/4.0/match_data.rb memoises
               # both via `||=`, so they need to be addressable as
               # `this->iv_string` / `this->iv_regexp` on the C++ side.
-              "BasicObject* iv_string = nullptr;",
-              "BasicObject* iv_regexp = nullptr;",
+              "BO* iv_string = nullptr;",
+              "BO* iv_regexp = nullptr;",
               "// Capture offsets: data[0] = whole match, data[i] = $i.",
               "// (begin, end) of -1 means \"not matched\" (e.g. an alt branch that didn't fire).",
               "std::vector<std::pair<int64_t, int64_t>, GcAllocator<std::pair<int64_t, int64_t>>> captures_;",
@@ -1394,8 +1394,8 @@ module Frozone
               "int32_t nsec_ = 0;",
               "int32_t utc_offset_ = 0;",
               "bool is_utc_ = false;",
-              "BasicObject* iv_frozone_timezone = nil_instance();",
-              "BasicObject* iv_bdt = nil_instance();",
+              "BO* iv_frozone_timezone = nil_instance();",
+              "BO* iv_bdt = nil_instance();",
               "Time() = default;",
               %(const char* ruby_class_name() const override { return "Time"; }),
             ],
@@ -1407,10 +1407,10 @@ module Frozone
             name: "ThrownTag",
             parent: "Object",
             members: [
-              "BasicObject* tag_ = nullptr;",
-              "BasicObject* value_ = nullptr;",
+              "BO* tag_ = nullptr;",
+              "BO* value_ = nullptr;",
               "ThrownTag() = default;",
-              "ThrownTag(BasicObject* t, BasicObject* v) : tag_(t), value_(v) {}",
+              "ThrownTag(BO* t, BO* v) : tag_(t), value_(v) {}",
               %(const char* ruby_class_name() const override { return "ThrownTag"; }),
             ],
           )
@@ -1511,7 +1511,7 @@ module Frozone
             RubyClass.new(
               name: "#{klass.name}_eigenclass",
               parent: eigen_parent,
-              ivars: (klass.eigenclass_ivars || []).map { |iv| "BasicObject* iv_#{iv} = nil_instance();" },
+              ivars: (klass.eigenclass_ivars || []).map { |iv| "BO* iv_#{iv} = nil_instance();" },
               members: [%(const char* ruby_class_name() const override { return "#{klass.name}"; })],
               overrides: overrides,
               singleton: "#{klass.name}_CLASS",
@@ -1529,25 +1529,25 @@ module Frozone
           # class member function bodies before NilClass is defined).
           NIL_INSTANCE_FN = KernelFn.new(
             name: "nil_instance",
-            signature: "BasicObject* nil_instance()",
-            body: "return static_cast<BasicObject*>(&NIL_INSTANCE);",
+            signature: "BO* nil_instance()",
+            body: "return static_cast<BO*>(&NIL_INSTANCE);",
           )
 
           TRUE_INSTANCE_FN = KernelFn.new(
             name: "true_instance",
-            signature: "BasicObject* true_instance()",
-            body: "return static_cast<BasicObject*>(&TRUE_INSTANCE);",
+            signature: "BO* true_instance()",
+            body: "return static_cast<BO*>(&TRUE_INSTANCE);",
           )
 
           FALSE_INSTANCE_FN = KernelFn.new(
             name: "false_instance",
-            signature: "BasicObject* false_instance()",
-            body: "return static_cast<BasicObject*>(&FALSE_INSTANCE);",
+            signature: "BO* false_instance()",
+            body: "return static_cast<BO*>(&FALSE_INSTANCE);",
           )
 
           BOXED_BOOL = KernelFn.new(
             name: "boxed_bool",
-            signature: "BasicObject* boxed_bool(bool b)",
+            signature: "BO* boxed_bool(bool b)",
             body: "return b ? true_instance() : false_instance();",
           )
 
@@ -1557,20 +1557,20 @@ module Frozone
           # nil_instance() so explicit nil is distinguishable.
           UNSET_INSTANCE_FN = KernelFn.new(
             name: "unset_instance",
-            signature: "BasicObject* unset_instance()",
-            body: "return static_cast<BasicObject*>(&UNSET_INSTANCE);",
+            signature: "BO* unset_instance()",
+            body: "return static_cast<BO*>(&UNSET_INSTANCE);",
           )
 
           TRUTHY = KernelFn.new(
             name: "truthy",
-            signature: "bool truthy(BasicObject* o)",
-            # Calling-convention invariant: every BasicObject* slot in
+            signature: "bool truthy(BO* o)",
+            # Calling-convention invariant: every BO* slot in
             # the universal protocol holds a real Ruby object — never
             # C++ nullptr. Positional args default to &EMPTY_ARGS,
             # kwargs to &EMPTY_KWARGS, block to nil_instance().
             #
             # No nullptr check here on purpose — if nullptr reaches a
-            # BasicObject*-typed truthy(), the codegen has erased a
+            # BO*-typed truthy(), the codegen has erased a
             # typed pointer (e.g. NA-with-block Proc*) somewhere it
             # shouldn't have, and we want the bug to surface (UB / wrong
             # branch) rather than silently absorb it. The Proc* overload
@@ -1598,7 +1598,7 @@ module Frozone
 
           RUBY_PUTS = KernelFn.new(
             name: "ruby_puts",
-            signature: "void ruby_puts(BasicObject* o)",
+            signature: "void ruby_puts(BO* o)",
             body: <<~CPP.chomp,
               // `puts` with no args calls ruby_puts(nullptr); MRI prints just a newline.
               if (!o)                                       { std::putchar('\\n'); return; }
@@ -1654,7 +1654,7 @@ module Frozone
             signature: "[[noreturn]] void throw_not_implemented(const char* msg)",
             body: <<~CPP.chomp,
               throw static_cast<Exception*>(
-                (&NotImplementedError_CLASS)->m_new(univ, new Array({static_cast<BasicObject*>(
+                (&NotImplementedError_CLASS)->m_new(univ, new Array({static_cast<BO*>(
                   new String(msg, std::strlen(msg))
                 )}))
               );
@@ -1680,7 +1680,7 @@ module Frozone
               if (n < 0) n = 0;
               if (n >= (int)sizeof(buf)) n = (int)sizeof(buf) - 1;
               throw static_cast<Exception*>(
-                (&ArgumentError_CLASS)->m_new(univ, new Array({static_cast<BasicObject*>(new String(buf, n))}))
+                (&ArgumentError_CLASS)->m_new(univ, new Array({static_cast<BO*>(new String(buf, n))}))
               );
             CPP
           )
@@ -1723,7 +1723,7 @@ module Frozone
           # docs/box-first-visibility.md.
           RAISE_PRIVATE_CALL_FN = KernelFn.new(
             name: "raise_private_call",
-            signature: "[[noreturn]] void raise_private_call(BasicObject* recv, const char* name)",
+            signature: "[[noreturn]] void raise_private_call(BO* recv, const char* name)",
             body: <<~CPP.chomp,
               std::size_t nlen = std::strlen(name);
               const char* cn = recv ? recv->ruby_class_name() : "nil";
@@ -1737,13 +1737,13 @@ module Frozone
               msg->bytes.insert(msg->bytes.end(), mid, mid + sizeof(mid) - 1);
               msg->bytes.insert(msg->bytes.end(), cn, cn + clen);
               throw static_cast<Exception*>((&NoMethodError_CLASS)->m_new(univ, 
-                new Array({static_cast<BasicObject*>(msg)})));
+                new Array({static_cast<BO*>(msg)})));
             CPP
           )
 
           RAISE_PROTECTED_CALL_FN = KernelFn.new(
             name: "raise_protected_call",
-            signature: "[[noreturn]] void raise_protected_call(BasicObject* recv, const char* name)",
+            signature: "[[noreturn]] void raise_protected_call(BO* recv, const char* name)",
             body: <<~CPP.chomp,
               std::size_t nlen = std::strlen(name);
               const char* cn = recv ? recv->ruby_class_name() : "nil";
@@ -1757,7 +1757,7 @@ module Frozone
               msg->bytes.insert(msg->bytes.end(), mid, mid + sizeof(mid) - 1);
               msg->bytes.insert(msg->bytes.end(), cn, cn + clen);
               throw static_cast<Exception*>((&NoMethodError_CLASS)->m_new(univ, 
-                new Array({static_cast<BasicObject*>(msg)})));
+                new Array({static_cast<BO*>(msg)})));
             CPP
           )
 
@@ -1768,19 +1768,19 @@ module Frozone
           THROW_INDEX_ERROR_FN = KernelFn.new(
             name: "throw_index_error",
             signature: "[[noreturn]] void throw_index_error(const char* msg)",
-            body: %(throw static_cast<Exception*>((&IndexError_CLASS)->m_new(univ, new Array({static_cast<BasicObject*>(new String(msg))})));),
+            body: %(throw static_cast<Exception*>((&IndexError_CLASS)->m_new(univ, new Array({static_cast<BO*>(new String(msg))})));),
           )
 
           THROW_TYPE_ERROR_FN = KernelFn.new(
             name: "throw_type_error",
             signature: "[[noreturn]] void throw_type_error(const char* msg)",
-            body: %(throw static_cast<Exception*>((&TypeError_CLASS)->m_new(univ, new Array({static_cast<BasicObject*>(new String(msg))})));),
+            body: %(throw static_cast<Exception*>((&TypeError_CLASS)->m_new(univ, new Array({static_cast<BO*>(new String(msg))})));),
           )
 
           THROW_RANGE_ERROR_FN = KernelFn.new(
             name: "throw_range_error",
             signature: "[[noreturn]] void throw_range_error(const char* msg)",
-            body: %(throw static_cast<Exception*>((&RangeError_CLASS)->m_new(univ, new Array({static_cast<BasicObject*>(new String(msg))})));),
+            body: %(throw static_cast<Exception*>((&RangeError_CLASS)->m_new(univ, new Array({static_cast<BO*>(new String(msg))})));),
           )
 
           BUILD_INT_ARRAY_FN = KernelFn.new(
@@ -1795,14 +1795,14 @@ module Frozone
           )
 
           # int_box — forward-declared helper that constructs an
-          # Integer and returns it AS BasicObject*. The BasicObject*
+          # Integer and returns it AS BO*. The BO*
           # return type sidesteps the "incomplete type" issue when
           # called from inline members of BasicObject (Integer is
           # forward-declared at that point; the implicit Integer* →
-          # BasicObject* conversion requires complete Integer).
+          # BO* conversion requires complete Integer).
           INT_BOX_FN = KernelFn.new(
             name: "int_box",
-            signature: "BasicObject* int_box(std::int64_t v)",
+            signature: "BO* int_box(std::int64_t v)",
             body: "return new Integer(v);",
           )
 
@@ -1815,7 +1815,7 @@ module Frozone
           # during class-body parsing.
           ARRAY_AT_FN = KernelFn.new(
             name: "array_at",
-            signature: "BasicObject* array_at(Array* a, std::size_t i)",
+            signature: "BO* array_at(Array* a, std::size_t i)",
             body: "return a->data[i];",
           )
 
@@ -1835,14 +1835,14 @@ module Frozone
           # to_a children, so m_to_a returns the children Array.
           SPLAT_TO_ARRAY_FN = KernelFn.new(
             name: "splat_to_array",
-            signature: "Array* splat_to_array(BasicObject* x)",
+            signature: "Array* splat_to_array(BO* x)",
             body: <<~CPP.chomp,
               if (x->typeid_eq_q<Array>()) return static_cast<Array*>(x);
               if (x == nil_instance()) return new Array();
-              if (truthy(x->mm_is_a_q(univ, new Array({(BasicObject*)(&Array_CLASS)})))) {
+              if (truthy(x->mm_is_a_q(univ, new Array({(BO*)(&Array_CLASS)})))) {
                 return static_cast<Array*>(x);
               }
-              BasicObject* coerced = x->m_to_a(univ);
+              BO* coerced = x->m_to_a(univ);
               if (coerced && coerced->typeid_eq_q<Array>()) {
                 return static_cast<Array*>(coerced);
               }
@@ -1872,7 +1872,7 @@ module Frozone
               ext->data = args->data;
               Hash* h = new Hash();
               h->copy_kvps_from(*kwargs);
-              ext->data.push_back(static_cast<BasicObject*>(h));
+              ext->data.push_back(static_cast<BO*>(h));
               return ext;
             CPP
           )
@@ -1885,10 +1885,10 @@ module Frozone
           # coerced via splat_to_array). mm_is_a_q walks the IS_A LUT.
           RESCUE_SPLAT_MATCHES_FN = KernelFn.new(
             name: "rescue_splat_matches",
-            signature: "bool rescue_splat_matches(Exception* e_, BasicObject* classes)",
+            signature: "bool rescue_splat_matches(Exception* e_, BO* classes)",
             body: <<~CPP.chomp,
               Array* arr = splat_to_array(classes);
-              for (BasicObject* cls : arr->data) {
+              for (BO* cls : arr->data) {
                 if (truthy(e_->mm_is_a_q(univ, new Array({cls})))) return true;
               }
               return false;
@@ -1936,7 +1936,7 @@ module Frozone
             CPP
           )
 
-          # Coerce a BasicObject* to int64_t via Ruby's `to_int` protocol.
+          # Coerce a BO* to int64_t via Ruby's `to_int` protocol.
           # Integer fast-path is a typeid pointer-compare against
           # &typeid(Integer) (single-DSO, see project_typeid_single_dso) —
           # avoids both dynamic_cast AND a virtual m_class() dispatch.
@@ -1947,7 +1947,7 @@ module Frozone
           # `no implicit conversion of <Class> into Integer`.
           COERCE_TO_INT_FN = KernelFn.new(
             name: "coerce_to_int",
-            signature: "int64_t coerce_to_int(BasicObject* v)",
+            signature: "int64_t coerce_to_int(BO* v)",
             body: <<~CPP.chomp,
               if (v && v->typeid_eq_q<Integer>()) return static_cast<Integer*>(v)->raw_;
               // Only dispatch m_to_int if the receiver actually responds.
@@ -1955,7 +1955,7 @@ module Frozone
               // NoMethodError, which masks the TypeError MRI expects
               // (Array#[] with a non-coercible index, etc.).
               if (v && v != nil_instance() && v->mm_respond_to_q(univ, new Array({intern("to_int")})) == true_instance()) {
-                BasicObject* r = v->m_to_int(univ);
+                BO* r = v->m_to_int(univ);
                 if (r && r->typeid_eq_q<Integer>()) return static_cast<Integer*>(r)->raw_;
               }
               const char* cn = v ? v->ruby_class_name() : "nil";
@@ -1968,7 +1968,7 @@ module Frozone
               msg->bytes.insert(msg->bytes.end(), cn, cn + cnlen);
               msg->bytes.insert(msg->bytes.end(), suffix, suffix + sizeof(suffix) - 1);
               Array* mm_args = new Array();
-              mm_args->data.push_back(static_cast<BasicObject*>(msg));
+              mm_args->data.push_back(static_cast<BO*>(msg));
               throw static_cast<Exception*>((&TypeError_CLASS)->m_new(univ, mm_args));
             CPP
           )
@@ -1991,7 +1991,7 @@ module Frozone
           # supersedes the default via normal vtable lookup.
           MM_DISPATCH_FN = KernelFn.new(
             name: "mm_dispatch",
-            signature: "BasicObject* mm_dispatch(BasicObject* recv, Array* args, Hash* kwargs, BasicObject* block, const char* method_name)",
+            signature: "BO* mm_dispatch(BO* recv, Array* args, Hash* kwargs, BO* block, const char* method_name)",
             body: <<~CPP.chomp,
               Array* mm_args = new Array();
               mm_args->data.reserve(args->data.size() + 1);
@@ -2007,7 +2007,7 @@ module Frozone
           # this — `nil::FOO` isn't recoverable via const_missing).
           CM_DISPATCH_FN = KernelFn.new(
             name: "cm_dispatch",
-            signature: "BasicObject* cm_dispatch(BasicObject* recv, const char* const_name)",
+            signature: "BO* cm_dispatch(BO* recv, const char* const_name)",
             body: <<~CPP.chomp,
               Array* cm_args = new Array();
               cm_args->data.push_back(intern(const_name));
@@ -2032,9 +2032,9 @@ module Frozone
           # the variable's location.
           MATCH_DATA_GLOBAL = KernelFn.new(
             name: "g_last_match",
-            signature: "BasicObject*& g_last_match()",
+            signature: "BO*& g_last_match()",
             body: <<~CPP.chomp,
-              static BasicObject* g = nullptr;
+              static BO* g = nullptr;
               return g;
             CPP
           )
@@ -2047,7 +2047,7 @@ module Frozone
           # =~ / #match / #match? intrinsics stay one-liners.
           REGEXP_MATCH_FN = KernelFn.new(
             name: "regexp_match_helper",
-            signature: "MatchData* regexp_match_helper(BasicObject* re_obj, BasicObject* str_obj, int64_t pos)",
+            signature: "MatchData* regexp_match_helper(BO* re_obj, BO* str_obj, int64_t pos)",
             body: <<~CPP.chomp,
               auto* re = static_cast<Regexp*>(re_obj);
               auto* str = static_cast<String*>(str_obj);
@@ -2081,7 +2081,7 @@ module Frozone
           # aborts; full unpack DSL is a follow-up.
           STRING_UNPACK_FN = KernelFn.new(
             name: "string_unpack_helper",
-            signature: "BasicObject* string_unpack_helper(BasicObject* self_obj, BasicObject* fmt_obj)",
+            signature: "BO* string_unpack_helper(BO* self_obj, BO* fmt_obj)",
             body: <<~CPP.chomp,
               auto* self = static_cast<String*>(self_obj);
               auto* fmt  = static_cast<String*>(fmt_obj);
@@ -2136,7 +2136,7 @@ module Frozone
           # gsub call is `source.gsub("\r\n", "\n")`.
           STRING_GSUB_FN = KernelFn.new(
             name: "string_gsub_helper",
-            signature: "BasicObject* string_gsub_helper(BasicObject* self_obj, BasicObject* pat, BasicObject* repl, BasicObject* block)",
+            signature: "BO* string_gsub_helper(BO* self_obj, BO* pat, BO* repl, BO* block)",
             body: <<~CPP.chomp,
               auto* self = static_cast<String*>(self_obj);
               if (!pat) return self;
@@ -2221,7 +2221,7 @@ module Frozone
           # matches advance position by 1 to avoid an infinite loop.
           STRING_SCAN_FN = KernelFn.new(
             name: "string_scan_helper",
-            signature: "BasicObject* string_scan_helper(BasicObject* self_obj, BasicObject* pat_obj, BasicObject* block_obj)",
+            signature: "BO* string_scan_helper(BO* self_obj, BO* pat_obj, BO* block_obj)",
             body: <<~CPP.chomp,
               auto* self = static_cast<String*>(self_obj);
               bool has_block = (block_obj && block_obj != nil_instance());
@@ -2232,7 +2232,7 @@ module Frozone
               // String pattern: literal non-overlapping search.
               if (&typeid(*pat_obj) == &typeid(String)) {
                 auto* spat = static_cast<String*>(pat_obj);
-                if (spat->bytes.empty()) return has_block ? self_obj : static_cast<BasicObject*>(results);
+                if (spat->bytes.empty()) return has_block ? self_obj : static_cast<BO*>(results);
                 const std::uint8_t* hay = self->bytes.data();
                 const std::uint8_t* nee = spat->bytes.data();
                 std::size_t hay_n = self->bytes.size();
@@ -2240,7 +2240,7 @@ module Frozone
                 std::size_t i = 0;
                 while (i + nee_n <= hay_n) {
                   if (std::memcmp(hay + i, nee, nee_n) == 0) {
-                    BasicObject* match_str = new String(reinterpret_cast<const char*>(nee), nee_n);
+                    BO* match_str = new String(reinterpret_cast<const char*>(nee), nee_n);
                     if (has_block) {
                       block_proc->m_call(univ, new Array({match_str}));
                     } else {
@@ -2251,13 +2251,13 @@ module Frozone
                     i++;
                   }
                 }
-                return has_block ? self_obj : static_cast<BasicObject*>(results);
+                return has_block ? self_obj : static_cast<BO*>(results);
               }
 
               // Regexp pattern: onig_search loop.
               if (&typeid(*pat_obj) == &typeid(Regexp)) {
                 auto* re = static_cast<Regexp*>(pat_obj);
-                if (!re->compiled_) return has_block ? self_obj : static_cast<BasicObject*>(results);
+                if (!re->compiled_) return has_block ? self_obj : static_cast<BO*>(results);
                 const UChar* s = self->bytes.data();
                 std::size_t n = self->bytes.size();
                 const UChar* end = s + n;
@@ -2280,7 +2280,7 @@ module Frozone
 
                   int64_t whole_b = region->beg[0];
                   int64_t whole_e = region->end[0];
-                  BasicObject* this_result;
+                  BO* this_result;
                   if (region->num_regs <= 1) {
                     this_result = new String(reinterpret_cast<const char*>(s + whole_b),
                                              static_cast<std::size_t>(whole_e - whole_b));
@@ -2310,7 +2310,7 @@ module Frozone
                 }
                 onig_region_free(region, 1);
                 if (last_match) g_last_match() = last_match;
-                return has_block ? self_obj : static_cast<BasicObject*>(results);
+                return has_block ? self_obj : static_cast<BO*>(results);
               }
 
               std::fprintf(stderr, "[box-first] String#scan unsupported pattern type: %s\\n",
@@ -2324,7 +2324,7 @@ module Frozone
           # an out-of-range index or an unmatched capture (begin == -1).
           MATCH_DATA_CAP_FN = KernelFn.new(
             name: "matchdata_cap",
-            signature: "BasicObject* matchdata_cap(BasicObject* md_obj, int64_t n)",
+            signature: "BO* matchdata_cap(BO* md_obj, int64_t n)",
             body: <<~CPP.chomp,
               if (!md_obj || md_obj == nil_instance()) return nil_instance();
               auto* md = static_cast<MatchData*>(md_obj);
@@ -2353,7 +2353,7 @@ module Frozone
 
           GLOBAL_OR_NIL_FN = KernelFn.new(
             name: "g_global_or_nil",
-            signature: "BasicObject* g_global_or_nil(const char* name)",
+            signature: "BO* g_global_or_nil(const char* name)",
             body: <<~CPP.chomp,
               Hash* g = g_globals_storage();
               auto it = g->data.find(intern(name));
@@ -2376,7 +2376,7 @@ module Frozone
           # caller cares: `.map`, `<<`, `+`, etc. all work on Array.
           GLOBAL_ARRAY_FN = KernelFn.new(
             name: "g_global_array",
-            signature: "BasicObject* g_global_array(const char* name)",
+            signature: "BO* g_global_array(const char* name)",
             body: <<~CPP.chomp,
               Hash* g = g_globals_storage();
               Symbol* key = intern(name);
@@ -2390,7 +2390,7 @@ module Frozone
 
           GLOBAL_SET_FN = KernelFn.new(
             name: "g_global_set",
-            signature: "BasicObject* g_global_set(const char* name, BasicObject* val)",
+            signature: "BO* g_global_set(const char* name, BO* val)",
             body: <<~CPP.chomp,
               Hash* g = g_globals_storage();
               g->put(intern(name), val);

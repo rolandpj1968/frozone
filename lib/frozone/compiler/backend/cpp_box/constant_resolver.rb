@@ -55,7 +55,7 @@ module Frozone
             if kind == :yield
               # Block presence is the runtime predicate.
               # String publicly derives from BasicObject — implicit upcast in
-              # the ternary widens to BasicObject* without a static_cast.
+              # the ternary widens to BO* without a static_cast.
               return %|(_block != nil_instance() ? new String("yield", 5) : nil_instance())|
             end
             if kind == :method
@@ -67,7 +67,7 @@ module Frozone
               recv = receiver_node ? from_expr(receiver_node, locals) : "this"
               # Use the boolean form of respond_to? — mm_respond_to_q
               # returns true_instance/false_instance.
-              return %|([&]() -> BasicObject* { try { return truthy(#{recv}->mm_respond_to_q(univ, new Array({intern(#{cpp_string_literal(method_name.to_s)})}))) ? static_cast<BasicObject*>(new String("method", 6)) : nil_instance(); } catch (...) { return nil_instance(); } }())|
+              return %|([&]() -> BO* { try { return truthy(#{recv}->mm_respond_to_q(univ, new Array({intern(#{cpp_string_literal(method_name.to_s)})}))) ? static_cast<BO*>(new String("method", 6)) : nil_instance(); } catch (...) { return nil_instance(); } }())|
             end
             raise Cpp::EmissionError, "defined?(#{kind}) not yet supported in box-first"
           end
@@ -104,7 +104,7 @@ module Frozone
 
           # `FOO = expr` — rebind a user_constant's storage cell.
           # build_user_constant_accessors emits non-fused accessors as
-          # `BasicObject*& k_FOO()` returning a reference into the
+          # `BO*& k_FOO()` returning a reference into the
           # static cell, so `(k_FOO() = value)` rebinds it. Fused
           # singletons (NIL/TRUE/FALSE) and class-CLASS singletons aren't
           # writable storage — raise so callers see the gap.

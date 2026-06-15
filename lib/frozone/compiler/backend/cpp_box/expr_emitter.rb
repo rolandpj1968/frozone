@@ -234,9 +234,9 @@ module Frozone
               locals << node.name.to_s
               cpp = MethodEmitter.local_cpp_name(node.name)
               if emit.cpp.captured?(node.name)
-                emit.line "BasicObject** #{cpp} = gc_box<BasicObject*>(nil_instance());"
+                emit.line "BO** #{cpp} = gc_box<BO*>(nil_instance());"
               else
-                emit.line "BasicObject* #{cpp} = nil_instance();"
+                emit.line "BO* #{cpp} = nil_instance();"
               end
             end
             node.children.each { |c| pre_hoist_local_writes!(emit, c, locals) }
@@ -295,7 +295,7 @@ module Frozone
           def self.write_case_stmt(emit, node, locals, next_returns: false, in_block: false)
             subj = node.subject_node ? "_subj" : nil
             if subj
-              emit.line "BasicObject* #{subj} = #{emit.cpp.from_expr(node.subject_node, locals)};"
+              emit.line "BO* #{subj} = #{emit.cpp.from_expr(node.subject_node, locals)};"
             end
             node.whens.each_with_index do |w, i|
               cond = case_when_cond(emit, w.condition_nodes, subj, locals)
@@ -320,9 +320,9 @@ module Frozone
               if c.is_a?(Ast::SplatArg)
                 arr_str = emit.cpp.from_expr(c.value_node, locals)
                 if subj
-                  "([&]() -> bool { BasicObject* _sp = #{arr_str}; if (!_sp || typeid(*_sp) != typeid(Array)) return false; for (auto* _e : static_cast<Array*>(_sp)->data) { if (truthy(_e->op_case_eq(univ, new Array({#{subj}})))) return true; } return false; }())"
+                  "([&]() -> bool { BO* _sp = #{arr_str}; if (!_sp || typeid(*_sp) != typeid(Array)) return false; for (auto* _e : static_cast<Array*>(_sp)->data) { if (truthy(_e->op_case_eq(univ, new Array({#{subj}})))) return true; } return false; }())"
                 else
-                  "([&]() -> bool { BasicObject* _sp = #{arr_str}; if (!_sp || typeid(*_sp) != typeid(Array)) return false; for (auto* _e : static_cast<Array*>(_sp)->data) { if (truthy(_e)) return true; } return false; }())"
+                  "([&]() -> bool { BO* _sp = #{arr_str}; if (!_sp || typeid(*_sp) != typeid(Array)) return false; for (auto* _e : static_cast<Array*>(_sp)->data) { if (truthy(_e)) return true; } return false; }())"
                 end
               else
                 c_str = emit.cpp.from_expr(c, locals)
@@ -352,11 +352,11 @@ module Frozone
             var = target[1].to_s
             cpp_var = MethodEmitter.local_cpp_name(var)
             unless locals.include?(var)
-              emit.line "BasicObject* #{cpp_var} = nil_instance();"
+              emit.line "BO* #{cpp_var} = nil_instance();"
               locals << var
             end
             coll = emit.cpp.from_expr(node.collection_node, locals)
-            emit.line "(#{coll})->m_each(univ, &EMPTY_ARGS, &EMPTY_KWARGS, (new Proc([&, this](Array* __blkargs__, Hash* __blkkwargs__) -> BasicObject* {"
+            emit.line "(#{coll})->m_each(univ, &EMPTY_ARGS, &EMPTY_KWARGS, (new Proc([&, this](Array* __blkargs__, Hash* __blkkwargs__) -> BO* {"
             emit.indented do
               emit.line "#{cpp_var} = __blkargs__->data.empty() ? nil_instance() : __blkargs__->data[0];"
               write_body(emit, node.body_node, locals: locals) if node.body_node
@@ -385,7 +385,7 @@ module Frozone
               emit.line(captured ? "*#{cpp_name} = #{rhs};" : "#{cpp_name} = #{rhs};")
             else
               locals << node.name.to_s
-              emit.line(captured ? "BasicObject** #{cpp_name} = gc_box<BasicObject*>(#{rhs});" : "BasicObject* #{cpp_name} = #{rhs};")
+              emit.line(captured ? "BO** #{cpp_name} = gc_box<BO*>(#{rhs});" : "BO* #{cpp_name} = #{rhs};")
             end
           end
 
@@ -426,7 +426,7 @@ module Frozone
             # racc's `_slen, _trans, _keys, _inds, _acts, _nacts =
             # nil` was reading garbage out of nil_instance()->data,
             # making the lexer state machine never transition.
-            emit.line "BasicObject* #{raw} = #{rhs_expr};"
+            emit.line "BO* #{raw} = #{rhs_expr};"
             emit.line "Array* #{rhs} = (#{raw} && &typeid(*#{raw}) == &typeid(Array)) ? static_cast<Array*>(#{raw}) : nullptr;"
             emit.line "if (!#{rhs}) { #{rhs} = new Array(); if (#{raw} != nil_instance()) #{rhs}->data.push_back(#{raw}); }"
             emit.line "std::size_t #{n} = #{rhs}->data.size();"
@@ -438,7 +438,7 @@ module Frozone
               splat = "__mass_splat_#{tag}__"
               emit.line "Array* #{splat} = new Array();"
               emit.line "for (std::size_t _i = #{pre_count}; _i + #{post_count} < #{n}; _i++) #{splat}->data.push_back(#{rhs}->data[_i]);"
-              emit_mass_target_assign(emit, splat_t, "static_cast<BasicObject*>(#{splat})", locals)
+              emit_mass_target_assign(emit, splat_t, "static_cast<BO*>(#{splat})", locals)
               targets[(splat_idx + 1)..].each_with_index do |t, i|
                 # Post-splat target i reads `data[n - post_count + i]`,
                 # but only if pre hasn't already consumed that slot.
@@ -464,7 +464,7 @@ module Frozone
                 emit.line(captured ? "*#{cpp_name} = #{value_expr};" : "#{cpp_name} = #{value_expr};")
               else
                 locals << name
-                emit.line(captured ? "BasicObject** #{cpp_name} = gc_box<BasicObject*>(#{value_expr});" : "BasicObject* #{cpp_name} = #{value_expr};")
+                emit.line(captured ? "BO** #{cpp_name} = gc_box<BO*>(#{value_expr});" : "BO* #{cpp_name} = #{value_expr};")
               end
             when :local_splat
               name = target[1].to_s
@@ -474,7 +474,7 @@ module Frozone
                 emit.line(captured ? "*#{cpp_name} = #{value_expr};" : "#{cpp_name} = #{value_expr};")
               else
                 locals << name
-                emit.line(captured ? "BasicObject** #{cpp_name} = gc_box<BasicObject*>(#{value_expr});" : "BasicObject* #{cpp_name} = #{value_expr};")
+                emit.line(captured ? "BO** #{cpp_name} = gc_box<BO*>(#{value_expr});" : "BO* #{cpp_name} = #{value_expr};")
               end
             when :ivar, :ivar_splat
               iv = target[1].to_s.delete_prefix('@')
@@ -544,10 +544,10 @@ module Frozone
           end
 
           # `recv.times { |i| body }` → C++ for-loop. Mirrors mainline's
-          # special-case desugaring. recv is a BasicObject*; we extract
+          # special-case desugaring. recv is a BO*; we extract
           # raw_ via static_cast<Integer*>, except when recv is a literal
           # (then use the int directly). Inner loop body reads the
-          # block-var as a boxed Integer (`BasicObject* i = new
+          # block-var as a boxed Integer (`BO* i = new
           # Integer(__i_raw__)`) so it can be passed to methods, stored
           # in arrays, etc. Costs an allocation per iteration but is
           # correct; specialisation-pass replacement is future work.
@@ -567,12 +567,12 @@ module Frozone
               # Block param `var` is a fresh bare local in the for-body
               # scope, shadowing any outer captured-by-name local.
               emit.cpp.with_shadowed_locals([var]) do
-                emit.line "BasicObject* #{cpp_var} = new Integer(#{raw_var});"
+                emit.line "BO* #{cpp_var} = new Integer(#{raw_var});"
                 # Snapshot+restore: locals declared inside the block body
                 # are scoped to the block (mirrors Ruby's block-local
                 # semantics); without this, subsequent blocks' first
                 # writes would see stale "already declared" state and
-                # emit `name = ...` instead of `BasicObject* name = ...`.
+                # emit `name = ...` instead of `BO* name = ...`.
                 block_locals = locals.dup << var.to_s
                 write_body(emit, blk.body, locals: block_locals)
               end

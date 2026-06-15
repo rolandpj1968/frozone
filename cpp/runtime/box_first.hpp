@@ -147,7 +147,16 @@ struct EnsureGuard {
 // CTAD deduction guide so callers can write `EnsureGuard g([&]() {...});`.
 template<typename F> EnsureGuard(F) -> EnsureGuard<F>;
 
-namespace Ruby { struct BasicObject; struct Array; }
+namespace Ruby {
+struct BasicObject;
+struct Array;
+// Short alias for the universally-bearing type. Generated method
+// bodies refer to `BO*` instead of `BasicObject*` — saves ~10 bytes
+// per occurrence × thousands per TU, which shrinks generated .cpp
+// file sizes and cuts cc1plus tokenization work. Hand-written code
+// uses `BasicObject*`; both names are the same type.
+using BO = BasicObject;
+}
 
 // ProcFn — type-erased `BasicObject*(Array*)` callable, replacing
 // `std::function`. The closure storage is allocated via explicit

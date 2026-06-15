@@ -2,7 +2,7 @@
 # returns.
 #
 # Universal call protocol: every Ruby method takes
-#   m_X(Array* args, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()).
+#   m_X(Array* args, Hash* kwargs = &EMPTY_KWARGS, BO* block = nil_instance()).
 # Bodies unpack required positional params from `args` via
 # array_at(args, i). Block is always available as `_block` (or
 # user-named &blk). Specialisation slots like `m_X_<arity>(arg)`
@@ -52,27 +52,27 @@ module Frozone
             end
             if family
               family.arities.to_a.sort.each do |k|
-                params = (0...k).map { |i| "BasicObject* l_a#{i}" }.join(', ')
-                emit.line "virtual BasicObject* #{cpp_name}(#{params}) {"
+                params = (0...k).map { |i| "BO* l_a#{i}" }.join(', ')
+                emit.line "virtual BO* #{cpp_name}(#{params}) {"
                 abort_body.call
               end
               return
             end
             if kw_sig
               n_pos = kw_sig.arity_req + kw_sig.opt
-              pos = (0...n_pos).map { |i| "BasicObject* l_a#{i}" }
-              kw = kw_sig.all_kw_names.map { |kn| "BasicObject* #{local_cpp_name(kn)}" }
-              emit.line "virtual BasicObject* #{cpp_name}(#{(pos + kw).join(', ')}) {"
+              pos = (0...n_pos).map { |i| "BO* l_a#{i}" }
+              kw = kw_sig.all_kw_names.map { |kn| "BO* #{local_cpp_name(kn)}" }
+              emit.line "virtual BO* #{cpp_name}(#{(pos + kw).join(', ')}) {"
               abort_body.call
               return
             end
             if sig
-              pos = (0...sig.arity_req).map { |i| "BasicObject* l_a#{i}" }
-              kw = sig.required_kw_names.map { |kn| "BasicObject* #{local_cpp_name(kn)}" }
+              pos = (0...sig.arity_req).map { |i| "BO* l_a#{i}" }
+              kw = sig.required_kw_names.map { |kn| "BO* #{local_cpp_name(kn)}" }
               blk = sig.has_block ? ["Proc* /*block*/"] : []
-              emit.line "virtual BasicObject* #{cpp_name}(#{(pos + kw + blk).join(', ')}) {"
+              emit.line "virtual BO* #{cpp_name}(#{(pos + kw + blk).join(', ')}) {"
             else
-              emit.line "virtual BasicObject* #{cpp_name}(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) {"
+              emit.line "virtual BO* #{cpp_name}(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BO* block = nil_instance()) {"
             end
             abort_body.call
           end
@@ -95,7 +95,7 @@ module Frozone
               emit_body_with_frame(emit, method.body, locals)
             end
             end
-            emit.line "virtual BasicObject* #{cpp_name}(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) {"
+            emit.line "virtual BO* #{cpp_name}(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BO* block = nil_instance()) {"
             emit.indented do
               vis_prologue.each_line { |l| emit.line l.chomp } unless vis_prologue.empty?
               body_buf.each_line { |l| emit.line l.chomp }
@@ -108,7 +108,7 @@ module Frozone
           # is empty and this path is unreachable.
           #
           # Emits a SINGLE virtual slot with positional signature
-          # `virtual m_<name>(BasicObject* l_a1, ..., BasicObject* l_aN)`.
+          # `virtual m_<name>(BO* l_a1, ..., BO* l_aN)`.
           # No universal-signature slot exists for eligible names:
           # METHOD_VT[id] is nullptr, dynamic dispatch routes through
           # TRAMPOLINE_VT[id] (send / mm_dispatch), and compatible
@@ -140,8 +140,8 @@ module Frozone
               raise Cpp::EmissionError, "natural-arity shape mismatch for #{cpp_name}: def doesn't fit #{sig}"
             end
 
-            pos_decls = required.each_with_index.map { |_, i| "BasicObject* _arg#{i}" }
-            kw_decls = sig.required_kw_names.map { |kn| "BasicObject* _kw_#{kn}" }
+            pos_decls = required.each_with_index.map { |_, i| "BO* _arg#{i}" }
+            kw_decls = sig.required_kw_names.map { |kn| "BO* _kw_#{kn}" }
             block_decl = sig.has_block ? ["Proc* block"] : []
             param_decls = pos_decls + kw_decls + block_decl
             captured = method.body ? collect_method_captured(method) : Set.new
@@ -169,18 +169,18 @@ module Frozone
                 user_block = user_block_name(method)
                 if user_block
                   # Keep the user's named `&block` local typed as Proc*
-                  # (not erased to BasicObject*) so `if block` resolves
+                  # (not erased to BO*) so `if block` resolves
                   # to the truthy(Proc*) overload — just a nullptr check
                   # — and bug-finding nullptr-as-truthy issues stay
                   # surfaced rather than getting silently absorbed by
                   # the BO* truthy. Captured case falls back to BO** cell
                   # at the gc_box boundary; the cell write converts the
                   # nullptr-or-Proc* to nil_instance-or-Proc* so the
-                  # cell stays a valid BasicObject* per the universal
+                  # cell stays a valid BO* per the universal
                   # protocol invariant.
                   cpp = MethodEmitter.local_cpp_name(user_block)
                   if emit.cpp.captured?(user_block)
-                    emit.line "BasicObject** #{cpp} = gc_box<BasicObject*>(block ? static_cast<BasicObject*>(block) : nil_instance());"
+                    emit.line "BO** #{cpp} = gc_box<BO*>(block ? static_cast<BO*>(block) : nil_instance());"
                   else
                     emit.line "Proc* #{cpp} = block;"
                   end
@@ -198,7 +198,7 @@ module Frozone
             end
             end
             emit.cpp.block_is_nullable = prev_block_nullable
-            emit.line "virtual BasicObject* #{cpp_name}(#{param_decls.join(', ')}) {"
+            emit.line "virtual BO* #{cpp_name}(#{param_decls.join(', ')}) {"
             emit.indented do
               vis_prologue.each_line { |l| emit.line l.chomp } unless vis_prologue.empty?
               body_buf.each_line { |l| emit.line l.chomp }
@@ -222,7 +222,7 @@ module Frozone
               emit.visibility_survey, name, method.visibility, body: method.body
             )
             family.arities.to_a.sort.each do |k|
-              params = (0...k).map { |i| "BasicObject* _arg#{i}" }.join(', ')
+              params = (0...k).map { |i| "BO* _arg#{i}" }.join(', ')
               if k < arity_req || k > arity_max
                 # Cross-class wrong-args stub — this method's def doesn't
                 # serve arity k, but another defining class does. Raise
@@ -231,7 +231,7 @@ module Frozone
                 check_call = arity_req == arity_max ?
                   "check_arity_fixed(#{k}, #{arity_req});" :
                   "check_arity_range(#{k}, #{arity_req}, #{arity_max});"
-                emit.line "virtual BasicObject* #{cpp_name}(#{params}) {"
+                emit.line "virtual BO* #{cpp_name}(#{params}) {"
                 emit.indented do
                   emit.line check_call
                   emit.line "return nil_instance();"
@@ -267,7 +267,7 @@ module Frozone
                   emit_body_with_frame(emit, method.body, locals)
                 end
               end
-              emit.line "virtual BasicObject* #{cpp_name}(#{params}) {"
+              emit.line "virtual BO* #{cpp_name}(#{params}) {"
               emit.indented do
                 vis_prologue.each_line { |l| emit.line l.chomp } unless vis_prologue.empty?
                 body_buf.each_line { |l| emit.line l.chomp }
@@ -328,10 +328,10 @@ module Frozone
                 emit_body_with_frame(emit, method.body, locals)
               end
             end
-            pos_params = (0...sig.arity_req).map { |i| "BasicObject* _arg#{i}" } +
-                         (0...sig.opt).map { |i| "BasicObject* _arg#{sig.arity_req + i}" }
-            kw_params = sig.all_kw_names.map { |kn| "BasicObject* _kw_#{kn}" }
-            emit.line "virtual BasicObject* #{cpp_name}(#{(pos_params + kw_params).join(', ')}) {"
+            pos_params = (0...sig.arity_req).map { |i| "BO* _arg#{i}" } +
+                         (0...sig.opt).map { |i| "BO* _arg#{sig.arity_req + i}" }
+            kw_params = sig.all_kw_names.map { |kn| "BO* _kw_#{kn}" }
+            emit.line "virtual BO* #{cpp_name}(#{(pos_params + kw_params).join(', ')}) {"
             emit.indented do
               vis_prologue.each_line { |l| emit.line l.chomp } unless vis_prologue.empty?
               body_buf.each_line { |l| emit.line l.chomp }
@@ -355,7 +355,7 @@ module Frozone
 
           # User-named locals/params live in the `l_*` namespace —
           # `def foo(args, block); args.length; end` lowers to
-          # `BasicObject* l_args = array_at(args, 0); l_args->m_length(univ);`
+          # `BO* l_args = array_at(args, 0); l_args->m_length(univ);`
           # so it can never collide with the universal-protocol slots
           # (`args`, `kwargs`, `block`) or with C++ keywords. C++ doesn't
           # reserve `l_class` / `l_enum` / etc., so the prefix subsumes
@@ -374,21 +374,21 @@ module Frozone
           # Universal-protocol parameter names — collisions with these
           # in user param/local names break the body. `args` is the
           # most common collision (any method with `def foo(args, ...)`
-          # would emit `BasicObject* args = array_at(args, 0);` —
+          # would emit `BO* args = array_at(args, 0);` —
           # initialiser refers to itself).
           UNIVERSAL_PARAM_NAMES = %w[args kwargs block].to_set.freeze
 
-          # Emit a local decl line: BasicObject* form for stack locals,
-          # BasicObject** (heap cell) form for locals captured by inner
+          # Emit a local decl line: BO* form for stack locals,
+          # BO** (heap cell) form for locals captured by inner
           # blocks. The cell-pointer form is what lets a Proc capture
           # the address of the cell by value and outlive the enclosing
           # stack frame; reads/writes go through `*l_x` (see Cpp.captured?).
           def self.decl_local_line(emit, name, init_expr)
             cpp = local_cpp_name(name)
             if emit.cpp.captured?(name)
-              "BasicObject** #{cpp} = gc_box<BasicObject*>(#{init_expr});"
+              "BO** #{cpp} = gc_box<BO*>(#{init_expr});"
             else
-              "BasicObject* #{cpp} = #{init_expr};"
+              "BO* #{cpp} = #{init_expr};"
             end
           end
 
@@ -482,7 +482,7 @@ module Frozone
             end
             if method.kw_rest_param
               # `**rest` — bind a Hash of all kwargs not consumed by
-              # named kw params. Local is BasicObject* (not Hash*) so
+              # named kw params. Local is BO* (not Hash*) so
               # user code that reassigns `opts = ...` from a vtable
               # call result type-checks. The consumed-set is computed
               # at AOT time as a symbol-comparison list.
@@ -500,7 +500,7 @@ module Frozone
               emit.line "  auto* _k = static_cast<Symbol*>(_kv.first);"
               emit.line "  if (!(#{consumed_check})) __#{cpp_name}_h__->data[_kv.first] = _kv.second;"
               emit.line "}"
-              emit.line decl_local_line(emit, name, "static_cast<BasicObject*>(__#{cpp_name}_h__)")
+              emit.line decl_local_line(emit, name, "static_cast<BO*>(__#{cpp_name}_h__)")
               locals << name
             end
             if method.rest_param
@@ -509,13 +509,13 @@ module Frozone
               cpp_name = local_cpp_name(name)
               start_idx = required.length + optional.length
               if start_idx == 0
-                emit.line decl_local_line(emit, name, "static_cast<BasicObject*>(args)") + "  // *rest = whole args"
+                emit.line decl_local_line(emit, name, "static_cast<BO*>(args)") + "  // *rest = whole args"
               else
                 emit.line "Array* __#{cpp_name}_rest__ = new Array();"
                 emit.line "for (std::size_t _i = #{start_idx}; _i < args->data.size(); _i++) {"
                 emit.line "  __#{cpp_name}_rest__->data.push_back(args->data[_i]);"
                 emit.line "}"
-                emit.line decl_local_line(emit, name, "static_cast<BasicObject*>(__#{cpp_name}_rest__)")
+                emit.line decl_local_line(emit, name, "static_cast<BO*>(__#{cpp_name}_rest__)")
               end
               locals << name
             end
@@ -523,7 +523,7 @@ module Frozone
             # as `_block` rather than `l__block` because it isn't a
             # user-named local and never appears in user-source code).
             # Type narrows to Proc*. Universal-slot `block` is
-            # `BasicObject* = nil_instance()` per Phase-1 invariant
+            # `BO* = nil_instance()` per Phase-1 invariant
             # (never C++ nullptr); cast to Proc* is safe by precondition.
             # `block_given?` lowers as `_block != nil_instance()` in
             # this body. NA-with-block bodies have their own seam.
@@ -531,7 +531,7 @@ module Frozone
             user_block = user_block_name(method)
             if user_block
               # `def foo(&blk)` — bind a user-facing local of type
-              # BasicObject* (not Proc*) so user code can reassign it
+              # BO* (not Proc*) so user code can reassign it
               # from any vtable-call result without C++ type errors.
               # `truthy(l_blk)`, `l_blk->m_call(...)` (universal surface)
               # both work without a static_cast.
@@ -801,7 +801,7 @@ module Frozone
             parts = []
             locals = Set.new
             (method.required_params || []).each do |p|
-              parts << "BasicObject* #{p}"
+              parts << "BO* #{p}"
               locals << p.to_s
             end
             [parts.join(", "), locals]

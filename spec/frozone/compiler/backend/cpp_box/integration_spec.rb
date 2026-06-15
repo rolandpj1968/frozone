@@ -571,7 +571,7 @@ RSpec.describe 'box-first leaf-dispatch codegen' do
     # Returns the array of C++ class names from the K-way typeid OR-chain
     # in the gateway body for `cpp_name`, or nil if no gateway body
     # exists. Body shape:
-    #   BasicObject* BasicObject::<cpp_name>(Array*, Hash*, BasicObject*) {
+    #   BO* BasicObject::<cpp_name>(Array*, Hash*, BO*) {
     #     if (typeid(*this) == typeid(X)) { ... }
     #     if (typeid(*this) == typeid(Y)) { ... }
     #     return mm_dispatch(...);

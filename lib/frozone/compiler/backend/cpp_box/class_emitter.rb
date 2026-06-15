@@ -93,7 +93,7 @@ module Frozone
             # write_class emits these as `final` — C++ devirtualises
             # typed-receiver virtual calls without LTO, orthogonal to
             # the leaf-dispatch typeid gateway (which targets
-            # untyped-receiver BasicObject* call sites).
+            # untyped-receiver BO* call sites).
             parent_set = classes.map(&:parent).compact.to_set
             @cpp_leaf_set = classes.map(&:name).reject { |n| parent_set.include?(n) }.to_set
 
@@ -144,7 +144,7 @@ module Frozone
               emit.with_stream(:base) do
                 emit.line "inline constexpr int N_CLASSES = #{n_classes};"
                 emit.line "extern const bool IS_A[N_CLASSES][N_CLASSES];"
-                emit.line "extern BasicObject* const CLASS_BY_ID[N_CLASSES];"
+                emit.line "extern BO* const CLASS_BY_ID[N_CLASSES];"
                 emit.blank
               end
               # Per-class TU split. Each class's out-of-line method
@@ -371,7 +371,7 @@ module Frozone
             emit.line "// Class variables (@@foo) — one inline global per (host, name)."
             cvars.each do |host, names|
               names.each do |n|
-                emit.line "inline BasicObject* cv_#{host}__#{n} = nil_instance();"
+                emit.line "inline BO* cv_#{host}__#{n} = nil_instance();"
               end
             end
             emit.blank
@@ -480,7 +480,7 @@ module Frozone
             emit.line "// For natural-arity and multi-arity names, the universal-sig"
             emit.line "// slot on BasicObject is the trampoline that switches into the"
             emit.line "// per-arity overload."
-            emit.line "using __MethodFn__ = BasicObject* (BasicObject::*)(UnivTag, Array*, Hash*, BasicObject*);"
+            emit.line "using __MethodFn__ = BO* (BasicObject::*)(UnivTag, Array*, Hash*, BO*);"
             emit.line "static const __MethodFn__ METHOD_VT[] = {"
             emit.indented do
               method_ids.each do |cpp, id|
@@ -518,8 +518,8 @@ module Frozone
               ruby_lit = ruby_name.gsub('\\', '\\\\\\\\').gsub('"', '\\"')
               if (sig = @natural_arity_names[ruby_name.to_sym])
                 n = sig.arity_req
-                pos_params = (0...n).map { |i| "BasicObject* a#{i}" }
-                kw_params = sig.required_kw_names.map { |kn| "BasicObject* k_#{kn}" }
+                pos_params = (0...n).map { |i| "BO* a#{i}" }
+                kw_params = sig.required_kw_names.map { |kn| "BO* k_#{kn}" }
                 block_param = sig.has_block ? ["Proc* block"] : []
                 params = (pos_params + kw_params + block_param).join(', ')
                 pack = (0...n).map { |i| "_args->data.push_back(a#{i});" }.join(' ')
@@ -527,25 +527,25 @@ module Frozone
                 # Pack kw params back into a Hash for mm_dispatch — the
                 # fallthrough path doesn't know the natural-arity shape.
                 if sig.required_kw_names.empty?
-                  emit.line "BasicObject* BasicObject::#{cpp_name}(#{params}) { Array* _args = new Array(); #{pack} return mm_dispatch(this, _args, &EMPTY_KWARGS, #{block_arg}, \"#{ruby_lit}\"); }"
+                  emit.line "BO* BasicObject::#{cpp_name}(#{params}) { Array* _args = new Array(); #{pack} return mm_dispatch(this, _args, &EMPTY_KWARGS, #{block_arg}, \"#{ruby_lit}\"); }"
                 else
                   kw_pack = sig.required_kw_names.map { |kn| %|_kw->data[intern("#{kn}")] = k_#{kn};| }.join(' ')
-                  emit.line "BasicObject* BasicObject::#{cpp_name}(#{params}) { Array* _args = new Array(); #{pack} Hash* _kw = new Hash(); #{kw_pack} return mm_dispatch(this, _args, _kw, #{block_arg}, \"#{ruby_lit}\"); }"
+                  emit.line "BO* BasicObject::#{cpp_name}(#{params}) { Array* _args = new Array(); #{pack} Hash* _kw = new Hash(); #{kw_pack} return mm_dispatch(this, _args, _kw, #{block_arg}, \"#{ruby_lit}\"); }"
                 end
               elsif (family = @multi_arity_table[ruby_name.to_sym])
                 family.arities.to_a.sort.each do |k|
-                  params = (0...k).map { |i| "BasicObject* a#{i}" }.join(', ')
+                  params = (0...k).map { |i| "BO* a#{i}" }.join(', ')
                   pack = (0...k).map { |i| "_args->data.push_back(a#{i});" }.join(' ')
-                  emit.line "BasicObject* BasicObject::#{cpp_name}(#{params}) { Array* _args = new Array(); #{pack} return mm_dispatch(this, _args, &EMPTY_KWARGS, nullptr, \"#{ruby_lit}\"); }"
+                  emit.line "BO* BasicObject::#{cpp_name}(#{params}) { Array* _args = new Array(); #{pack} return mm_dispatch(this, _args, &EMPTY_KWARGS, nullptr, \"#{ruby_lit}\"); }"
                 end
               elsif (kw_sig = @kw_unset_table[ruby_name.to_sym])
                 n_pos = kw_sig.arity_req + kw_sig.opt
-                pos_params = (0...n_pos).map { |i| "BasicObject* a#{i}" }
-                kw_params = kw_sig.all_kw_names.map { |kn| "BasicObject* k_#{kn}" }
+                pos_params = (0...n_pos).map { |i| "BO* a#{i}" }
+                kw_params = kw_sig.all_kw_names.map { |kn| "BO* k_#{kn}" }
                 params = (pos_params + kw_params).join(', ')
                 pack = (0...n_pos).map { |i| "_args->data.push_back(a#{i});" }.join(' ')
                 kw_pack = kw_sig.all_kw_names.map { |kn| %|if (k_#{kn} != unset_instance()) _kw->data[intern("#{kn}")] = k_#{kn};| }.join(' ')
-                emit.line "BasicObject* BasicObject::#{cpp_name}(#{params}) { Array* _args = new Array(); #{pack} Hash* _kw = new Hash(); #{kw_pack} return mm_dispatch(this, _args, _kw, nullptr, \"#{ruby_lit}\"); }"
+                emit.line "BO* BasicObject::#{cpp_name}(#{params}) { Array* _args = new Array(); #{pack} Hash* _kw = new Hash(); #{kw_pack} return mm_dispatch(this, _args, _kw, nullptr, \"#{ruby_lit}\"); }"
               end
             end
             emit.blank
@@ -571,7 +571,7 @@ module Frozone
             @leaf_dispatch_table.each do |ruby_name, leaf_cpps|
               cpp_name = Cpp.method_name(ruby_name)
               ruby_lit = ruby_name.to_s.gsub('\\', '\\\\\\\\').gsub('"', '\\"')
-              emit.line "BasicObject* BasicObject::#{cpp_name}(UnivTag, Array* args, Hash* kwargs, BasicObject* block) {"
+              emit.line "BO* BasicObject::#{cpp_name}(UnivTag, Array* args, Hash* kwargs, BO* block) {"
               emit.indented do
                 leaf_cpps.each do |leaf_cpp|
                   emit.line "if (&typeid(*this) == &typeid(#{leaf_cpp})) {"
@@ -618,7 +618,7 @@ module Frozone
                 check_call = min_arity == max_arity ?
                   "check_arity_fixed(args->data.size(), #{min_arity});" :
                   "check_arity_range(args->data.size(), #{min_arity}, #{max_arity});"
-                emit.line "BasicObject* BasicObject::#{cpp_name}(UnivTag, Array* args, Hash* kwargs, BasicObject* /*block*/) {"
+                emit.line "BO* BasicObject::#{cpp_name}(UnivTag, Array* args, Hash* kwargs, BO* /*block*/) {"
                 emit.indented do
                   emit.line check_call
                   # Extract kw values — required must be present, optional defaults to UNSET.
@@ -627,9 +627,9 @@ module Frozone
                     emit.line %|auto _it_#{kn} = kwargs->data.find(intern("#{key_lit}"));|
                     if kw_sig.kw_required?(kn)
                       emit.line %|if (_it_#{kn} == kwargs->data.end()) raise_missing_kw("#{key_lit}");|
-                      emit.line "BasicObject* _kv_#{kn} = _it_#{kn}->second;"
+                      emit.line "BO* _kv_#{kn} = _it_#{kn}->second;"
                     else
-                      emit.line "BasicObject* _kv_#{kn} = (_it_#{kn} == kwargs->data.end()) ? unset_instance() : _it_#{kn}->second;"
+                      emit.line "BO* _kv_#{kn} = (_it_#{kn} == kwargs->data.end()) ? unset_instance() : _it_#{kn}->second;"
                     end
                   end
                   # Unknown-kw check: every key in kwargs must be in
@@ -657,7 +657,7 @@ module Frozone
                 arities = family.arities.to_a.sort
                 min_arity = arities.first
                 max_arity = arities.last
-                emit.line "BasicObject* BasicObject::#{cpp_name}(UnivTag, Array* args, Hash* kwargs, BasicObject* /*block*/) {"
+                emit.line "BO* BasicObject::#{cpp_name}(UnivTag, Array* args, Hash* kwargs, BO* /*block*/) {"
                 emit.indented do
                   emit.line "if (kwargs != &EMPTY_KWARGS) args = fold_kwargs_into_args_tail(args, kwargs);"
                   emit.line "check_arity_range(args->data.size(), #{min_arity}, #{max_arity});"
@@ -676,10 +676,10 @@ module Frozone
               end
               n = sig.arity_req
               # Trampoline IS the universal-slot signature on
-              # BasicObject — block stays `BasicObject*` here.
+              # BasicObject — block stays `BO*` here.
               # has_block forwards convert at the seam (below).
-              block_param_decl = sig.has_block ? "BasicObject* block" : "BasicObject* /*block*/"
-              emit.line "BasicObject* BasicObject::#{cpp_name}(UnivTag, Array* args, Hash* kwargs, #{block_param_decl}) {"
+              block_param_decl = sig.has_block ? "BO* block" : "BO* /*block*/"
+              emit.line "BO* BasicObject::#{cpp_name}(UnivTag, Array* args, Hash* kwargs, #{block_param_decl}) {"
               emit.indented do
                 if sig.required_kw_names.empty?
                   emit.line "if (kwargs != &EMPTY_KWARGS) args = fold_kwargs_into_args_tail(args, kwargs);"
@@ -806,7 +806,7 @@ module Frozone
             # Module#descendants, and any other reflection that needs to
             # walk class IDs back to value objects.
             id_to_name = class_ids.invert
-            emit.line "BasicObject* const CLASS_BY_ID[N_CLASSES] = {"
+            emit.line "BO* const CLASS_BY_ID[N_CLASSES] = {"
             emit.indented do
               (0...n).each do |i|
                 name = id_to_name[i]
@@ -822,11 +822,11 @@ module Frozone
             end
             emit.line "};"
             emit.blank
-            emit.line "BasicObject* Object::mm_is_a_q(UnivTag, Array* args, Hash* kwargs, BasicObject* block) {"
+            emit.line "BO* Object::mm_is_a_q(UnivTag, Array* args, Hash* kwargs, BO* block) {"
             emit.indented do
               emit.line "int my_id = this->__class_id__();"
               emit.line "if (my_id < 0) return false_instance();"
-              emit.line "BasicObject* target = args->data[0];"
+              emit.line "BO* target = args->data[0];"
               # m_class is auto-emitted on every class; eigenclass instances
               # all return &Class_CLASS (with_auto_overrides targets
               # Class_CLASS for any *_eigenclass class). One virtual call +
@@ -846,7 +846,7 @@ module Frozone
             # and the LUT/Class globals are visible at out-of-line
             # emission time. Used by rescue-clause emission and non-
             # leaf is_a?/kind_of? lowering.
-            emit.line "bool BasicObject::mm_is_a_q_direct(BasicObject* target) {"
+            emit.line "bool BasicObject::mm_is_a_q_direct(BO* target) {"
             emit.indented do
               emit.line "int my_id = this->__class_id__();"
               emit.line "if (my_id < 0) return false;"
@@ -979,7 +979,7 @@ module Frozone
             # write_singletons after Array's struct body is complete.
             emit.line "extern Array EMPTY_ARGS;"
             # Same pattern for kwargs: `Hash* kwargs = &EMPTY_KWARGS`
-            # as the default keeps every BasicObject*-bearing slot in
+            # as the default keeps every BO*-bearing slot in
             # the universal protocol filled with a real object instead
             # of nullptr. Lets us drop nullptr branches throughout.
             emit.line "extern Hash EMPTY_KWARGS;"
@@ -993,7 +993,7 @@ module Frozone
             emit.blank
             # UnivTag — empty-struct sentinel intended as the first
             # parameter of every universal-vtable slot:
-            #   m_X(UnivTag, Array*, Hash*, BasicObject*)
+            #   m_X(UnivTag, Array*, Hash*, BO*)
             # would fence the universal protocol from any NA per-arity
             # overload under C++ overload resolution. Declared here;
             # not yet threaded through decls or call sites (the full
@@ -1062,7 +1062,7 @@ module Frozone
             skip = (Runtime::BASIC_OBJECT.hand_coded_method_names || []).to_set
             (basic_object_klass.overrides || {}).each_key { |cpp| skip << cpp }
             emit.line "// Universal method surface — one slot per name. All Ruby methods take"
-            emit.line "// (UnivTag, Array* args, Hash* kwargs, BasicObject* block). Default body redirects to"
+            emit.line "// (UnivTag, Array* args, Hash* kwargs, BO* block). Default body redirects to"
             emit.line "// m_method_missing on the receiver (which is itself a virtual, so user"
             emit.line "// `def method_missing` overrides participate)."
             call_surface.each do |cpp_name, ruby_name|
@@ -1079,35 +1079,35 @@ module Frozone
                 # the default `static_cast<Proc*>(nil_instance())`
                 # lets block-less callers omit it. Default args live
                 # only on the base (BasicObject) decl.
-                pos_params = (0...sig.arity_req).map { |i| "BasicObject* a#{i}" }
-                kw_params = sig.required_kw_names.map { |kn| "BasicObject* k_#{kn}" }
+                pos_params = (0...sig.arity_req).map { |i| "BO* a#{i}" }
+                kw_params = sig.required_kw_names.map { |kn| "BO* k_#{kn}" }
                 block_param = sig.has_block ? ["Proc* block = nullptr"] : []
                 params = (pos_params + kw_params + block_param).join(', ')
-                emit.line %(virtual BasicObject* #{cpp_name}(#{params});)
-                emit.line %(virtual BasicObject* #{cpp_name}(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance());)
+                emit.line %(virtual BO* #{cpp_name}(#{params});)
+                emit.line %(virtual BO* #{cpp_name}(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BO* block = nil_instance());)
               elsif (family = @multi_arity_table[ruby_name.to_sym])
                 family.arities.to_a.sort.each do |k|
-                  params = (0...k).map { |i| "BasicObject* a#{i}" }.join(', ')
-                  emit.line %(virtual BasicObject* #{cpp_name}(#{params});)
+                  params = (0...k).map { |i| "BO* a#{i}" }.join(', ')
+                  emit.line %(virtual BO* #{cpp_name}(#{params});)
                 end
-                emit.line %(virtual BasicObject* #{cpp_name}(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance());)
+                emit.line %(virtual BO* #{cpp_name}(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BO* block = nil_instance());)
               elsif (kw_sig = @kw_unset_table[ruby_name.to_sym])
                 # Kw-bearing: single slot signature with required pos →
                 # opt pos (UNSET-able) → kws alphabetical. Universal-sig
                 # slot decl carries the per-name trampoline body.
-                pos_params = (0...kw_sig.total_slots - kw_sig.all_kw_names.length).map { |i| "BasicObject* a#{i}" }
-                kw_params = kw_sig.all_kw_names.map { |kn| "BasicObject* k_#{kn}" }
+                pos_params = (0...kw_sig.total_slots - kw_sig.all_kw_names.length).map { |i| "BO* a#{i}" }
+                kw_params = kw_sig.all_kw_names.map { |kn| "BO* k_#{kn}" }
                 params = (pos_params + kw_params).join(', ')
-                emit.line %(virtual BasicObject* #{cpp_name}(#{params});)
-                emit.line %(virtual BasicObject* #{cpp_name}(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance());)
+                emit.line %(virtual BO* #{cpp_name}(#{params});)
+                emit.line %(virtual BO* #{cpp_name}(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BO* block = nil_instance());)
               elsif @leaf_dispatch_table[ruby_name.to_sym]
                 # Leaf-dispatch: non-virtual gateway. Decl-only here;
                 # body emits out-of-line via
                 # write_leaf_dispatch_gateway_bodies after all leaf
                 # class structs are complete.
-                emit.line %(BasicObject* #{cpp_name}(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance());)
+                emit.line %(BO* #{cpp_name}(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BO* block = nil_instance());)
               else
-                emit.line %(virtual BasicObject* #{cpp_name}(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) { return mm_dispatch(this, args, kwargs, block, "#{ruby_lit}"); })
+                emit.line %(virtual BO* #{cpp_name}(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BO* block = nil_instance()) { return mm_dispatch(this, args, kwargs, block, "#{ruby_lit}"); })
               end
             end
             # Constant-lookup surface — c_X() per dynamic-receiver
@@ -1129,7 +1129,7 @@ module Frozone
               # is unrecoverable. Module overrides each slot to instead
               # virtual-dispatch to m_const_missing (NameError, user-
               # overridable) — see inject_module_constant_overrides.
-              emit.line %(virtual BasicObject* #{cpp_name}() { return constant_typeerror("#{name}"); })
+              emit.line %(virtual BO* #{cpp_name}() { return constant_typeerror("#{name}"); })
             end
             emit.blank
           end
@@ -1140,7 +1140,7 @@ module Frozone
           # method_missing.
           def self.write_send_body(emit, _method_ids)
             ["m_send", "m___send__"].each do |fn|
-              emit.line "BasicObject* Object::#{fn}(UnivTag, Array* args, Hash* kwargs, BasicObject* block) {"
+              emit.line "BO* Object::#{fn}(UnivTag, Array* args, Hash* kwargs, BO* block) {"
               emit.indented do
                 emit.line %|if (args->data.empty()) { std::fprintf(stderr, "[box-first] send: no method name\\n"); std::abort(); }|
                 emit.line "Symbol* _name = static_cast<Symbol*>(args->data[0]);"
@@ -1193,7 +1193,7 @@ module Frozone
           # BasicObject as the default; Module overrides every c_X
           # slot to constant_missing instead.
           def self.write_constant_typeerror_body(emit)
-            emit.line "BasicObject* BasicObject::constant_typeerror(const char* /*const_name*/) {"
+            emit.line "BO* BasicObject::constant_typeerror(const char* /*const_name*/) {"
             emit.indented do
               emit.line %|if (std::getenv("FROZONE_BOX_TRACE")) {|
               emit.indented do
@@ -1211,7 +1211,7 @@ module Frozone
               emit.line "msg->bytes.insert(msg->bytes.end(), ruby_class_name(), ruby_class_name() + clen);"
               emit.line "msg->bytes.insert(msg->bytes.end(), suffix, suffix + sizeof(suffix) - 1);"
               emit.line "Array* mm_args = new Array();"
-              emit.line "mm_args->data.push_back(static_cast<BasicObject*>(msg));"
+              emit.line "mm_args->data.push_back(static_cast<BO*>(msg));"
               emit.line "throw static_cast<Exception*>((&TypeError_CLASS)->m_new(univ, mm_args));"
             end
             emit.line "}"
@@ -1222,7 +1222,7 @@ module Frozone
           # NameError. User classes that `def const_missing` override
           # this via the normal vtable mechanism. args is `[Symbol]`.
           def self.write_const_missing_default(emit)
-            emit.line "BasicObject* BasicObject::m_const_missing(UnivTag, Array* args, Hash* /*kwargs*/, BasicObject* /*block*/) {"
+            emit.line "BO* BasicObject::m_const_missing(UnivTag, Array* args, Hash* /*kwargs*/, BO* /*block*/) {"
             emit.indented do
               emit.line "const char* const_name = args->data.empty() ? \"\" : static_cast<Symbol*>(args->data[0])->name_;"
               emit.line %|if (std::getenv("FROZONE_BOX_TRACE")) {|
@@ -1244,7 +1244,7 @@ module Frozone
               emit.line "msg->bytes.insert(msg->bytes.end(), mid, mid + sizeof(mid) - 1);"
               emit.line "msg->bytes.insert(msg->bytes.end(), const_name, const_name + nlen);"
               emit.line "Array* mm_args = new Array();"
-              emit.line "mm_args->data.push_back(static_cast<BasicObject*>(msg));"
+              emit.line "mm_args->data.push_back(static_cast<BO*>(msg));"
               emit.line "throw static_cast<Exception*>((&NameError_CLASS)->m_new(univ, mm_args));"
             end
             emit.line "}"
@@ -1256,7 +1256,7 @@ module Frozone
           # override this via the normal vtable mechanism. args is
           # `[Symbol.method_name, *original_args]` (mm_dispatch builds it).
           def self.write_method_missing_default(emit)
-            emit.line "BasicObject* BasicObject::m_method_missing(UnivTag, Array* args, Hash* /*kwargs*/, BasicObject* /*block*/) {"
+            emit.line "BO* BasicObject::m_method_missing(UnivTag, Array* args, Hash* /*kwargs*/, BO* /*block*/) {"
             emit.indented do
               emit.line "const char* method_name = args->data.empty() ? \"\" : static_cast<Symbol*>(args->data[0])->name_;"
               # FROZONE_BOX_TRACE=1 dumps a libc backtrace at the throw
@@ -1282,7 +1282,7 @@ module Frozone
               emit.line "msg->bytes.insert(msg->bytes.end(), mid, mid + sizeof(mid) - 1);"
               emit.line "msg->bytes.insert(msg->bytes.end(), ruby_class_name(), ruby_class_name() + clen);"
               emit.line "Array* mm_args = new Array();"
-              emit.line "mm_args->data.push_back(static_cast<BasicObject*>(msg));"
+              emit.line "mm_args->data.push_back(static_cast<BO*>(msg));"
               emit.line "throw static_cast<Exception*>((&NoMethodError_CLASS)->m_new(univ, mm_args));"
             end
             emit.line "}"
@@ -1315,7 +1315,7 @@ module Frozone
               # if the slot exists on BasicObject (i.e. is in the
               # constant surface).
               override_kw = (klass.name == "BasicObject" || !@const_surface_set&.include?(name)) ? "" : " override"
-              emit.line "virtual BasicObject* #{name}()#{override_kw};"
+              emit.line "virtual BO* #{name}()#{override_kw};"
               return
             end
             override_kw = (klass.name == "BasicObject" || !@call_surface_set&.include?(name)) ? "" : " override"
@@ -1329,8 +1329,8 @@ module Frozone
             emit_using = !name.start_with?("sm_") && klass.name != "BasicObject"
             if (sig = @natural_arity_names[ruby_name])
               emit.line "using BasicObject::#{name};" if emit_using
-              pos_params = (0...sig.arity_req).map { |i| "BasicObject* a#{i}" }
-              kw_params = sig.required_kw_names.map { |kn| "BasicObject* k_#{kn}" }
+              pos_params = (0...sig.arity_req).map { |i| "BO* a#{i}" }
+              kw_params = sig.required_kw_names.map { |kn| "BO* k_#{kn}" }
               # has_block sigs carry a trailing Proc* block param.
               # Default = static_cast<Proc*>(nil_instance()) so callers
               # can omit it. Default args are evaluated against the
@@ -1339,15 +1339,15 @@ module Frozone
               # sites working through any pointer type.
               block_param = sig.has_block ? ["Proc* block = nullptr"] : []
               all_params = pos_params + kw_params + block_param
-              emit.line "virtual BasicObject* #{name}(#{all_params.join(', ')})#{override_kw}#{final_kw};"
+              emit.line "virtual BO* #{name}(#{all_params.join(', ')})#{override_kw}#{final_kw};"
               if klass.name == "BasicObject"
-                emit.line "virtual BasicObject* #{name}(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance());"
+                emit.line "virtual BO* #{name}(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BO* block = nil_instance());"
               end
             elsif (family = @multi_arity_table[ruby_name])
               emit.line "using BasicObject::#{name};" if emit_using
               family.arities.to_a.sort.each do |k|
-                params = (0...k).map { |i| "BasicObject* a#{i}" }.join(', ')
-                emit.line "virtual BasicObject* #{name}(#{params})#{override_kw}#{final_kw};"
+                params = (0...k).map { |i| "BO* a#{i}" }.join(', ')
+                emit.line "virtual BO* #{name}(#{params})#{override_kw}#{final_kw};"
               end
               # Per-class universal-sig override (class-specific arity
               # range) when spec carries a universal_entry, or always
@@ -1356,32 +1356,32 @@ module Frozone
               # they're called from super and have no parent slot.
               if klass.name == "BasicObject" || (spec && spec[:universal_entry] && !name.start_with?("sm_"))
                 ovk = klass.name == "BasicObject" ? "" : " override"
-                emit.line "virtual BasicObject* #{name}(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance())#{ovk}#{final_kw};"
+                emit.line "virtual BO* #{name}(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BO* block = nil_instance())#{ovk}#{final_kw};"
               end
             elsif (kw_sig = @kw_unset_table[ruby_name])
               emit.line "using BasicObject::#{name};" if emit_using
               n_pos = kw_sig.arity_req + kw_sig.opt
-              pos_params = (0...n_pos).map { |i| "BasicObject* a#{i}" }
-              kw_params = kw_sig.all_kw_names.map { |kn| "BasicObject* k_#{kn}" }
-              emit.line "virtual BasicObject* #{name}(#{(pos_params + kw_params).join(', ')})#{override_kw}#{final_kw};"
+              pos_params = (0...n_pos).map { |i| "BO* a#{i}" }
+              kw_params = kw_sig.all_kw_names.map { |kn| "BO* k_#{kn}" }
+              emit.line "virtual BO* #{name}(#{(pos_params + kw_params).join(', ')})#{override_kw}#{final_kw};"
               if klass.name == "BasicObject"
-                emit.line "virtual BasicObject* #{name}(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance());"
+                emit.line "virtual BO* #{name}(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BO* block = nil_instance());"
               end
             elsif @leaf_dispatch_table[ruby_name] && klass.name != "BasicObject"
               # Leaf-dispatched name: BO's slot is a non-virtual gateway
               # (typeid-check + downcast); leaf body must be non-virtual
               # too, with the same C++ name. Name hiding gives free direct
               # dispatch from typed callers (no `using` needed).
-              emit.line "BasicObject* #{name}(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance());"
+              emit.line "BO* #{name}(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BO* block = nil_instance());"
             else
-              emit.line "virtual BasicObject* #{name}(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance())#{override_kw}#{final_kw};"
+              emit.line "virtual BO* #{name}(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BO* block = nil_instance())#{override_kw}#{final_kw};"
             end
           end
 
           # Out-of-line override definition. spec[:params] is a list of
-          # "BasicObject* <name>" strings — the body wants those
+          # "BO* <name>" strings — the body wants those
           # extracted from args. Universal protocol auto-generates the
-          # unpack lines (`BasicObject* <name> = array_at(args, i);`).
+          # unpack lines (`BO* <name> = array_at(args, i);`).
           # User-class overrides pass empty params (their bodies have
           # their own unpacking via MethodEmitter.unpack_params).
           def self.write_override_def(emit, class_name, name, spec)
@@ -1390,7 +1390,7 @@ module Frozone
               # <value>;` line. Non-inline now (per-class TU split) —
               # bodies are unique defs in their TU, not duplicated
               # inline definitions in every TU's vtable reference.
-              emit.line "BasicObject* #{class_name}::#{name}() {"
+              emit.line "BO* #{class_name}::#{name}() {"
               emit.indented do
                 spec[:body].each_line { |l| emit.line l.chomp }
               end
@@ -1410,18 +1410,18 @@ module Frozone
               spec_arity = spec_param_decls.length
               spec_param_names = spec_param_decls.map { |decl| decl.split(/\s+/).last.delete_prefix('*') }
               family.arities.to_a.sort.each do |k|
-                params = (0...k).map { |i| "BasicObject* _arg#{i}" }.join(', ')
+                params = (0...k).map { |i| "BO* _arg#{i}" }.join(', ')
                 if k == spec_arity
-                  emit.line "BasicObject* #{class_name}::#{name}(#{params}) {"
+                  emit.line "BO* #{class_name}::#{name}(#{params}) {"
                   emit.indented do
                     spec_param_names.each_with_index do |pname, i|
-                      emit.line "BasicObject* #{pname} = _arg#{i};"
+                      emit.line "BO* #{pname} = _arg#{i};"
                     end
                     spec[:body].each_line { |l| emit.line l.chomp }
                   end
                   emit.line "}"
                 else
-                  emit.line "BasicObject* #{class_name}::#{name}(#{params}) {"
+                  emit.line "BO* #{class_name}::#{name}(#{params}) {"
                   emit.indented do
                     emit.line "check_arity_fixed(#{k}, #{spec_arity});"
                     emit.line "return nil_instance();"
@@ -1439,7 +1439,7 @@ module Frozone
             if (entries = spec[:multi_arity])
               entries.each do |entry|
                 params = entry[:params] || []
-                emit.line "BasicObject* #{class_name}::#{name}(#{params.join(', ')}) {"
+                emit.line "BO* #{class_name}::#{name}(#{params.join(', ')}) {"
                 emit.indented do
                   entry[:body].each_line { |l| emit.line l.chomp }
                 end
@@ -1454,7 +1454,7 @@ module Frozone
               # exist on a parent class to override.
               if (univ = spec[:universal_entry]) && !name.start_with?("sm_")
                 params = univ[:params] || []
-                emit.line "BasicObject* #{class_name}::#{name}(#{params.join(', ')}) {"
+                emit.line "BO* #{class_name}::#{name}(#{params.join(', ')}) {"
                 emit.indented { univ[:body].each_line { |l| emit.line l.chomp } }
                 emit.line "}"
                 emit.blank
@@ -1466,7 +1466,7 @@ module Frozone
             # body is the default-fill prologue + method body.
             if spec[:kw_unset]
               params = spec[:params] || []
-              emit.line "BasicObject* #{class_name}::#{name}(#{params.join(', ')}) {"
+              emit.line "BO* #{class_name}::#{name}(#{params.join(', ')}) {"
               emit.indented { spec[:body].each_line { |l| emit.line l.chomp } }
               emit.line "}"
               emit.blank
@@ -1485,11 +1485,11 @@ module Frozone
                 # Spec doesn't match natural-arity contract — fall back
                 # to universal sig so the def stays consistent with
                 # something. Shouldn't happen if eligibility is sound.
-                emit.line "BasicObject* #{class_name}::#{name}(UnivTag, Array* args, Hash* kwargs, BasicObject* block) {"
+                emit.line "BO* #{class_name}::#{name}(UnivTag, Array* args, Hash* kwargs, BO* block) {"
                 emit.indented do
                   (spec[:params] || []).each_with_index do |param_decl, i|
                     param_name = param_decl.split(/\s+/).last.delete_prefix('*')
-                    emit.line "BasicObject* #{param_name} = array_at(args, #{i});"
+                    emit.line "BO* #{param_name} = array_at(args, #{i});"
                   end
                   spec[:body].each_line { |l| emit.line l.chomp }
                 end
@@ -1497,15 +1497,15 @@ module Frozone
                 emit.blank
                 return
               end
-              pos_params = spec_param_names.map { |n| "BasicObject* #{n}" }
-              kw_params = sig.required_kw_names.map { |kn| "BasicObject* _kw_#{kn}" }
+              pos_params = spec_param_names.map { |n| "BO* #{n}" }
+              kw_params = sig.required_kw_names.map { |kn| "BO* _kw_#{kn}" }
               block_param = sig.has_block ? ["Proc* block"] : []
-              emit.line "BasicObject* #{class_name}::#{name}(#{(pos_params + kw_params + block_param).join(', ')}) {"
+              emit.line "BO* #{class_name}::#{name}(#{(pos_params + kw_params + block_param).join(', ')}) {"
               emit.indented do
                 # If the spec body references kw param names directly,
                 # bind each to its `_kw_<name>` incoming slot.
                 sig.required_kw_names.each do |kn|
-                  emit.line "BasicObject* #{kn} = _kw_#{kn};"
+                  emit.line "BO* #{kn} = _kw_#{kn};"
                 end
                 emit.line "Proc* _block = block;" if sig.has_block
                 spec[:body].each_line { |l| emit.line l.chomp }
@@ -1522,22 +1522,22 @@ module Frozone
             if (kw_sig = @kw_unset_table[cpp_name_head_ruby(name).to_sym])
               n_pos = kw_sig.arity_req + kw_sig.opt
               pos_params = (spec[:params] || []).each_with_index.map do |decl, i|
-                "BasicObject* #{decl.split(/\s+/).last.delete_prefix('*')}"
+                "BO* #{decl.split(/\s+/).last.delete_prefix('*')}"
               end
               pad_n = n_pos - pos_params.length
-              pad = (0...pad_n).map { |i| "BasicObject* _arg_unused#{pos_params.length + i}" }
-              kw_params = kw_sig.all_kw_names.map { |kn| "BasicObject* _kw_unused_#{kn}" }
-              emit.line "BasicObject* #{class_name}::#{name}(#{(pos_params + pad + kw_params).join(', ')}) {"
+              pad = (0...pad_n).map { |i| "BO* _arg_unused#{pos_params.length + i}" }
+              kw_params = kw_sig.all_kw_names.map { |kn| "BO* _kw_unused_#{kn}" }
+              emit.line "BO* #{class_name}::#{name}(#{(pos_params + pad + kw_params).join(', ')}) {"
               emit.indented { spec[:body].each_line { |l| emit.line l.chomp } }
               emit.line "}"
               emit.blank
               return
             end
-            emit.line "BasicObject* #{class_name}::#{name}(UnivTag, Array* args, Hash* kwargs, BasicObject* block) {"
+            emit.line "BO* #{class_name}::#{name}(UnivTag, Array* args, Hash* kwargs, BO* block) {"
             emit.indented do
               (spec[:params] || []).each_with_index do |param_decl, i|
                 param_name = param_decl.split(/\s+/).last.delete_prefix('*')
-                emit.line "BasicObject* #{param_name} = array_at(args, #{i});"
+                emit.line "BO* #{param_name} = array_at(args, #{i});"
               end
               spec[:body].each_line { |l| emit.line l.chomp }
             end

@@ -361,7 +361,7 @@ module Frozone
               }.to_set | inherited_ivar_names(klass)
               extra_ivars = collect_ivars(cls)
                 .reject { |iv| existing_ivar_names.include?(iv) }
-                .map { |iv| "BasicObject* iv_#{iv} = nil_instance();" }
+                .map { |iv| "BO* iv_#{iv} = nil_instance();" }
               own_hand_coded = (klass.hand_coded_method_names || []).to_set
               chains = class_method_chains(cls)
               klass.dup.tap do |k|
@@ -674,8 +674,8 @@ module Frozone
                 # reference-returning accessor.
                 next Runtime::KernelFn.new(
                   name: "k_#{name}",
-                  signature: "BasicObject*& k_#{name}()",
-                  body: "static BasicObject* val = nil_instance(); return val;",
+                  signature: "BO*& k_#{name}()",
+                  body: "static BO* val = nil_instance(); return val;",
                 )
               end
               if primitive_vm_value?(val)
@@ -697,12 +697,12 @@ module Frozone
                   end
                 # Return-by-reference so ConstantWrite can rebind the
                 # storage via `(k_FOO() = newval)`. Read sites still
-                # compile unchanged — `BasicObject*&` auto-converts to
-                # `BasicObject*` everywhere a pointer is expected.
+                # compile unchanged — `BO*&` auto-converts to
+                # `BO*` everywhere a pointer is expected.
                 Runtime::KernelFn.new(
                   name: "k_#{name}",
-                  signature: "BasicObject*& k_#{name}()",
-                  body: "static BasicObject* val = #{expr}; return val;",
+                  signature: "BO*& k_#{name}()",
+                  body: "static BO* val = #{expr}; return val;",
                 )
               else
                 # Snapshot ObjectObject — default-construct (no
@@ -711,8 +711,8 @@ module Frozone
                 klass_name = val.class_object.full_name.to_s.gsub("::", "_")
                 Runtime::KernelFn.new(
                   name: "k_#{name}",
-                  signature: "BasicObject*& k_#{name}()",
-                  body: "static BasicObject* val = new #{klass_name}(); return val;",
+                  signature: "BO*& k_#{name}()",
+                  body: "static BO* val = new #{klass_name}(); return val;",
                 )
               end
             end
@@ -1059,7 +1059,7 @@ module Frozone
               all_method_names.each { |n| mark_wide.call(n) unless WIDENING_BLACKLIST.include?(n) }
             end
             # m_hash_value is a C++-internal hook (returns std::size_t,
-            # used by unordered_map<BasicObject*, ...>) — not a Ruby
+            # used by unordered_map<BO*, ...>) — not a Ruby
             # method despite the m_ prefix. Excluded from METHOD_VT
             # since its signature doesn't match the universal protocol.
             non_ruby_hand_coded = %w[m_hash_value].to_set
@@ -1518,10 +1518,10 @@ module Frozone
           def value_eq_wrapper_members(cls_name)
             [
               "std::size_t m_hash_value() const override { return iv_raw ? iv_raw->m_hash_value() : 0; }",
-              "BasicObject* op_eq_q(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
+              "BO* op_eq_q(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BO* block = nil_instance()) override {",
               "  if (args->data.empty()) return false_instance();",
               "  if (this == args->data[0]) return true_instance();",
-              "  BasicObject* _other = args->data[0];",
+              "  BO* _other = args->data[0];",
               "  if (typeid(*_other) != typeid(#{cls_name})) return false_instance();",
               "  auto* o = static_cast<#{cls_name}*>(_other);",
               "  if (!iv_raw || !o->iv_raw) return false_instance();",
@@ -1547,7 +1547,7 @@ module Frozone
           def user_hash_delegate_members(cls_name)
             [
               "std::size_t m_hash_value() const override {",
-              "  BasicObject* _h = const_cast<#{cls_name}*>(this)->m_hash(univ);",
+              "  BO* _h = const_cast<#{cls_name}*>(this)->m_hash(univ);",
               "  if (_h && &typeid(*_h) == &typeid(Integer)) return static_cast<std::size_t>(static_cast<Integer*>(_h)->raw_);",
               "  return reinterpret_cast<std::size_t>(this);",
               "}",
@@ -1614,14 +1614,14 @@ module Frozone
               "  // (Class, BasicObject, the Vm internals) have hash only at the",
               "  // C++ vtable layer. Dispatching :hash there would fall through",
               "  // to method_missing and BUG. Identity is the right default.",
-              "  BasicObject* _m = #{lim_call.call('hash')};",
+              "  BO* _m = #{lim_call.call('hash')};",
               "  if (!_m || _m == nil_instance() || _m == k_Frozone_Vm_ModuleObject_UNDEF_SENTINEL()) {",
               "    return reinterpret_cast<std::size_t>(_self);",
               "  }",
-              "  BasicObject* _ctx = g_fiber_storage()->op_aref(univ, new Array({intern(\"context\")}));",
+              "  BO* _ctx = g_fiber_storage()->op_aref(univ, new Array({intern(\"context\")}));",
               "  if (!_ctx || _ctx == nil_instance()) return reinterpret_cast<std::size_t>(_self);",
-              "  BasicObject* _r = _self->m_dispatch(univ,",
-              "    new Array({_ctx, intern(\"hash\"), &EMPTY_ARGS, static_cast<BasicObject*>(&EMPTY_KWARGS), nil_instance()}),",
+              "  BO* _r = _self->m_dispatch(univ,",
+              "    new Array({_ctx, intern(\"hash\"), &EMPTY_ARGS, static_cast<BO*>(&EMPTY_KWARGS), nil_instance()}),",
               "    &EMPTY_KWARGS, nil_instance());",
               "  // Re-dispatch m_hash_value on the result: Vm::IntegerObject (the",
               "  // typical return) overrides m_hash_value to delegate to iv_raw",
@@ -1636,9 +1636,9 @@ module Frozone
               # the user's equality wins. Vm::True/False/NilObject are fused
               # with the runtime singletons, so `truthy()` covers both sides
               # without needing those Vm classes complete here.
-              "BasicObject* op_eq_q(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
+              "BO* op_eq_q(UnivTag, Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BO* block = nil_instance()) override {",
               "  if (args->data.empty()) return false_instance();",
-              "  BasicObject* _other = args->data[0];",
+              "  BO* _other = args->data[0];",
               "  if (this == _other) return true_instance();",
               "  auto* _self = const_cast<#{cls_name}*>(this);",
               "  if (!_self->iv_class_object) return false_instance();",
@@ -1648,15 +1648,15 @@ module Frozone
               "  // would fall through to method_missing and BUG. Identity check has",
               "  // already returned true if pointers match; otherwise default to",
               "  // false unless a Ruby `==` is registered.",
-              "  BasicObject* _m = #{lim_call.call('==')};",
+              "  BO* _m = #{lim_call.call('==')};",
               "  if (!_m || _m == nil_instance() || _m == k_Frozone_Vm_ModuleObject_UNDEF_SENTINEL()) {",
               "    return false_instance();",
               "  }",
-              "  BasicObject* _ctx = g_fiber_storage()->op_aref(univ, new Array({intern(\"context\")}));",
+              "  BO* _ctx = g_fiber_storage()->op_aref(univ, new Array({intern(\"context\")}));",
               "  if (!_ctx || _ctx == nil_instance()) return false_instance();",
               "  Array* _outer = new Array({_other});",
-              "  BasicObject* _r = _self->m_dispatch(univ,",
-              "    new Array({_ctx, intern(\"==\"), static_cast<BasicObject*>(_outer), static_cast<BasicObject*>(&EMPTY_KWARGS), nil_instance()}),",
+              "  BO* _r = _self->m_dispatch(univ,",
+              "    new Array({_ctx, intern(\"==\"), static_cast<BO*>(_outer), static_cast<BO*>(&EMPTY_KWARGS), nil_instance()}),",
               "    &EMPTY_KWARGS, nil_instance());",
               "  return truthy(_r) ? true_instance() : false_instance();",
               "}",
@@ -1701,7 +1701,7 @@ module Frozone
               name: name.to_s,
               parent: parent_name_for(cls),
               is_module: is_module,
-              ivars: ivars.map { |iv| "BasicObject* iv_#{iv} = nil_instance();" },
+              ivars: ivars.map { |iv| "BO* iv_#{iv} = nil_instance();" },
               members: [
                 %(const char* ruby_class_name() const override { return "#{name}"; }),
                 *(IDENTITY_HASH_VM_CLASSES.include?(name) ? identity_hash_members : []),
@@ -1834,7 +1834,7 @@ module Frozone
                 body: "return this->iv_#{m};",
               }
               overrides[Cpp.method_name(:"#{m}=")] = {
-                params: ["BasicObject* v"],
+                params: ["BO* v"],
                 body: "this->iv_#{m} = v; return v;",
               }
             end
@@ -1848,7 +1848,7 @@ module Frozone
             Runtime::RubyClass.new(
               name: name.to_s,
               parent: parent_name_for(cls),
-              ivars: members.map { |m| "BasicObject* iv_#{m} = nil_instance();" },
+              ivars: members.map { |m| "BO* iv_#{m} = nil_instance();" },
               members: [%(const char* ruby_class_name() const override { return "#{name}"; })],
               overrides: overrides,
               eigenclass_overrides: {},
@@ -2084,8 +2084,8 @@ module Frozone
           end
 
           # Build a ctor spec for a user class. Required params land as
-          # `BasicObject* x`; optional params get C++ default-arg syntax
-          # (`BasicObject* x = <default_expr>`). Rest/post/kw params are
+          # `BO* x`; optional params get C++ default-arg syntax
+          # (`BO* x = <default_expr>`). Rest/post/kw params are
           # not yet supported in ctors — raise EmissionError so the
           # whole class falls through to a default ctor (callsites that
           # try to instantiate it with args will then fail to compile,
@@ -2096,7 +2096,7 @@ module Frozone
           # EmissionError → nil so caller can drop the entry; the slot
           # falls through to BasicObject's method_missing stub at runtime.
           # build_override variant for natural-arity-eligible names.
-          # Spec has natural-arity sig (one BasicObject* per required
+          # Spec has natural-arity sig (one BO* per required
           # param) and a body that uses the named params directly —
           # no array_at unpack. Wraps the body in the same try/catch
           # ReturnException as build_override so return-from-block
@@ -2158,13 +2158,13 @@ module Frozone
                   if user_block
                     # Keep user_block typed as Proc* so `if block`
                     # resolves to truthy(Proc*) — nullptr check only.
-                    # Erasing to BasicObject* would silently absorb
+                    # Erasing to BO* would silently absorb
                     # the nullptr-as-truthy bug. See method_emitter.rb
                     # for the same change in the parallel NA-with-block
                     # emission path.
                     cpp = MethodEmitter.local_cpp_name(user_block)
                     if @cpp.captured?(user_block)
-                      line "BasicObject** #{cpp} = gc_box<BasicObject*>(block ? static_cast<BasicObject*>(block) : nil_instance());"
+                      line "BO** #{cpp} = gc_box<BO*>(block ? static_cast<BO*>(block) : nil_instance());"
                     else
                       line "Proc* #{cpp} = block;"
                     end
@@ -2192,7 +2192,7 @@ module Frozone
             # shape as universal-sig specs — body's local bindings
             # via decl_local_line handle the kw mapping).
             {
-              params: required.each_with_index.map { |_, i| "BasicObject* _arg#{i}" },
+              params: required.each_with_index.map { |_, i| "BO* _arg#{i}" },
               body: MethodEmitter.body_with_frame_text(body, needs_frame, vis_prologue: vis_prologue),
             }
           end
@@ -2224,7 +2224,7 @@ module Frozone
                   "check_arity_fixed(#{k}, #{arity_req});" :
                   "check_arity_range(#{k}, #{arity_req}, #{arity_max});"
                 next({
-                  params: (0...k).map { |i| "BasicObject* _arg#{i}" },
+                  params: (0...k).map { |i| "BO* _arg#{i}" },
                   body: "#{check_call}\nreturn nil_instance();\n",
                 })
               end
@@ -2266,7 +2266,7 @@ module Frozone
                 @visibility_survey, storage_name || method.name, method.visibility, body: method.body
               )
               {
-                params: (0...k).map { |i| "BasicObject* _arg#{i}" },
+                params: (0...k).map { |i| "BO* _arg#{i}" },
                 body: MethodEmitter.body_with_frame_text(body, needs_frame, vis_prologue: ma_vis_prologue),
               }
             end
@@ -2294,7 +2294,7 @@ module Frozone
                 "    case #{k}: return this->#{call_cpp_name}(#{args_call});"
               end.join("\n")
               spec[:universal_entry] = {
-                params: ["UnivTag", "Array* args", "Hash* kwargs", "BasicObject* /*block*/"],
+                params: ["UnivTag", "Array* args", "Hash* kwargs", "BO* /*block*/"],
                 body: <<~CPP,
                   if (kwargs != &EMPTY_KWARGS) args = fold_kwargs_into_args_tail(args, kwargs);
                   #{check_call}
@@ -2361,9 +2361,9 @@ module Frozone
                 end
               end
             end
-            slot_params = (0...sig.arity_req).map { |i| "BasicObject* _arg#{i}" } +
-                          (0...sig.opt).map { |i| "BasicObject* _arg#{sig.arity_req + i}" } +
-                          sig.all_kw_names.map { |kn| "BasicObject* _kw_#{kn}" }
+            slot_params = (0...sig.arity_req).map { |i| "BO* _arg#{i}" } +
+                          (0...sig.opt).map { |i| "BO* _arg#{sig.arity_req + i}" } +
+                          sig.all_kw_names.map { |kn| "BO* _kw_#{kn}" }
             ku_vis_prologue = MethodEmitter.visibility_prologue_text(
               @visibility_survey, method.name, method.visibility, body: method.body
             )
@@ -2466,24 +2466,24 @@ module Frozone
             abort_body = %|std::fprintf(stderr, "%s\\n", #{@cpp.cpp_string_literal(msg)});\nstd::abort();\n|
             if family
               entries = family.arities.to_a.sort.map do |k|
-                { params: (0...k).map { |i| "BasicObject* _arg#{i}" }, body: abort_body }
+                { params: (0...k).map { |i| "BO* _arg#{i}" }, body: abort_body }
               end
               return { multi_arity: entries }
             end
             if kw_sig
               # kw_unset slot: pos-required + pos-optional + all kw
-              # names, all `BasicObject*`. Must match the layout
+              # names, all `BO*`. Must match the layout
               # emitted by build_kw_unset_override above and the
               # decl emitted by write_override_decl.
-              params = (0...kw_sig.arity_req).map { |i| "BasicObject* _arg#{i}" } +
-                       (0...kw_sig.opt).map { |i| "BasicObject* _arg#{kw_sig.arity_req + i}" } +
-                       kw_sig.all_kw_names.map { |kn| "BasicObject* _kw_#{kn}" }
+              params = (0...kw_sig.arity_req).map { |i| "BO* _arg#{i}" } +
+                       (0...kw_sig.opt).map { |i| "BO* _arg#{kw_sig.arity_req + i}" } +
+                       kw_sig.all_kw_names.map { |kn| "BO* _kw_#{kn}" }
               return { params: params, body: abort_body, kw_unset: true }
             end
             if sig
-              params = (0...sig.arity_req).map { |i| "BasicObject* _arg#{i}" }
-              params += sig.required_kw_names.map { |kn| "BasicObject* _kw_#{kn}" }
-              params << "BasicObject* /*block*/" if sig.has_block
+              params = (0...sig.arity_req).map { |i| "BO* _arg#{i}" }
+              params += sig.required_kw_names.map { |kn| "BO* _kw_#{kn}" }
+              params << "BO* /*block*/" if sig.has_block
             else
               params = []
             end
@@ -2535,12 +2535,12 @@ module Frozone
           # Disqualify names whose runtime/universe.rb definition is
           # a raw C++ declaration listed in hand_coded_method_names —
           # m_send, m_method_missing, mm_kind_of_q etc. Those bodies
-          # live as full `BasicObject* X(Array*, Hash*, BasicObject*)`
+          # live as full `BO* X(Array*, Hash*, BO*)`
           # methods, so natural-arity emission on the same slot would
           # mismatch decl vs def.
           #
           # Note: `overrides` is intentionally NOT disqualified. Override
-          # specs are shaped `params: ["BasicObject* x", ...]` with a
+          # specs are shaped `params: ["BO* x", ...]` with a
           # body that uses the named params directly; write_override_def
           # routes them through the natural-arity path when eligibility
           # says so, so they coexist cleanly. This covers arithmetic
@@ -3195,7 +3195,7 @@ module Frozone
             if trace?
               line "} catch (ReturnException& e_) {"
               indented { line %|std::fprintf(stderr, "[trace] __top_level__ caught ReturnException (target=%llu, frame=%llu)\\n", (unsigned long long)e_.target_frame, (unsigned long long)__frame_id__);| }
-              line "} catch (BasicObject* e_) {"
+              line "} catch (BO* e_) {"
               indented do
                 line %|std::fprintf(stderr, "[trace] __top_level__ caught Ruby exception: %s\\n", e_->ruby_class_name());|
                 line "throw;  // re-raise so main()'s handler still sees it"
@@ -3246,7 +3246,7 @@ module Frozone
                 line "std::fflush(stdout);"
                 line "return static_cast<int>(se.status);"
               end
-              line "} catch (Ruby::BasicObject* e) {"
+              line "} catch (Ruby::BO* e) {"
               indented do
                 # Print the exception class + iv_message (if any) to
                 # stderr. iv_message is the Exception's `@message`

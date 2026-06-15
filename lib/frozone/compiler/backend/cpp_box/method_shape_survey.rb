@@ -297,7 +297,7 @@ module Frozone
           # `exclude` is a Set[Symbol] of names to treat as non-
           # eligible regardless of def-shape. Used to disqualify
           # names whose runtime body is hand-written universal-sig
-          # (raw `(Array*, Hash*, BasicObject*)` C++); the natural-
+          # (raw `(Array*, Hash*, BO*)` C++); the natural-
           # arity emission path can't co-exist with a universal-sig
           # body on the same VT slot.
           #

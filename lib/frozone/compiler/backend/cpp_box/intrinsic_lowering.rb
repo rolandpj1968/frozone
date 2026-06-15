@@ -242,10 +242,10 @@ module Frozone
             # pop/shift: core's __check_frozen__ runs before the intrinsic,
             # so no frozen recheck here. Empty → nil.
             array_pop: ->(self_) {
-              "([&]() -> BasicObject* { auto* _a = static_cast<Array*>(#{self_}); if (_a->data.empty()) return nil_instance(); BasicObject* _v = _a->data.back(); _a->data.pop_back(); return _v; }())"
+              "([&]() -> BO* { auto* _a = static_cast<Array*>(#{self_}); if (_a->data.empty()) return nil_instance(); BO* _v = _a->data.back(); _a->data.pop_back(); return _v; }())"
             },
             array_shift: ->(self_) {
-              "([&]() -> BasicObject* { auto* _a = static_cast<Array*>(#{self_}); if (_a->data.empty()) return nil_instance(); BasicObject* _v = _a->data.front(); _a->data.erase(_a->data.begin()); return _v; }())"
+              "([&]() -> BO* { auto* _a = static_cast<Array*>(#{self_}); if (_a->data.empty()) return nil_instance(); BO* _v = _a->data.front(); _a->data.erase(_a->data.begin()); return _v; }())"
             },
             array_replace: ->(self_, other) {
               "(static_cast<Array*>(#{self_})->data = static_cast<Array*>(#{other})->data, #{self_})"
@@ -291,12 +291,12 @@ module Frozone
                  "double _b = static_cast<Float*>(#{o})->raw_;",
                  "double _q = std::floor(_a / _b);",
                  "double _r = _a - _q * _b;"],
-                "(new Array({static_cast<BasicObject*>(new Float(_q)), static_cast<BasicObject*>(new Float(_r))}))"
+                "(new Array({static_cast<BO*>(new Float(_q)), static_cast<BO*>(new Float(_r))}))"
               )
             },
             float_hash:      ->(s) { "(new Integer(static_cast<int64_t>(std::hash<double>{}(static_cast<Float*>(#{s})->raw_))))" },
             float_to_s:      ->(s) {
-              "([&]() -> BasicObject* { char _buf[32]; double _v = static_cast<Float*>(#{s})->raw_; if (std::isnan(_v)) return new String(\"NaN\", 3); if (std::isinf(_v)) return new String(_v > 0 ? \"Infinity\" : \"-Infinity\", _v > 0 ? 8 : 9); int _n = std::snprintf(_buf, sizeof(_buf), \"%.17g\", _v); return new String(_buf, _n); }())"
+              "([&]() -> BO* { char _buf[32]; double _v = static_cast<Float*>(#{s})->raw_; if (std::isnan(_v)) return new String(\"NaN\", 3); if (std::isinf(_v)) return new String(_v > 0 ? \"Infinity\" : \"-Infinity\", _v > 0 ? 8 : 9); int _n = std::snprintf(_buf, sizeof(_buf), \"%.17g\", _v); return new String(_buf, _n); }())"
             },
 
             # Float arithmetic + comparison — unboxed double ops on raw_,
@@ -426,10 +426,10 @@ module Frozone
             },
             # Stubs for box-first; implement properly later. See aotcompile note.
             string_to_f: ->(self_) {
-              "([&]() -> BasicObject* { auto* _s = static_cast<String*>(#{self_}); std::string _str(reinterpret_cast<const char*>(_s->bytes.data()), _s->bytes.size()); double _d = 0.0; try { _d = std::stod(_str); } catch (...) {} return new Float(_d); }())"
+              "([&]() -> BO* { auto* _s = static_cast<String*>(#{self_}); std::string _str(reinterpret_cast<const char*>(_s->bytes.data()), _s->bytes.size()); double _d = 0.0; try { _d = std::stod(_str); } catch (...) {} return new Float(_d); }())"
             },
             string_to_r: ->(_self_) {
-              "(&Rational_CLASS)->m_new(univ, new Array({static_cast<BasicObject*>(new Integer(0)), static_cast<BasicObject*>(new Integer(1))}))"
+              "(&Rational_CLASS)->m_new(univ, new Array({static_cast<BO*>(new Integer(0)), static_cast<BO*>(new Integer(1))}))"
             },
             # `String#to_sym` — interns the string. intern() takes a
             # const char*, so the string must be NUL-terminated. Copy
@@ -442,8 +442,8 @@ module Frozone
             # The Ruby `def lambda(&_block) = Intrinsics.kernel_lambda(self)`
             # form passes self to the intrinsic; the actual block lives
             # in the method's `_block` alias (set up by unpack_params).
-            kernel_lambda: ->(_self_) { "static_cast<BasicObject*>(_block)" },
-            kernel_proc: ->(_self_) { "static_cast<BasicObject*>(_block)" },
+            kernel_lambda: ->(_self_) { "static_cast<BO*>(_block)" },
+            kernel_proc: ->(_self_) { "static_cast<BO*>(_block)" },
             basic_object__equal_equal_: ->(s, o) { "boxed_bool(#{s} == #{o})" },
             basic_object___id__: ->(s) { "(new Integer(reinterpret_cast<int64_t>(#{s})))" },
 
@@ -514,7 +514,7 @@ module Frozone
             hash_index_write: ->(self_, k, v) {
               Cpp.block_expr(
                 ["auto* _h = static_cast<Hash*>(#{self_});",
-                 "BasicObject* _v = #{v};",
+                 "BO* _v = #{v};",
                  "_h->put(#{k}, _v);"],
                 "_v"
               )
@@ -538,7 +538,7 @@ module Frozone
             # via send. Proc#to_proc returns self, so the chain works.
             # Args coming in are the proc's call args (already an Array).
             object_method: ->(self_, name) {
-              "(new Proc([__obj_=#{self_}, __name_=#{name}](Array* __args_, Hash*) -> BasicObject* { Array* _full = new Array(); _full->data.push_back(__name_); for (auto* _e : __args_->data) _full->data.push_back(_e); return __obj_->m_send(univ, _full); }))"
+              "(new Proc([__obj_=#{self_}, __name_=#{name}](Array* __args_, Hash*) -> BO* { Array* _full = new Array(); _full->data.push_back(__name_); for (auto* _e : __args_->data) _full->data.push_back(_e); return __obj_->m_send(univ, _full); }))"
             },
             # Dynamic ivar access has no implementation in box-first —
             # every `@foo` is a dedicated C++ struct field (`this->iv_foo`),
@@ -652,7 +652,7 @@ module Frozone
             # through the universal m_call slot (Proc subclass overrides
             # m_call to invoke its stored function pointer). args is
             # the *args rest_param which MethodEmitter.unpack_params
-            # types BasicObject* even though it's always Array at
+            # types BO* even though it's always Array at
             # runtime — splat_to_array's m_class() fast-path is the
             # safe coercion (no static_cast). Hash narrowing on kwargs
             # uses typeid (Hash is a leaf class); fall back to
