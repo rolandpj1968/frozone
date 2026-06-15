@@ -29,25 +29,47 @@ module Frozone
           # — used when emitting a Proc body, where each block invocation
           # is one lambda call and `next [v]` semantically returns v from
           # that invocation.
-          def self.write_body(emit, body, locals:, last_is_return: false, next_returns: false, in_block: false)
+          # `last_is_return:` — emit `return last_expr;` (IILE-style — the
+          # `return` exits the enclosing lambda and that value becomes the
+          # IILE's value).
+          # `last_is_value_stmt:` — emit `last_expr;` (stmt-expr style — the
+          # last expression-statement IS the construct's value, no
+          # `return` keyword).
+          # Mutually exclusive. When both false, the body emits as a
+          # plain statement sequence with no special tail treatment.
+          # `last_is_return` historically also synthesises a trailing
+          # `return nil_instance();` after stmt_only nodes; the
+          # `last_is_value_stmt` analogue is a trailing `nil_instance();`.
+          def self.write_body(emit, body, locals:, last_is_return: false, last_is_value_stmt: false, next_returns: false, in_block: false)
+            last_is_tail = last_is_return || last_is_value_stmt
+            tail_prefix = last_is_return ? "return " : ""
             stmts = body.is_a?(Ast::Sequence) ? body.nodes : [body]
             stmts.each_with_index do |n, i|
               last = i == stmts.length - 1
-              if last && last_is_return && stmt_only_node?(n)
+              if last && last_is_tail && stmt_only_node?(n)
                 # Some nodes have a write_stmt special case but no
                 # safe expression form: times/loop blocks (break/next
                 # don't survive lambda wrap), MultipleAssignment
-                # (no from_expr handler). Emit as statement + return nil
+                # (no from_expr handler). Emit as statement + nil sentinel
                 # — matches Ruby's "last expression is the return value"
                 # well enough for the common cases (initializers,
                 # destructuring assignment in tail position; the [v1,v2]
                 # array return value is rarely consumed).
                 write_stmt(emit, n, locals, next_returns: next_returns, in_block: in_block)
-                emit.line "return nil_instance();"
-              elsif last && last_is_return && Cpp.expression_node?(n)
-                emit.line "return #{emit.cpp.from_expr(n, locals)};"
-              elsif last && last_is_return
+                emit.line "#{tail_prefix}nil_instance();"
+              elsif last && last_is_tail && Cpp.expression_node?(n)
+                emit.line "#{tail_prefix}#{emit.cpp.from_expr(n, locals)};"
+              elsif last && last_is_tail
+                # Tail node with neither stmt_only nor expression_node
+                # handling (e.g., Return/While/Until — node whose own
+                # write_stmt path is terminal or doesn't yield a value).
+                # For stmt_expr form we still need a trailing value-
+                # statement so the construct has a defined value;
+                # IILE doesn't (write_stmt's own emission either does
+                # `return` itself or the lambda falls through to the
+                # safety-net `return nil_instance();` in body_as_block).
                 write_stmt(emit, n, locals, next_returns: next_returns, in_block: in_block)
+                emit.line "nil_instance();" if last_is_value_stmt
               else
                 write_stmt_with_rescue(emit, n, locals, next_returns: next_returns, in_block: in_block)
               end

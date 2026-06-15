@@ -168,8 +168,38 @@ module Frozone
           # Default false matches the rescue-arm case where `next`
           # should escape to the enclosing loop (and would normally
           # raise EmissionError if such a next is found).
+          # Render a body in expression position, picking IILE or stmt-expr
+          # by `Cpp.block_expr_form`. Both forms yield the body's last
+          # value to the surrounding expression context; the difference
+          # is purely syntactic (closure + invocation vs gcc stmt-expr).
+          # Ruby `return v` inside the body still throws ReturnException
+          # — `in_block` is true at every call site (from_case /
+          # from_if_as_lambda / from_rescue all enter `with_in_block`
+          # before invoking this), so Ast::Return resolves through the
+          # method's frame-id try/catch wrap, not via C++ return.
           def body_as_lambda_call(body, locals, next_returns: false)
-            "#{body_as_lambda(body, locals, last_is_return: true, next_returns: next_returns)}()"
+            case Cpp.block_expr_form
+            when :stmt_expr
+              body_as_stmt_expr_call(body, locals, next_returns: next_returns)
+            else
+              "#{body_as_lambda(body, locals, last_is_return: true, next_returns: next_returns)}()"
+            end
+          end
+
+          # gcc stmt-expr form — `({ ...; last_expr; })`. write_body's
+          # `last_is_value_stmt: true` mode guarantees the captured
+          # `inner` ends with a value-yielding expression-statement
+          # (the body's last expression, or a `nil_instance();` synth
+          # when the last node has no expression form). No extra
+          # safety net needed — appending one here would shadow the
+          # body's real value.
+          def body_as_stmt_expr_call(body, locals, next_returns: false)
+            return "({ nil_instance(); })" unless body
+            in_block = emit.cpp.in_block
+            inner = @emit.capture do
+              ExprEmitter.write_body(@emit, body, locals: locals, last_is_value_stmt: true, next_returns: next_returns, in_block: in_block)
+            end
+            "({ #{inner.gsub("\n", " ")} })"
           end
 
           def body_as_lambda(body, locals, last_is_return:, next_returns: false)
