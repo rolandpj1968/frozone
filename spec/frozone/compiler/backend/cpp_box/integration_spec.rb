@@ -580,7 +580,9 @@ RSpec.describe 'box-first leaf-dispatch codegen' do
     # closes are indented — anchor on `^\}` to bound the body precisely.
     # Ruby /m = dotall (. matches \n); we want the OPPOSITE — line-by-line
     # lazy expansion — so omit /m. ^ and $ are line-anchored by default.
-    return nil unless gen_cpp =~ /^BasicObject\* BasicObject::#{Regexp.escape(cpp_name)}\(UnivTag, Array\*[^\n]*\{\n((?:.*\n)*?)^\}/
+    # Return type may be `BO*` (alias) or `BasicObject*` depending on
+    # whether the BO typedef has been applied at codegen time.
+    return nil unless gen_cpp =~ /^(?:BO|BasicObject)\* BasicObject::#{Regexp.escape(cpp_name)}\(UnivTag, Array\*[^\n]*\{\n((?:.*\n)*?)^\}/
     body = Regexp.last_match(1)
     body.scan(/&typeid\(\*this\) == &typeid\(([A-Za-z0-9_]+)\)/).flatten
   end

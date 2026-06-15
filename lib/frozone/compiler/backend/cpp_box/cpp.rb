@@ -146,10 +146,14 @@ module Frozone
             end
           end
 
-          # Form to use for `block_expr`. Cached per process — the env
-          # var is read once at startup. To experiment, set
-          # `FROZONE_BOX_BLOCK_EXPR_FORM=stmt_expr` before invoking
-          # the AOT compiler.
+          # Form to use for `block_expr`. Default is `iile`. Setting
+          # `FROZONE_BOX_BLOCK_EXPR_FORM=stmt_expr` opts into gcc's
+          # statement-expression form (zero closure overhead, ~4%
+          # smaller generated source, but a single regression in the
+          # unified-build visibility test prevents flipping the
+          # default — runtime parity is verified standalone for every
+          # other code shape; see block_expr_form_runtime_spec.rb).
+          # Cached per process — the env var is read once at startup.
           def self.block_expr_form
             @block_expr_form ||= case ENV['FROZONE_BOX_BLOCK_EXPR_FORM']
                                  when 'stmt_expr' then :stmt_expr

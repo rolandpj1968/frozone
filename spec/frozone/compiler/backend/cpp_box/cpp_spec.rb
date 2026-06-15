@@ -428,15 +428,20 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
       cpp.emit = emitter
     end
 
-    it "case-with-subject emits subject-binding lambda + op_case_eq dispatch" do
+    it "case-with-subject emits subject-binding stmt-expr + op_case_eq dispatch" do
       subj = lvr(:x)
       whens = [A::Case::When.new([int(1)], int(10)), A::Case::When.new([int(2)], int(20))]
       node = A::Case.new(subj, whens, int(0))
       result = cpp.from_expr(node, locals)
+      # Subject is precomputed once into _subj (shape-agnostic — both IILE
+      # and stmt_expr emit it the same way).
       expect(result).to include("auto* _subj = l_x")
+      # Each `when` runs the case-eq via op_case_eq(univ, new Array({_subj})).
       expect(result).to include("(&_f_i_1)->op_case_eq(univ, new Array({_subj}))")
-      expect(result).to include("return (&_f_i_10)")
-      expect(result).to include("return (&_f_i_0)")
+      # The arm values appear regardless of form (return v in IILE,
+      # ternary arm in stmt_expr).
+      expect(result).to include("(&_f_i_10)")
+      expect(result).to include("(&_f_i_0)")
     end
 
     it "case-without-subject treats conditions as truthy tests directly" do
@@ -446,7 +451,10 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
       expect(result).not_to include("_subj")
       expect(result).to include("truthy(l_c1)")
       expect(result).to include("truthy(l_c2)")
-      expect(result).to include("return nil_instance()")  # default else
+      # No explicit `else` → falls through to nil_instance() as the
+      # default value (IILE: `return nil_instance();`, stmt_expr:
+      # `nil_instance()` as ternary's terminal else).
+      expect(result).to include("nil_instance()")
     end
 
     it "multi-condition when (when A, B, C) joins with ||" do
