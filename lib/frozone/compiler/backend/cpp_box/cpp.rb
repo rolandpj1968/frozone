@@ -140,7 +140,7 @@ module Frozone
             joined = stmts.empty? ? '' : "#{stmts.join(' ')} "
             case block_expr_form
             when :stmt_expr
-              "({ #{joined}#{value_expr}; })"
+              "({ #{joined}static_cast<#{type}>(#{value_expr}); })"
             else
               "([&]() -> #{type} { #{joined}return #{value_expr}; }())"
             end

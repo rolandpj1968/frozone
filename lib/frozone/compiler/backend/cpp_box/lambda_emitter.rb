@@ -250,7 +250,7 @@ module Frozone
             inner = @emit.capture do
               ExprEmitter.write_body(@emit, body, locals: locals, last_is_value_stmt: true, next_returns: next_returns, in_block: in_block)
             end
-            "({ #{inner.gsub("\n", " ")} })"
+            "static_cast<BO*>(({ #{inner.gsub("\n", " ")} }))"
           end
 
           def body_as_lambda(body, locals, last_is_return:, next_returns: false)
