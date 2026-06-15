@@ -257,7 +257,7 @@ module Frozone
           def structs_in(line)
             return Set.new if line.start_with?("//")   # // skipped <label>
             s = Set.new
-            line.scan(/static_cast<(\w+)\*>/) { |(t)| s << t unless t == "BasicObject" }
+            line.scan(/static_cast<(\w+)\*>/) { |(t)| s << t unless t == "BasicObject" || t == "BO" }
             line.scan(/\bnew\s+(\w+)\(/)      { |(t)| s << t }
             line.scan(/&(\w+)_CLASS\b/)       { |(t)| s << "#{t}_eigenclass" }
             s << "Integer" if line.include?("_f_i_")
