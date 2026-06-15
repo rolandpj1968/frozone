@@ -157,6 +157,53 @@ module Frozone
                                  end
           end
 
+          # Multi-stage block expression with conditional early returns.
+          # Each `phases[0..-2]` entry is a hash with:
+          #   - `stmts:` — array of C++ statements to execute on entering
+          #     the stage.
+          #   - `early_return:` — `{ cond:, value: }` — if `cond` is true
+          #     after the stage's stmts, yield `value` and skip the
+          #     remaining stages.
+          # The final `phases[-1]` entry has `stmts:` + `value:` (the
+          # fallback value when no early-return condition fired).
+          #
+          # Forms:
+          # - `iile`: linear `if (cond1) return v1; ... if (condN) return vN;
+          #     fallback_stmts; return fallback_value;`. Side effects in
+          #     stage K's stmts only run if all earlier conds were false.
+          # - `stmt_expr`: nested ternary chain — each stage's early-return
+          #     is `cond ? v : (next stage as stmt-expr)`. Side effects
+          #     remain conditional because they live inside the false-arm
+          #     stmt-expr.
+          #
+          # Mandatory: side effects in stage K's stmts must NOT execute
+          # when an earlier stage's early-return fires. The nested-ternary
+          # form satisfies this: the inner stmt-expr is only evaluated in
+          # the false arm of the outer ternary.
+          def self.staged_block_expr(phases, type: 'BO*')
+            case block_expr_form
+            when :stmt_expr
+              last = phases.last
+              inner = last[:stmts].empty? ? "(#{last[:value]})" : "({ #{last[:stmts].join(' ')} #{last[:value]}; })"
+              phases[0..-2].reverse_each do |phase|
+                setup = phase[:stmts].empty? ? '' : "#{phase[:stmts].join(' ')} "
+                er = phase[:early_return]
+                inner = "({ #{setup}#{er[:cond]} ? static_cast<#{type}>(#{er[:value]}) : static_cast<#{type}>(#{inner}); })"
+              end
+              inner
+            else
+              parts = []
+              phases[0..-2].each do |phase|
+                parts += phase[:stmts]
+                er = phase[:early_return]
+                parts << "if (#{er[:cond]}) return #{er[:value]};"
+              end
+              parts += phases.last[:stmts]
+              parts << "return #{phases.last[:value]};"
+              "([&]() -> #{type} { #{parts.join(' ')} }())"
+            end
+          end
+
           # Wrap a try/catch in expression position. `try_expr` is the
           # value-yielding expression for the success path; `catch_expr`
           # is the value-yielding expression for the matched-exception
@@ -938,7 +985,12 @@ module Frozone
               call_csv = (pos_refs + pos_pad_refs + kw_refs).join(', ')
               if recv && node.safe_nav
                 recv_str = from_expr(recv, locals)  # safe_nav: visibility check deferred — would need to fold into the nil short-circuit IIFE
-                return "([&]() -> BO* { auto* _r = #{recv_str}; if (_r == nil_instance()) return nil_instance(); #{decls} return _r->#{Cpp.method_name(name)}(#{call_csv}); }())"
+                return Cpp.staged_block_expr([
+                  { stmts: ["auto* _r = #{recv_str};"],
+                    early_return: { cond: "_r == nil_instance()", value: "nil_instance()" } },
+                  { stmts: [decls],
+                    value: "_r->#{Cpp.method_name(name)}(#{call_csv})" }
+                ])
               elsif recv
                 recv_str = recv_with_visibility_check(recv, locals)
                 return Cpp.block_expr(
@@ -1356,7 +1408,14 @@ module Frozone
             cur_t = "__iorw_cur_#{tag}__"
             new_t = "__iorw_new_#{tag}__"
             idx_array = "(new Array({#{idx_strs.join(", ")}}))"
-            "([&]() -> BO* { auto* #{recv_t} = #{recv_str}; auto* #{cur_t} = #{recv_t}->op_aref(univ, #{idx_array}); if (truthy(#{cur_t})) return #{cur_t}; auto* #{new_t} = #{val_str}; #{recv_t}->op_aset(univ, new Array({#{idx_strs.join(", ")}, #{new_t}})); return #{new_t}; }())"
+            Cpp.staged_block_expr([
+              { stmts: ["auto* #{recv_t} = #{recv_str};",
+                        "auto* #{cur_t} = #{recv_t}->op_aref(univ, #{idx_array});"],
+                early_return: { cond: "truthy(#{cur_t})", value: cur_t } },
+              { stmts: ["auto* #{new_t} = #{val_str};",
+                        "#{recv_t}->op_aset(univ, new Array({#{idx_strs.join(", ")}, #{new_t}}));"],
+                value: new_t }
+            ])
           end
 
           # `recv[idx] &&= val` — read once, return if falsy, else
@@ -1370,7 +1429,14 @@ module Frozone
             cur_t = "__iaw_cur_#{tag}__"
             new_t = "__iaw_new_#{tag}__"
             idx_array = "(new Array({#{idx_strs.join(", ")}}))"
-            "([&]() -> BO* { auto* #{recv_t} = #{recv_str}; auto* #{cur_t} = #{recv_t}->op_aref(univ, #{idx_array}); if (!truthy(#{cur_t})) return #{cur_t}; auto* #{new_t} = #{val_str}; #{recv_t}->op_aset(univ, new Array({#{idx_strs.join(", ")}, #{new_t}})); return #{new_t}; }())"
+            Cpp.staged_block_expr([
+              { stmts: ["auto* #{recv_t} = #{recv_str};",
+                        "auto* #{cur_t} = #{recv_t}->op_aref(univ, #{idx_array});"],
+                early_return: { cond: "!truthy(#{cur_t})", value: cur_t } },
+              { stmts: ["auto* #{new_t} = #{val_str};",
+                        "#{recv_t}->op_aset(univ, new Array({#{idx_strs.join(", ")}, #{new_t}}));"],
+                value: new_t }
+            ])
           end
 
           # `recv.b ||= val` — read recv.b once; return it if truthy;
@@ -1399,10 +1465,31 @@ module Frozone
             recv_t = "__csw_recv_#{tag}__"
             cur_t = "__csw_cur_#{tag}__"
             new_t = "__csw_new_#{tag}__"
-            safe_guard = node.safe_nav ? "if (#{recv_t} == nil_instance()) return nil_instance(); " : ""
             read_args = na_or_wrap_args(node.read_name, [], wrap_parens: false)
             write_args = na_or_wrap_args(node.write_name, [new_t], wrap_parens: false)
-            "([&]() -> BO* { auto* #{recv_t} = #{recv_str}; #{safe_guard}auto* #{cur_t} = #{recv_t}->#{read_cpp}(#{read_args}); if (#{condition}(#{cur_t})) return #{cur_t}; auto* #{new_t} = #{val_str}; #{recv_t}->#{write_cpp}(#{write_args}); return #{new_t}; }())"
+            phases = []
+            if node.safe_nav
+              phases << {
+                stmts: ["auto* #{recv_t} = #{recv_str};"],
+                early_return: { cond: "#{recv_t} == nil_instance()", value: "nil_instance()" }
+              }
+              phases << {
+                stmts: ["auto* #{cur_t} = #{recv_t}->#{read_cpp}(#{read_args});"],
+                early_return: { cond: "#{condition}(#{cur_t})", value: cur_t }
+              }
+            else
+              phases << {
+                stmts: ["auto* #{recv_t} = #{recv_str};",
+                        "auto* #{cur_t} = #{recv_t}->#{read_cpp}(#{read_args});"],
+                early_return: { cond: "#{condition}(#{cur_t})", value: cur_t }
+              }
+            end
+            phases << {
+              stmts: ["auto* #{new_t} = #{val_str};",
+                      "#{recv_t}->#{write_cpp}(#{write_args});"],
+              value: new_t
+            }
+            Cpp.staged_block_expr(phases)
           end
 
           # `recv.b += val` (and -=/*=/etc.) — read once, compute
@@ -1418,11 +1505,31 @@ module Frozone
             recv_t = "__cop_recv_#{tag}__"
             cur_t = "__cop_cur_#{tag}__"
             new_t = "__cop_new_#{tag}__"
-            safe_guard = node.safe_nav ? "if (#{recv_t} == nil_instance()) return nil_instance(); " : ""
             read_args = na_or_wrap_args(node.read_name, [], wrap_parens: false)
             op_args = na_or_wrap_args(node.operator, [val_str], wrap_parens: false)
             write_args = na_or_wrap_args(node.write_name, [new_t], wrap_parens: false)
-            "([&]() -> BO* { auto* #{recv_t} = #{recv_str}; #{safe_guard}auto* #{cur_t} = #{recv_t}->#{read_cpp}(#{read_args}); auto* #{new_t} = #{cur_t}->#{op_cpp}(#{op_args}); #{recv_t}->#{write_cpp}(#{write_args}); return #{new_t}; }())"
+            phases = []
+            if node.safe_nav
+              phases << {
+                stmts: ["auto* #{recv_t} = #{recv_str};"],
+                early_return: { cond: "#{recv_t} == nil_instance()", value: "nil_instance()" }
+              }
+              phases << {
+                stmts: ["auto* #{cur_t} = #{recv_t}->#{read_cpp}(#{read_args});",
+                        "auto* #{new_t} = #{cur_t}->#{op_cpp}(#{op_args});",
+                        "#{recv_t}->#{write_cpp}(#{write_args});"],
+                value: new_t
+              }
+            else
+              phases << {
+                stmts: ["auto* #{recv_t} = #{recv_str};",
+                        "auto* #{cur_t} = #{recv_t}->#{read_cpp}(#{read_args});",
+                        "auto* #{new_t} = #{cur_t}->#{op_cpp}(#{op_args});",
+                        "#{recv_t}->#{write_cpp}(#{write_args});"],
+                value: new_t
+              }
+            end
+            Cpp.staged_block_expr(phases)
           end
 
           # Ruby's `&&` returns the last truthy value or the first falsy.

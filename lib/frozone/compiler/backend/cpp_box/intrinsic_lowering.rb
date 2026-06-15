@@ -242,10 +242,20 @@ module Frozone
             # pop/shift: core's __check_frozen__ runs before the intrinsic,
             # so no frozen recheck here. Empty → nil.
             array_pop: ->(self_) {
-              "([&]() -> BO* { auto* _a = static_cast<Array*>(#{self_}); if (_a->data.empty()) return nil_instance(); BO* _v = _a->data.back(); _a->data.pop_back(); return _v; }())"
+              Cpp.staged_block_expr([
+                { stmts: ["auto* _a = static_cast<Array*>(#{self_});"],
+                  early_return: { cond: "_a->data.empty()", value: "nil_instance()" } },
+                { stmts: ["BO* _v = _a->data.back();", "_a->data.pop_back();"],
+                  value: "_v" }
+              ])
             },
             array_shift: ->(self_) {
-              "([&]() -> BO* { auto* _a = static_cast<Array*>(#{self_}); if (_a->data.empty()) return nil_instance(); BO* _v = _a->data.front(); _a->data.erase(_a->data.begin()); return _v; }())"
+              Cpp.staged_block_expr([
+                { stmts: ["auto* _a = static_cast<Array*>(#{self_});"],
+                  early_return: { cond: "_a->data.empty()", value: "nil_instance()" } },
+                { stmts: ["BO* _v = _a->data.front();", "_a->data.erase(_a->data.begin());"],
+                  value: "_v" }
+              ])
             },
             array_replace: ->(self_, other) {
               "(static_cast<Array*>(#{self_})->data = static_cast<Array*>(#{other})->data, #{self_})"
@@ -296,7 +306,14 @@ module Frozone
             },
             float_hash:      ->(s) { "(new Integer(static_cast<int64_t>(std::hash<double>{}(static_cast<Float*>(#{s})->raw_))))" },
             float_to_s:      ->(s) {
-              "([&]() -> BO* { char _buf[32]; double _v = static_cast<Float*>(#{s})->raw_; if (std::isnan(_v)) return new String(\"NaN\", 3); if (std::isinf(_v)) return new String(_v > 0 ? \"Infinity\" : \"-Infinity\", _v > 0 ? 8 : 9); int _n = std::snprintf(_buf, sizeof(_buf), \"%.17g\", _v); return new String(_buf, _n); }())"
+              Cpp.staged_block_expr([
+                { stmts: ["char _buf[32];", "double _v = static_cast<Float*>(#{s})->raw_;"],
+                  early_return: { cond: "std::isnan(_v)", value: 'new String("NaN", 3)' } },
+                { stmts: [],
+                  early_return: { cond: "std::isinf(_v)", value: 'new String(_v > 0 ? "Infinity" : "-Infinity", _v > 0 ? 8 : 9)' } },
+                { stmts: ['int _n = std::snprintf(_buf, sizeof(_buf), "%.17g", _v);'],
+                  value: "new String(_buf, _n)" }
+              ])
             },
 
             # Float arithmetic + comparison — unboxed double ops on raw_,
