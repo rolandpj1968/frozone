@@ -86,6 +86,7 @@ module Frozone
             string_index string_slice string_split string_chars
             string_inspect string_hash string_to_sym string_to_i_base
             string_format string_replace string_store string_initialize string_tr_raw
+            string_encoding string_force_encoding
             string_match string_match_pos string_count_raw
             string_append_as_bytes string_append_bytes string_bytesplice
             string_upcase_opts string_downcase_opts
@@ -341,18 +342,14 @@ module Frozone
             range_exclude_end:  ->(self_) { "boxed_bool(static_cast<Range*>(#{self_})->exclude_end_)" },
             range_initialized_q:->(self_) { "boxed_bool(static_cast<Range*>(#{self_})->initialized_)" },
 
-            # String — direct byte-vector access. encoding/force_encoding
-            # are stubs: we return a literal string for `encoding` so
-            # core/4.0/ code that passes it through (e.g. reverse +
-            # force_encoding(encoding)) doesn't blow up. Real encoding
-            # tracking can come back when something needs it.
-            # Return the real Encoding::UTF_8 constant (auto-emitted from
-            # core/4.0/encoding.rb) — callers expect an Encoding object,
-            # not a String, so they can call `ascii_compatible?` etc.
-            # Always returning UTF-8 is a stub; real per-string encoding
-            # tracking is a parity-gap follow-up.
-            string_encoding: ->(_self_) { "k_Encoding_UTF_8()" },
-            string_force_encoding: ->(self_, _enc) { "(#{self_})" },
+            # String#encoding / #force_encoding lower to real C++
+            # intrinsics (registered in HPP_INTRINSICS above). They
+            # read/write the String's 2-value `enc` field. The
+            # force_encoding intrinsic identifies BINARY by the arg's
+            # @name content (via m_name()) rather than pointer
+            # identity, because the Vm::Intrinsics MRI bridge in
+            # interpreted mode passes the encoding name as a String
+            # ("ASCII-8BIT"), not an Encoding instance.
             # Stub: Encoding.compatible?(a, b) — assume both UTF-8.
             # Real impl checks ASCII-compatible flag, ASCII-only fast
             # path, etc. The WQ parser's lexer needs this for source

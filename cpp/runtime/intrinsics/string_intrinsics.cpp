@@ -388,6 +388,46 @@ BasicObject* intrinsic_string_replace(BasicObject* self_, BasicObject* other_) {
   return _s;
 }
 
+namespace {
+  // Byte-equal-to-c-string helper. Centralises the
+  // `bytes.size() == len && memcmp == 0` pattern.
+  inline bool __string_bytes_eq__(BasicObject* str, const char* cstr, std::size_t len) {
+    if (!str || &typeid(*str) != &typeid(String)) return false;
+    auto* s = static_cast<String*>(str);
+    return s->bytes.size() == len && std::memcmp(s->bytes.data(), cstr, len) == 0;
+  }
+  template <std::size_t N>
+  inline bool __string_bytes_eq_lit__(BasicObject* str, const char (&lit)[N]) {
+    return __string_bytes_eq__(str, lit, N - 1);
+  }
+
+  // True iff the arg names BINARY (== "ASCII-8BIT"). Accepts:
+  //   - Encoding instance — read @name via m_name() dispatch
+  //   - String "ASCII-8BIT" — direct compare (bridge chain reaches us
+  //     after String#force_encoding(enc_name) extraction)
+  // Everything else (Symbol, nil, other) → false (treated as UTF-8).
+  bool __is_binary_encoding__(BasicObject* enc) {
+    if (!enc || enc == nil_instance()) return false;
+    if (&typeid(*enc) == &typeid(String)) {
+      return __string_bytes_eq_lit__(enc, "ASCII-8BIT") ||
+             __string_bytes_eq_lit__(enc, "BINARY");
+    }
+    BasicObject* name_obj = enc->m_name();
+    return __string_bytes_eq_lit__(name_obj, "ASCII-8BIT");
+  }
+}
+
+BasicObject* intrinsic_string_encoding(BasicObject* self_) {
+  auto* s = static_cast<String*>(self_);
+  return s->enc == String::BINARY ? k_Encoding_BINARY() : k_Encoding_UTF_8();
+}
+
+BasicObject* intrinsic_string_force_encoding(BasicObject* self_, BasicObject* enc) {
+  auto* s = static_cast<String*>(self_);
+  s->enc = __is_binary_encoding__(enc) ? String::BINARY : String::UTF8;
+  return self_;
+}
+
 BasicObject* intrinsic_string_chars(BasicObject* self_) {
   auto* _s = static_cast<String*>(self_);
   auto* _r = new Array();

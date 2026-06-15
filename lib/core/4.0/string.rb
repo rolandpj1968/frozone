@@ -19,7 +19,10 @@ class String
   end
 
   def initialize(str = :__unset__, encoding: nil, capacity: nil)
-    return self if str.equal?(:__unset__)
+    if str.equal?(:__unset__)
+      force_encoding(encoding) if encoding
+      return self
+    end
     raise TypeError, "no implicit conversion of #{str.class} into String" if str.nil?
     __check_frozen__
     Intrinsics.string_initialize(self, str, encoding)

@@ -102,6 +102,15 @@ BasicObject* intrinsic_string_replace(BasicObject* self_, BasicObject* other_);
 
 BasicObject* intrinsic_string_chars(BasicObject* self_);
 
+// String#encoding / #force_encoding — read/write the String's
+// 2-value `enc` field. BINARY is identified by the Encoding's @name
+// being "ASCII-8BIT" (string-content comparison, since the runtime
+// Encoding instance for Encoding::BINARY differs from the snapshot
+// kernel k_Encoding_BINARY() — two different `new Encoding()` calls
+// during load phase).
+BasicObject* intrinsic_string_encoding(BasicObject* self_);
+BasicObject* intrinsic_string_force_encoding(BasicObject* self_, BasicObject* enc);
+
 // `String#inspect` — quoted with C-style escapes for non-printable
 // bytes. Mirrors cpp_string_literal: \n, \r, \t, \\, \", \NNN.
 BasicObject* intrinsic_string_inspect(BasicObject* self_);

@@ -145,7 +145,17 @@ class Integer
 
   def chr(enc = nil)
     raise RangeError, "#{self} out of char range" if self < 0 || self > 0x10FFFF
-    s = ""
+    # Always build into a BINARY scratch string so `<< byte_int` pushes
+    # the raw byte (String#<< respects BINARY for 0..255). Then either
+    # leave it BINARY (BINARY result wanted) or UTF-8-encode the
+    # codepoint in place (UTF-8 / other Unicode result wanted).
+    if enc == Encoding::BINARY
+      raise RangeError, "#{self} out of range for BINARY" if self > 0xFF
+      s = String.new(encoding: Encoding::BINARY)
+      s << self
+      return s
+    end
+    s = String.new(encoding: Encoding::BINARY)
     if self <= 0x7F
       s << self
     elsif self <= 0x7FF
@@ -161,6 +171,10 @@ class Integer
       s << (0x80 | ((self >> 6) & 0x3F))
       s << (0x80 | (self & 0x3F))
     end
+    # MRI default for chr(): US-ASCII for 0..127, UTF-8 for 128+. We
+    # don't track US-ASCII separately; ASCII bytes 0..127 are
+    # bit-identical in BINARY and UTF-8 so the distinction is moot.
+    s.force_encoding(enc || Encoding::UTF_8) if self > 0x7F || enc
     s
   end
 
