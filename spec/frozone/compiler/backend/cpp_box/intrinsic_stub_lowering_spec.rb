@@ -21,10 +21,14 @@ RSpec.describe "Intrinsic stub-by-default + IMPLEMENT_QUEUE" do
   end
 
   it "HOLDS IMPLEMENT_QUEUE members as a skip (raises, not stubbed)" do
-    %i[array_pack object_clone fiber_storage_hash float_to_r].each do |held|
-      expect { lower(held, "a") }
-        .to raise_error(Frozone::Compiler::Backend::CppBox::Cpp::EmissionError, /held for implementation/)
-    end
+    # IMPLEMENT_QUEUE is currently empty — each pass through #185 has
+    # either implemented its items, moved them to HPP_INTRINSICS /
+    # TEMPLATES, or replaced them with pure Ruby. Stub a synthetic
+    # held intrinsic so the held-path mechanism is still exercised.
+    stub_held = Set.new(%i[__test_held_intrinsic__])
+    stub_const("Frozone::Compiler::Backend::CppBox::IntrinsicLowering::IMPLEMENT_QUEUE", stub_held)
+    expect { lower(:__test_held_intrinsic__, "a") }
+      .to raise_error(Frozone::Compiler::Backend::CppBox::Cpp::EmissionError, /held for implementation/)
   end
 
   it "normalizes ? predicate names to _q for the stub name" do

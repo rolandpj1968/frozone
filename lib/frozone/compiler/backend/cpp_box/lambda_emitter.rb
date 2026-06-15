@@ -36,7 +36,7 @@ module Frozone
           # `raise "msg"` is sugar for `raise RuntimeError.new("msg")`.
           # Wrapped in a lambda so it's expression-position-valid.
           def from_raise(arg_nodes, locals)
-            return "([&]() -> BasicObject* { throw; }())" if arg_nodes.empty?
+            return Cpp.throw_expr(["throw;"]) if arg_nodes.empty?
 
             first = arg_nodes[0]
             if first.is_a?(Ast::ConstantRead) || first.is_a?(Ast::ConstantPath)
@@ -45,17 +45,17 @@ module Frozone
               raise Cpp::EmissionError, "raise: unknown exception class #{parts.join('::')}" unless flat && instantiable_class?(flat)
               ctor_args = arg_nodes.drop(1).map { |a| "static_cast<BasicObject*>(#{from_arg(a, locals)})" }
               args_array = "(new Array({#{ctor_args.join(", ")}}))"
-              return "([&]() -> BasicObject* { throw static_cast<Exception*>((&#{flat}_CLASS)->m_new(univ, #{args_array})); }())"
+              return Cpp.throw_expr(["throw static_cast<Exception*>((&#{flat}_CLASS)->m_new(univ, #{args_array}));"])
             end
 
             if arg_nodes.length == 1
               # `raise "msg"` is sugar for `raise RuntimeError.new("msg")`.
               if first.is_a?(Ast::StringLiteral) || first.is_a?(Ast::InterpolatedString)
                 msg_str = from_expr(first, locals)
-                return %(([&]() -> BasicObject* { throw static_cast<Exception*>((&RuntimeError_CLASS)->m_new(univ, new Array({static_cast<BasicObject*>(#{msg_str})}))); }()))
+                return Cpp.throw_expr(["throw static_cast<Exception*>((&RuntimeError_CLASS)->m_new(univ, new Array({static_cast<BasicObject*>(#{msg_str})})));"])
               end
               expr_str = from_expr(first, locals)
-              return "([&]() -> BasicObject* { throw static_cast<Exception*>(#{expr_str}); }())"
+              return Cpp.throw_expr(["throw static_cast<Exception*>(#{expr_str});"])
             end
             raise Cpp::EmissionError, "raise: unsupported arg shape (#{arg_nodes.length} args)"
           end
@@ -421,7 +421,11 @@ module Frozone
                 required_kw_params.each do |kw_name|
                   cpp = MethodEmitter.local_cpp_name(kw_name)
                   key_lit = kw_name.to_s.inspect
-                  init = "[&]() -> BasicObject* { auto _it = __blkkwargs__->data.find(intern(#{key_lit})); if (_it == __blkkwargs__->data.end()) raise_missing_kw(#{key_lit}); return _it->second; }()"
+                  init = Cpp.block_expr(
+                    ["auto _it = __blkkwargs__->data.find(intern(#{key_lit}));",
+                     "if (_it == __blkkwargs__->data.end()) raise_missing_kw(#{key_lit});"],
+                    "_it->second"
+                  )
                   if emit.cpp.captured?(kw_name)
                     emit.line "BasicObject** #{cpp} = gc_box<BasicObject*>(#{init});"
                   else
@@ -433,7 +437,10 @@ module Frozone
                   cpp = MethodEmitter.local_cpp_name(kw_name)
                   key_lit = kw_name.to_s.inspect
                   default_str = default_node ? from_expr(default_node, block_locals) : "nil_instance()"
-                  init = "[&]() -> BasicObject* { auto _it = __blkkwargs__->data.find(intern(#{key_lit})); return _it == __blkkwargs__->data.end() ? (#{default_str}) : _it->second; }()"
+                  init = Cpp.block_expr(
+                    ["auto _it = __blkkwargs__->data.find(intern(#{key_lit}));"],
+                    "_it == __blkkwargs__->data.end() ? (#{default_str}) : _it->second"
+                  )
                   if emit.cpp.captured?(kw_name)
                     emit.line "BasicObject** #{cpp} = gc_box<BasicObject*>(#{init});"
                   else
@@ -447,7 +454,12 @@ module Frozone
                   cpp = MethodEmitter.local_cpp_name(kw_rest_param)
                   known_kws = (required_kw_params + optional_kw_params.map { |kn, _| kn }).map { |k| "intern(#{k.to_s.inspect})" }
                   filter = known_kws.empty? ? "true" : known_kws.map { |k| "_kv.first != #{k}" }.join(" && ")
-                  init = "[&]() -> Hash* { Hash* _h = new Hash(); for (auto& _kv : __blkkwargs__->data) { if (#{filter}) _h->put(_kv.first, _kv.second); } return _h; }()"
+                  init = Cpp.block_expr(
+                    ["Hash* _h = new Hash();",
+                     "for (auto& _kv : __blkkwargs__->data) { if (#{filter}) _h->put(_kv.first, _kv.second); }"],
+                    "_h",
+                    type: 'Hash*'
+                  )
                   if emit.cpp.captured?(kw_rest_param)
                     emit.line "BasicObject** #{cpp} = gc_box<BasicObject*>(static_cast<BasicObject*>(#{init}));"
                   else

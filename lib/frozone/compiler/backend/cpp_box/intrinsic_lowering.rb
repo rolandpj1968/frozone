@@ -232,7 +232,11 @@ module Frozone
             # Array
             array_length: ->(self_) { "(new Integer(static_cast<int64_t>(static_cast<Array*>(#{self_})->data.size())))" },
             array_at: ->(self_, i) {
-              "([&]() -> BasicObject* { auto* _a = static_cast<Array*>(#{self_}); int64_t _i = static_cast<Integer*>(#{i})->raw_; return (_i < 0 || _i >= (int64_t)_a->data.size()) ? nil_instance() : _a->data[_i]; }())"
+              Cpp.block_expr(
+                ["auto* _a = static_cast<Array*>(#{self_});",
+                 "int64_t _i = static_cast<Integer*>(#{i})->raw_;"],
+                "(_i < 0 || _i >= (int64_t)_a->data.size()) ? nil_instance() : _a->data[_i]"
+              )
             },
             array_push: ->(self_, v) { "(static_cast<Array*>(#{self_})->data.push_back(#{v}), #{self_})" },
             # pop/shift: core's __check_frozen__ runs before the intrinsic,
@@ -247,10 +251,20 @@ module Frozone
               "(static_cast<Array*>(#{self_})->data = static_cast<Array*>(#{other})->data, #{self_})"
             },
             array_dup: ->(self_) {
-              "([&]() -> BasicObject* { auto* _a = static_cast<Array*>(#{self_}); Array* _r = new Array(); _r->data = _a->data; return _r; }())"
+              Cpp.block_expr(
+                ["auto* _a = static_cast<Array*>(#{self_});",
+                 "Array* _r = new Array();",
+                 "_r->data = _a->data;"],
+                "_r"
+              )
             },
             array_concat: ->(self_, other) {
-              "([&]() -> BasicObject* { auto* _a = static_cast<Array*>(#{self_}); auto* _b = static_cast<Array*>(#{other}); _a->data.insert(_a->data.end(), _b->data.begin(), _b->data.end()); return _a; }())"
+              Cpp.block_expr(
+                ["auto* _a = static_cast<Array*>(#{self_});",
+                 "auto* _b = static_cast<Array*>(#{other});",
+                 "_a->data.insert(_a->data.end(), _b->data.begin(), _b->data.end());"],
+                "_a"
+              )
             },
 
             # Integer arithmetic — direct unboxed ops on raw_ + box.
@@ -272,7 +286,13 @@ module Frozone
             integer_bitnot:  ->(s) { "(new Integer(~static_cast<Integer*>(#{s})->raw_))" },
             float__mod_:     ->(s, o) { "(new Float(std::fmod(static_cast<Float*>(#{s})->raw_, static_cast<Float*>(#{o})->raw_)))" },
             float_divmod:    ->(s, o) {
-              "([&]() -> BasicObject* { double _a = static_cast<Float*>(#{s})->raw_; double _b = static_cast<Float*>(#{o})->raw_; double _q = std::floor(_a / _b); double _r = _a - _q * _b; return (new Array({static_cast<BasicObject*>(new Float(_q)), static_cast<BasicObject*>(new Float(_r))})); }())"
+              Cpp.block_expr(
+                ["double _a = static_cast<Float*>(#{s})->raw_;",
+                 "double _b = static_cast<Float*>(#{o})->raw_;",
+                 "double _q = std::floor(_a / _b);",
+                 "double _r = _a - _q * _b;"],
+                "(new Array({static_cast<BasicObject*>(new Float(_q)), static_cast<BasicObject*>(new Float(_r))}))"
+              )
             },
             float_hash:      ->(s) { "(new Integer(static_cast<int64_t>(std::hash<double>{}(static_cast<Float*>(#{s})->raw_))))" },
             float_to_s:      ->(s) {
@@ -333,9 +353,18 @@ module Frozone
             # fiber. fiber_current returns a singleton main Fiber so
             # Fiber[:context] storage works as a global key/value map
             # (FIBER_STORAGE_GLOBAL backs the storage_get/set lowerings).
-            fiber_current: ->(_klass) { "([&]() -> BasicObject* { static Fiber* _main = new Fiber(); return _main; }())" },
+            fiber_current: ->(_klass) {
+              Cpp.block_expr(["static Fiber* _main = new Fiber();"], "_main")
+            },
             range_set: ->(self_, b, e, excl) {
-              "([&]() -> BasicObject* { auto* _r = static_cast<Range*>(#{self_}); _r->begin_ = #{b}; _r->end_ = #{e}; _r->exclude_end_ = (#{excl} == true_instance()); _r->initialized_ = true; return nil_instance(); }())"
+              Cpp.block_expr(
+                ["auto* _r = static_cast<Range*>(#{self_});",
+                 "_r->begin_ = #{b};",
+                 "_r->end_ = #{e};",
+                 "_r->exclude_end_ = (#{excl} == true_instance());",
+                 "_r->initialized_ = true;"],
+                "nil_instance()"
+              )
             },
             range_begin:        ->(self_) { "(static_cast<Range*>(#{self_})->begin_)" },
             range_end:          ->(self_) { "(static_cast<Range*>(#{self_})->end_)" },
@@ -476,10 +505,19 @@ module Frozone
               "boxed_bool(static_cast<Hash*>(#{self_})->data.find(#{k}) != static_cast<Hash*>(#{self_})->data.end())"
             },
             hash_index: ->(self_, k) {
-              "([&]() -> BasicObject* { auto* _h = static_cast<Hash*>(#{self_}); auto _it = _h->data.find(#{k}); return (_it == _h->data.end()) ? nil_instance() : _it->second; }())"
+              Cpp.block_expr(
+                ["auto* _h = static_cast<Hash*>(#{self_});",
+                 "auto _it = _h->data.find(#{k});"],
+                "(_it == _h->data.end()) ? nil_instance() : _it->second"
+              )
             },
             hash_index_write: ->(self_, k, v) {
-              "([&]() -> BasicObject* { auto* _h = static_cast<Hash*>(#{self_}); BasicObject* _v = #{v}; _h->put(#{k}, _v); return _v; }())"
+              Cpp.block_expr(
+                ["auto* _h = static_cast<Hash*>(#{self_});",
+                 "BasicObject* _v = #{v};",
+                 "_h->put(#{k}, _v);"],
+                "_v"
+              )
             },
             hash_size: ->(self_) {
               "(new Integer(static_cast<int64_t>(static_cast<Hash*>(#{self_})->live)))"
@@ -541,13 +579,25 @@ module Frozone
             # String-typed paths print the path; non-string gets a
             # generic message.
             kernel_require: ->(_self_, path) {
-              %|([&]() -> BasicObject* { auto* _s = ((#{path}) && &typeid(*(#{path})) == &typeid(String)) ? static_cast<String*>(#{path}) : nullptr; std::fprintf(stderr, "[box-first] kernel_require called at runtime \xe2\x80\x94 closed-world AOT can't dynamically load (%.*s)\\n", _s ? (int)_s->bytes.size() : 18, _s ? reinterpret_cast<const char*>(_s->bytes.data()) : "<non-string path>"); return false_instance(); }())|
+              Cpp.block_expr(
+                ["auto* _s = ((#{path}) && &typeid(*(#{path})) == &typeid(String)) ? static_cast<String*>(#{path}) : nullptr;",
+                 %|std::fprintf(stderr, "[box-first] kernel_require called at runtime \xe2\x80\x94 closed-world AOT can't dynamically load (%.*s)\\n", _s ? (int)_s->bytes.size() : 18, _s ? reinterpret_cast<const char*>(_s->bytes.data()) : "<non-string path>");|],
+                "false_instance()"
+              )
             },
             kernel_require_relative: ->(_self_, path) {
-              %|([&]() -> BasicObject* { auto* _s = ((#{path}) && &typeid(*(#{path})) == &typeid(String)) ? static_cast<String*>(#{path}) : nullptr; std::fprintf(stderr, "[box-first] kernel_require_relative called at runtime \xe2\x80\x94 closed-world AOT can't dynamically load (%.*s)\\n", _s ? (int)_s->bytes.size() : 18, _s ? reinterpret_cast<const char*>(_s->bytes.data()) : "<non-string path>"); return false_instance(); }())|
+              Cpp.block_expr(
+                ["auto* _s = ((#{path}) && &typeid(*(#{path})) == &typeid(String)) ? static_cast<String*>(#{path}) : nullptr;",
+                 %|std::fprintf(stderr, "[box-first] kernel_require_relative called at runtime \xe2\x80\x94 closed-world AOT can't dynamically load (%.*s)\\n", _s ? (int)_s->bytes.size() : 18, _s ? reinterpret_cast<const char*>(_s->bytes.data()) : "<non-string path>");|],
+                "false_instance()"
+              )
             },
             kernel_load: ->(_self_, path, _wrap) {
-              %|([&]() -> BasicObject* { auto* _s = ((#{path}) && &typeid(*(#{path})) == &typeid(String)) ? static_cast<String*>(#{path}) : nullptr; std::fprintf(stderr, "[box-first] kernel_load called at runtime \xe2\x80\x94 closed-world AOT can't dynamically load (%.*s)\\n", _s ? (int)_s->bytes.size() : 18, _s ? reinterpret_cast<const char*>(_s->bytes.data()) : "<non-string path>"); return false_instance(); }())|
+              Cpp.block_expr(
+                ["auto* _s = ((#{path}) && &typeid(*(#{path})) == &typeid(String)) ? static_cast<String*>(#{path}) : nullptr;",
+                 %|std::fprintf(stderr, "[box-first] kernel_load called at runtime \xe2\x80\x94 closed-world AOT can't dynamically load (%.*s)\\n", _s ? (int)_s->bytes.size() : 18, _s ? reinterpret_cast<const char*>(_s->bytes.data()) : "<non-string path>");|],
+                "false_instance()"
+              )
             },
             # `Frozone::Vm::Vm#initialize(options)` — synthetic stub set
             # up by setup_frozone_land for self-hosting. In box-first AOT
@@ -591,7 +641,10 @@ module Frozone
             # as a String. ruby_class_name() is auto-emitted on every
             # class struct via with_auto_overrides.
             module_name: ->(self_) {
-              "([&]() -> BasicObject* { const char* _n = (#{self_})->ruby_class_name(); return new String(_n, std::strlen(_n)); }())"
+              Cpp.block_expr(
+                ["const char* _n = (#{self_})->ruby_class_name();"],
+                "new String(_n, std::strlen(_n))"
+              )
             },
 
             # ---- Proc -----------------------------------------------

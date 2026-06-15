@@ -454,12 +454,19 @@ module Frozone
             (method.optional_kw_params || []).each do |(p, default_node)|
               default_str = default_node ? emit.cpp.from_expr(default_node, locals) : "nil_instance()"
               key_lit = emit.cpp.cpp_string_literal(p.to_s)
-              emit.line decl_local_line(emit, p, "[&]() -> BasicObject* { auto _it = kwargs->data.find(intern(#{key_lit})); return _it == kwargs->data.end() ? (#{default_str}) : _it->second; }()")
+              emit.line decl_local_line(emit, p, Cpp.block_expr(
+                ["auto _it = kwargs->data.find(intern(#{key_lit}));"],
+                "_it == kwargs->data.end() ? (#{default_str}) : _it->second"
+              ))
               locals << p.to_s
             end
             (method.required_kw_params || []).each do |p|
               key_lit = emit.cpp.cpp_string_literal(p.to_s)
-              emit.line decl_local_line(emit, p, %|[&]() -> BasicObject* { auto _it = kwargs->data.find(intern(#{key_lit})); if (_it == kwargs->data.end()) raise_missing_kw(#{key_lit}); return _it->second; }()|)
+              emit.line decl_local_line(emit, p, Cpp.block_expr(
+                ["auto _it = kwargs->data.find(intern(#{key_lit}));",
+                 "if (_it == kwargs->data.end()) raise_missing_kw(#{key_lit});"],
+                "_it->second"
+              ))
               locals << p.to_s
             end
             # Unknown-kw check: when the method declares named kws but

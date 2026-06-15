@@ -157,6 +157,31 @@ module Frozone
                                  end
           end
 
+          # Wrap a sequence of statements that ends in a `throw` (or a
+          # noreturn-call like `raise_private_call(...)`) into a
+          # `BasicObject*`-typed expression. The throw/noreturn never
+          # returns, so there's no need for the caller to use the value.
+          #   - `iile`: `([&]() -> BasicObject* { stmts }())` (no return —
+          #     the lambda still has type `BasicObject*` because the
+          #     declared return type wins).
+          #   - `stmt_expr`: `({ stmts nil_instance(); })` — gcc's
+          #     stmt-expr types as its last expression, which is `void`
+          #     for a bare `throw;`. Append a `nil_instance()` sentinel
+          #     to give the construct a `BasicObject*` type, matching
+          #     the codegen's standard "no useful value" idiom (cf.
+          #     missing-else branches that lower to `else { nil_instance(); }`).
+          #     The trailing `nil_instance()` load is unreachable —
+          #     compilers fold it under -O1+ noreturn/throw analysis.
+          def self.throw_expr(stmts)
+            joined = stmts.empty? ? '' : "#{stmts.join(' ')} "
+            case block_expr_form
+            when :stmt_expr
+              "({ #{joined}nil_instance(); })"
+            else
+              "([&]() -> BasicObject* { #{joined}}())"
+            end
+          end
+
           # Nodes that produce a value usable in expression position.
           # Statement-only nodes don't get wrapped in implicit-return;
           # they handle their own control flow or have void value.
@@ -592,7 +617,10 @@ module Frozone
             inner_call = from_method_call_inner(node, recv, name, arg_nodes, locals)
             cs_value = (recv.nil? || recv.is_a?(Ast::SelfLiteral)) ? 'nullptr' : 'this'
             decls = tmp_decls.join(' ')
-            result = "([&]() -> BasicObject* { #{decls} g_caller_self = #{cs_value}; return #{inner_call}; }())"
+            result = Cpp.block_expr(
+              [decls, "g_caller_self = #{cs_value};"],
+              inner_call
+            )
             @cst_lift_cache = saved_cache
             result
           end
@@ -639,10 +667,17 @@ module Frozone
               # needed. The IIFE evaluates recv (preserving side
               # effects, matching MRI's "evaluate receiver first then
               # raise" order) and raises before the call would dispatch.
-              %|([&]() -> BasicObject* { auto* _r = #{recv_str}; raise_private_call(_r, #{cpp_string_literal(@vis_check_name.to_s)}); }())|
+              Cpp.throw_expr([
+                "auto* _r = #{recv_str};",
+                "raise_private_call(_r, #{cpp_string_literal(@vis_check_name.to_s)});"
+              ])
             when :p3
               # All-protected: caller's self must kind_of? receiver's class.
-              %|([&]() -> BasicObject* { auto* _r = #{recv_str}; if (!truthy(this->mm_kind_of_q(univ, new Array({_r->m_class(univ)})))) raise_protected_call(_r, #{cpp_string_literal(@vis_check_name.to_s)}); return _r; }())|
+              Cpp.block_expr(
+                ["auto* _r = #{recv_str};",
+                 "if (!truthy(this->mm_kind_of_q(univ, new Array({_r->m_class(univ)})))) raise_protected_call(_r, #{cpp_string_literal(@vis_check_name.to_s)});"],
+                "_r"
+              )
             else
               recv_str
             end
@@ -789,7 +824,10 @@ module Frozone
               call_expr =
                 if recv && node.safe_nav
                   recv_str = from_expr(recv, locals)
-                  "([&]() -> BasicObject* { auto* _r = #{recv_str}; return (_r == nil_instance()) ? nil_instance() : _r->#{Cpp.method_name(name)}(#{all_csv}); }())"
+                  Cpp.block_expr(
+                    ["auto* _r = #{recv_str};"],
+                    "(_r == nil_instance()) ? nil_instance() : _r->#{Cpp.method_name(name)}(#{all_csv})"
+                  )
                 elsif recv
                   "#{recv_with_visibility_check(recv, locals)}->#{Cpp.method_name(name)}(#{all_csv})"
                 else
@@ -820,7 +858,10 @@ module Frozone
               pos_csv = arg_nodes.map { |a| from_expr(a, locals) }.join(', ')
               if recv && node.safe_nav
                 recv_str = from_expr(recv, locals)
-                return "([&]() -> BasicObject* { auto* _r = #{recv_str}; return (_r == nil_instance()) ? nil_instance() : _r->#{Cpp.method_name(name)}(#{pos_csv}); }())"
+                return Cpp.block_expr(
+                  ["auto* _r = #{recv_str};"],
+                  "(_r == nil_instance()) ? nil_instance() : _r->#{Cpp.method_name(name)}(#{pos_csv})"
+                )
               elsif recv
                 return "#{recv_with_visibility_check(recv, locals)}->#{Cpp.method_name(name)}(#{pos_csv})"
               else
@@ -881,9 +922,15 @@ module Frozone
                 return "([&]() -> BasicObject* { auto* _r = #{recv_str}; if (_r == nil_instance()) return nil_instance(); #{decls} return _r->#{Cpp.method_name(name)}(#{call_csv}); }())"
               elsif recv
                 recv_str = recv_with_visibility_check(recv, locals)
-                return "([&]() -> BasicObject* { auto* _r = #{recv_str}; #{decls} return _r->#{Cpp.method_name(name)}(#{call_csv}); }())"
+                return Cpp.block_expr(
+                  ["auto* _r = #{recv_str};", decls],
+                  "_r->#{Cpp.method_name(name)}(#{call_csv})"
+                )
               else
-                return "([&]() -> BasicObject* { #{decls} return this->#{Cpp.method_name(name)}(#{call_csv}); }())"
+                return Cpp.block_expr(
+                  [decls],
+                  "this->#{Cpp.method_name(name)}(#{call_csv})"
+                )
               end
             end
 
@@ -898,7 +945,10 @@ module Frozone
               if node.safe_nav
                 recv_str = from_expr(recv, locals)  # safe_nav: visibility check deferred — would need to fold into the nil short-circuit IIFE
                 tail = univ_call_explicit_tail(Cpp.method_name(name), args_array, kwargs_arg, block_arg)
-                return "([&]() -> BasicObject* { auto* _r = #{recv_str}; return (_r == nil_instance()) ? nil_instance() : _r#{tail}; }())"
+                return Cpp.block_expr(
+                  ["auto* _r = #{recv_str};"],
+                  "(_r == nil_instance()) ? nil_instance() : _r#{tail}"
+                )
               else
                 return univ_call_explicit(recv_with_visibility_check(recv, locals), Cpp.method_name(name), args_array, kwargs_arg, block_arg)
               end
@@ -916,7 +966,10 @@ module Frozone
                   # safe_nav skips visibility check (Stage 2b).
                   recv_str = from_expr(recv, locals)
                   tail = univ_call_tail(Cpp.method_name(name), args_array, kwargs_arg, block_arg)
-                  "([&]() -> BasicObject* { auto* _r = #{recv_str}; return (_r == nil_instance()) ? nil_instance() : _r#{tail}; }())"
+                  Cpp.block_expr(
+                    ["auto* _r = #{recv_str};"],
+                    "(_r == nil_instance()) ? nil_instance() : _r#{tail}"
+                  )
                 else
                   univ_call(recv_with_visibility_check(recv, locals), Cpp.method_name(name), args_array, kwargs_arg, block_arg)
                 end
@@ -979,7 +1032,10 @@ module Frozone
             # match means we can't safely rewrite.
             return nil unless call_expr.scan(block_arg).length == 1
             ref_form = call_expr.sub(block_arg, '&__blk__')
-            "([&, this]() -> BasicObject* { #{proc_cls} __blk__(#{ctor}); return #{ref_form}; }())"
+            Cpp.block_expr(
+              ["#{proc_cls} __blk__(#{ctor});"],
+              ref_form
+            )
           end
 
           # Build the kwargs Hash for a call. Empty kw list AND no
