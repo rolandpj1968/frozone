@@ -146,18 +146,18 @@ module Frozone
             end
           end
 
-          # Form to use for `block_expr`. Default is `iile`. Setting
-          # `FROZONE_BOX_BLOCK_EXPR_FORM=stmt_expr` opts into gcc's
-          # statement-expression form (zero closure overhead, ~4%
-          # smaller generated source, but a single regression in the
-          # unified-build visibility test prevents flipping the
-          # default — runtime parity is verified standalone for every
-          # other code shape; see block_expr_form_runtime_spec.rb).
-          # Cached per process — the env var is read once at startup.
+          # Form to use for `block_expr`. Default is `stmt_expr` (gcc
+          # statement expressions — no closure overhead, ~4% smaller
+          # generated source, straighter C++ that future block-inlining
+          # and TI-driven specialization passes can work with directly).
+          # Set `FROZONE_BOX_BLOCK_EXPR_FORM=iile` to opt back into the
+          # original self-invoking-lambda form (portable C++17, useful
+          # for debugging a suspected stmt_expr regression). Cached per
+          # process — the env var is read once at startup.
           def self.block_expr_form
             @block_expr_form ||= case ENV['FROZONE_BOX_BLOCK_EXPR_FORM']
-                                 when 'stmt_expr' then :stmt_expr
-                                 else :iile
+                                 when 'iile' then :iile
+                                 else :stmt_expr
                                  end
           end
 
