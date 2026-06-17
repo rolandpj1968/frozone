@@ -4,6 +4,8 @@ require_relative 'core'
 module Frozone
   module Vm
     class FloatObject < ObjectObject
+      # Thin wrapper around a host MRI `Float` — see docs/design.md.
+
       attr_reader :raw
 
       def initialize(value)
@@ -11,9 +13,6 @@ module Frozone
         @raw = value
         @frozen_object = true
       end
-
-      def truthy? = true
-      def inspect_for_error = @raw.inspect
     end
   end
 end
