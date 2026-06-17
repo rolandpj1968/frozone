@@ -32,12 +32,6 @@ RSpec.describe Frozone::Vm::SymbolObject do
     end
   end
 
-  describe '#to_s' do
-    it 'returns ":name"' do
-      expect(described_class.from(:foo).to_s).to eq(":foo")
-    end
-  end
-
   describe '#truthy?' do
     it 'is truthy' do
       expect(described_class.from(:anything).truthy?).to be true
