@@ -29,8 +29,6 @@ module Frozone
           @bound_receiver.dispatch(context, @bound_name, args, kw_args, block_obj)
         end
       end
-
-      def truthy? = true
     end
   end
 end

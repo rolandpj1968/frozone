@@ -15,8 +15,6 @@ module Frozone
         @mri_converter = mri_converter
       end
 
-      def truthy? = true
-
       def patch_class_object(klass) = @class_object = klass
     end
   end

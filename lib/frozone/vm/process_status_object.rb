@@ -10,8 +10,6 @@ module Frozone
         super(Core.process_status_class)
         @native_status = native_status
       end
-
-      def truthy? = true
     end
   end
 end
