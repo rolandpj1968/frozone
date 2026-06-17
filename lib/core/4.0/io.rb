@@ -391,7 +391,44 @@ class IO
   class << self
     def select(read_array, write_array = nil, error_array = nil, timeout = nil) = Intrinsics.io_select(read_array, write_array, error_array, timeout)
     def for_fd(fd, mode = nil, **opts, &block) = self.new(fd, mode, **opts, &block)
-    def sysopen(path, mode = 'r', perm = 0666) = Intrinsics.io_sysopen(__coerce_to_path__(path), mode, perm)
+    def sysopen(path, mode = 'r', perm = 0o666)
+      Intrinsics.os_open(__coerce_to_path__(path), __mode_to_oflags__(mode), perm)
+    end
+
+    # Translate a Ruby open-mode (String or Integer flags bitfield) into a
+    # POSIX O_* flags integer suitable for `Intrinsics.os_open`. The
+    # mode-string parser handles base modes (r, r+, w, w+, a, a+), modifier
+    # chars (b, t, x), and an optional `:encoding` suffix (which doesn't
+    # influence the flags). An Integer mode is treated as a pre-computed
+    # flags bitfield and passed through.
+    # POSIX O_* constants — duplicated from File::* (which is loaded
+    # after IO so File::RDONLY isn't resolvable at IO parse time). MRI
+    # surfaces them on both IO and File for the same reason.
+    O_RDONLY = 0
+    O_WRONLY = 1
+    O_RDWR   = 2
+    O_CREAT  = 64
+    O_EXCL   = 128
+    O_TRUNC  = 512
+    O_APPEND = 1024
+    MODE_BASE_FLAGS = {
+      'r'  => O_RDONLY,
+      'r+' => O_RDWR,
+      'w'  => O_WRONLY | O_CREAT | O_TRUNC,
+      'w+' => O_RDWR   | O_CREAT | O_TRUNC,
+      'a'  => O_WRONLY | O_CREAT | O_APPEND,
+      'a+' => O_RDWR   | O_CREAT | O_APPEND,
+    }.freeze
+    def __mode_to_oflags__(mode)
+      return mode if mode.is_a?(Integer)
+      mode_s = mode.to_s
+      mode_s = mode_s.split(':', 2)[0]
+      excl = mode_s.include?('x')
+      base = mode_s.delete('btx')
+      flags = MODE_BASE_FLAGS[base] or
+        raise ArgumentError, "invalid access mode #{mode_s}"
+      excl ? flags | O_EXCL : flags
+    end
 
     def new(fd, mode_or_opts = nil, **opts, &block)
       warn "warning: IO::new() does not take block; use IO::open() instead" if block
