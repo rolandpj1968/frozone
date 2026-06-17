@@ -57,12 +57,12 @@ module Frozone
 
       class << self
         # Array
-        def array_length(_, v) = n2f_int(v.length)
+        def array_length(_, v) = n2f_int(v.raw.length)
         def array_dup(_, v) = n2f_arr(v.raw.dup, v.class_object)
         def array_sample(_, v) = v.raw.empty? ? FNIL : v.raw.sample
         def array_sample_n(_, v, n) = n2f_arr(v.raw.sample(n.raw))
-        def array_at(_, v, i) = (e = v[i.raw]; e.nil? ? FNIL : e)
-        def array_push(_, v, val) = (v.push(val); v)
+        def array_at(_, v, i) = (e = v.raw[i.raw]; e.nil? ? FNIL : e)
+        def array_push(_, v, val) = (v.raw.push(val); v)
 
         ARRAY_MAX_SIZE = MRI_MAX_SIZE
 
@@ -78,7 +78,7 @@ module Frozone
             raise FrozoneException.make(:ArgumentError, "negative array size") if n < 0
             raise FrozoneException.make(:ArgumentError, "array size too big") if n > ARRAY_MAX_SIZE
             if block
-              n.times { |i| arr.push(block.invoke(context, [n2f_int(i)])) }
+              n.times { |i| arr.raw.push(block.invoke(context, [n2f_int(i)])) }
             else
               arr.raw.replace(Array.new(n, fill || FNIL))
             end

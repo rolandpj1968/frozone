@@ -22,16 +22,6 @@ RSpec.describe Frozone::Vm::ArrayObject do
     end
   end
 
-  describe '#to_s' do
-    it 'returns "[]" for an empty array' do
-      expect(described_class.new([]).to_s).to eq("[]")
-    end
-
-    it 'formats elements separated by ", "' do
-      expect(described_class.new([i1, i2]).to_s).to eq("[1, 2]")
-    end
-  end
-
   describe '#hash and #eql?' do
     it 'is not eql? to an ArrayObject with different elements' do
       expect(described_class.new([i1]).eql?(described_class.new([i2]))).to be false

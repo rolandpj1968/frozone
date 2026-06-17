@@ -394,7 +394,7 @@ module Frozone
         existing = GLOBALS[:"$LOADED_FEATURES"].raw.map(&:raw)
         $LOADED_FEATURES.each do |path|
           next unless (path.start_with?(frozone_src) || path.start_with?(core_src)) && path.end_with?('.rb')
-          GLOBALS[:"$LOADED_FEATURES"].push(StringObject.new(path)) unless existing.include?(path)
+          GLOBALS[:"$LOADED_FEATURES"].raw.push(StringObject.new(path)) unless existing.include?(path)
         end
 
         # Only create the Frozone-land Frozone::Vm namespace once.
