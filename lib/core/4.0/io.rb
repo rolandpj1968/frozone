@@ -82,18 +82,43 @@ class IO
   end
   private :__puts_scalar__
 
-  def write(*args) = Intrinsics.io_write(self, args)
-  def flush = Intrinsics.io_flush(self)
+  # IO methods route through @fd + Intrinsics.os_* when the receiver was
+  # constructed with an Integer fd (sysopen/IO.new(fd, …) path). For
+  # legacy IOs without @fd (the stdout/stderr/$stdin bootstrap path that
+  # uses @stream_tag / @native_io) we fall through to the old
+  # io_* intrinsics. This keeps the bootstrap path working untouched while
+  # giving file-fd IO a real implementation that doesn't depend on STUB
+  # intrinsics.
+  def write(*args)
+    if @fd
+      raise IOError, "closed stream" if @closed
+      n = 0
+      args.each { |a| n += Intrinsics.os_write(@fd, a.is_a?(String) ? a : a.to_s) }
+      n
+    else
+      Intrinsics.io_write(self, args)
+    end
+  end
+  def flush = @fd ? 0 : Intrinsics.io_flush(self)
   def sync=(val) = Intrinsics.io_sync_set(self, val)
   def sync       = Intrinsics.io_sync(self)
-  def autoclose=(val)  = Intrinsics.io_autoclose_set(self, val)
-  def autoclose?       = Intrinsics.io_autoclose?(self)
+  def autoclose=(val)  = (@fd ? (@autoclose = val ? true : false) : Intrinsics.io_autoclose_set(self, val))
+  def autoclose?       = (@fd ? @autoclose : Intrinsics.io_autoclose?(self))
   def <<(str); write(str.is_a?(String) ? str : str.to_s); self; end
-  def close = Intrinsics.io_close(self)
+  def close
+    if @fd
+      return nil if @closed
+      Intrinsics.os_close(@fd)
+      @closed = true
+      nil
+    else
+      Intrinsics.io_close(self)
+    end
+  end
   def close_read = Intrinsics.io_close_read(self)
   def close_write = Intrinsics.io_close_write(self)
-  def closed? = Intrinsics.io_closed?(self)
-  def fileno = Intrinsics.io_fileno(self)
+  def closed? = (@fd ? @closed : Intrinsics.io_closed?(self))
+  def fileno = (@fd || Intrinsics.io_fileno(self))
   alias to_i fileno
   def eof? = Intrinsics.io_eof?(self)
   def eof = eof?
@@ -124,6 +149,23 @@ class IO
 
   def read(len = nil, buf = nil)
     buf = buf.to_str if buf && !buf.is_a?(String) && buf.respond_to?(:to_str)
+    if @fd
+      raise IOError, "closed stream" if @closed
+      result = if len.nil?
+                 s = String.new(encoding: 'BINARY')
+                 until (chunk = Intrinsics.os_read(@fd, 4096)).empty?
+                   s << chunk
+                 end
+                 s
+               else
+                 Intrinsics.os_read(@fd, len)
+               end
+      if buf
+        buf.replace(result)
+        return buf
+      end
+      return result
+    end
     Intrinsics.io_read(self, len, buf)
   end
 
@@ -780,6 +822,25 @@ class IO
   end
 
   def initialize(fd, mode_or_opts = nil, **opts)
+    # Native-fd path: when constructed with an Integer fd we record it
+    # and let read/write/close route through Intrinsics.os_* directly.
+    # The mode arg may be a String mode ('r', 'w', …) or a Hash of opts
+    # (e.g. `IO.new(fd, mode: 'r', autoclose: false)`).
+    if fd.is_a?(Integer)
+      if mode_or_opts.is_a?(Hash)
+        opts = mode_or_opts.merge(opts)
+        mode_arg = opts.delete(:mode)
+      else
+        mode_arg = mode_or_opts
+      end
+      @fd = fd
+      @mode = mode_arg || opts[:mode] || 'r'
+      @autoclose = opts.fetch(:autoclose, true)
+      @closed = false
+      return self
+    end
+    # Legacy path — io_reinitialize-style construction (no Integer fd).
+    # Will be removed once all callers go through the fd path.
     opts_arg = opts.empty? ? nil : opts
     Intrinsics.io_reinitialize(self, fd, mode_or_opts, opts_arg)
   end
