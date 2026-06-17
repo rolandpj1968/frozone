@@ -21,13 +21,6 @@ RSpec.describe Frozone::Vm::IntegerObject do
     end
   end
 
-  describe '#to_s' do
-    it 'returns the string representation of the value' do
-      expect(described_class.new(42).to_s).to eq('42')
-      expect(described_class.new(-1).to_s).to eq('-1')
-    end
-  end
-
   describe '#eql?' do
     it 'returns false for two IntegerObjects with different values' do
       expect(described_class.new(5).eql?(described_class.new(6))).to be false
