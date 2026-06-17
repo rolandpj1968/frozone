@@ -13,8 +13,6 @@ module Frozone
       private_class_method :new
 
       def raw = false
-      def to_s = "false"
-      def inspect_for_error = "false"
       # Phase 2 fusion :self-only filter excludes ObjectObject's
       # `def truthy? = !equal?(FalseObject::FALSE) && !equal?(NilObject::NIL)`
       # from the runtime FalseClass overlay. Define explicitly here so

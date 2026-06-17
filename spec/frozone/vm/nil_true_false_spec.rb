@@ -11,12 +11,6 @@ RSpec.describe Frozone::Vm::NilObject do
     end
   end
 
-  describe '#to_s' do
-    it 'returns "nil"' do
-      expect(Frozone::Vm::NilObject::NIL.to_s).to eq('nil')
-    end
-  end
-
   describe '#truthy?' do
     it 'is falsy' do
       expect(Frozone::Vm::NilObject::NIL.truthy?).to be false
@@ -41,12 +35,6 @@ RSpec.describe Frozone::Vm::TrueObject do
     end
   end
 
-  describe '#to_s' do
-    it 'returns "true"' do
-      expect(Frozone::Vm::TrueObject::TRUE.to_s).to eq('true')
-    end
-  end
-
   describe '#truthy?' do
     it 'is truthy' do
       expect(Frozone::Vm::TrueObject::TRUE.truthy?).to be true
@@ -68,12 +56,6 @@ RSpec.describe Frozone::Vm::FalseObject do
 
     it 'is always the same object' do
       expect(Frozone::Vm::FalseObject::FALSE).to equal(Frozone::Vm::FalseObject::FALSE)
-    end
-  end
-
-  describe '#to_s' do
-    it 'returns "false"' do
-      expect(Frozone::Vm::FalseObject::FALSE.to_s).to eq('false')
     end
   end
 

@@ -13,8 +13,6 @@ module Frozone
       private_class_method :new
 
       def raw = true
-      def to_s = "true"
-      def inspect_for_error = "true"
       def truthy? = true  # explicit (Phase 2 fusion :self-only filter)
 
       TRUE = new
