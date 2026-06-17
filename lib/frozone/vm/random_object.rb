@@ -10,8 +10,6 @@ module Frozone
         super(Core::OBJECT_CLASS.get_constant(:Random))
         @rng = seed.nil? ? Random.new : Random.new(seed)
       end
-
-      def truthy? = true
     end
   end
 end

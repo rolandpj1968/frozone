@@ -11,8 +11,6 @@ module Frozone
         @raw = match_data
         @frozone_regexp = regexp_obj
       end
-
-      def truthy? = true
     end
   end
 end

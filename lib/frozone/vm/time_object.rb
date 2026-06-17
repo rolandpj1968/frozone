@@ -10,8 +10,6 @@ module Frozone
         super(Core::OBJECT_CLASS.get_constant(:Time))
         @raw = time
       end
-
-      def truthy? = true
     end
   end
 end

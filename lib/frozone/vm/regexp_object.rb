@@ -16,8 +16,6 @@ module Frozone
           @raw = timeout ? Regexp.new(source, flags, timeout: timeout) : Regexp.new(source, flags)
         end
       end
-
-      def truthy? = true
     end
   end
 end
