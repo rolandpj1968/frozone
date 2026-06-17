@@ -167,5 +167,54 @@ BasicObject* intrinsic_os_fnmatch(BasicObject* pattern, BasicObject* path, Basic
               fs_detail::str_of(path).c_str(), f) == 0);
 }
 
+// ---- fd-level POSIX primitives -----------------------------------
+
+BasicObject* intrinsic_os_open(BasicObject* path, BasicObject* flags, BasicObject* mode) {
+  int f = static_cast<int>(static_cast<Integer*>(flags)->raw_);
+  mode_t m = static_cast<mode_t>(static_cast<Integer*>(mode)->raw_);
+  int fd = ::open(fs_detail::str_of(path).c_str(), f, m);
+  return fd >= 0 ? static_cast<BasicObject*>(new Integer(static_cast<int64_t>(fd))) : nil_instance();
+}
+
+BasicObject* intrinsic_os_close(BasicObject* fd) {
+  int f = static_cast<int>(static_cast<Integer*>(fd)->raw_);
+  return ::close(f) == 0 ? true_instance() : nil_instance();
+}
+
+BasicObject* intrinsic_os_read(BasicObject* fd, BasicObject* len) {
+  int f = static_cast<int>(static_cast<Integer*>(fd)->raw_);
+  std::size_t n = static_cast<std::size_t>(static_cast<Integer*>(len)->raw_);
+  std::vector<char> buf(n);
+  ssize_t r = ::read(f, buf.data(), n);
+  if (r < 0) return nil_instance();
+  return new String(buf.data(), static_cast<std::size_t>(r), String::BINARY);
+}
+
+BasicObject* intrinsic_os_write(BasicObject* fd, BasicObject* bytes) {
+  int f = static_cast<int>(static_cast<Integer*>(fd)->raw_);
+  const auto* s = static_cast<String*>(bytes);
+  ssize_t w = ::write(f, reinterpret_cast<const char*>(s->bytes.data()), s->bytes.size());
+  return w >= 0 ? static_cast<BasicObject*>(new Integer(static_cast<int64_t>(w))) : nil_instance();
+}
+
+BasicObject* intrinsic_os_lseek(BasicObject* fd, BasicObject* offset, BasicObject* whence) {
+  int f = static_cast<int>(static_cast<Integer*>(fd)->raw_);
+  off_t o = static_cast<off_t>(static_cast<Integer*>(offset)->raw_);
+  int w = static_cast<int>(static_cast<Integer*>(whence)->raw_);
+  off_t r = ::lseek(f, o, w);
+  return r >= 0 ? static_cast<BasicObject*>(new Integer(static_cast<int64_t>(r))) : nil_instance();
+}
+
+BasicObject* intrinsic_os_fstat(BasicObject* fd) {
+  int f = static_cast<int>(static_cast<Integer*>(fd)->raw_);
+  struct stat st;
+  return ::fstat(f, &st) == 0 ? fs_detail::stat_array(st) : nil_instance();
+}
+
+BasicObject* intrinsic_os_isatty(BasicObject* fd) {
+  int f = static_cast<int>(static_cast<Integer*>(fd)->raw_);
+  return boxed_bool(::isatty(f) == 1);
+}
+
 
 }  // namespace Ruby

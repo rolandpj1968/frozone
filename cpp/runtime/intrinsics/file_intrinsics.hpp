@@ -75,6 +75,40 @@ BasicObject* intrinsic_os_umask(BasicObject* new_mask);
 
 BasicObject* intrinsic_os_fnmatch(BasicObject* pattern, BasicObject* path, BasicObject* flags);
 
+// ---- fd-level POSIX primitives -----------------------------------
+// Ruby-side IO/File rewrite these as the closed-world IO surface.
+// Convention matches the path-level ops above: nil on errno failure,
+// caller (Ruby) maps to Errno::* (currently coarse — ENOENT/EIO).
+
+// open(2) — flags is O_RDONLY|O_WRONLY|O_RDWR|O_CREAT|... bitfield;
+// mode is the create-mode (e.g. 0644) ignored unless O_CREAT set.
+// Returns Integer fd, or nil on failure.
+BasicObject* intrinsic_os_open(BasicObject* path, BasicObject* flags, BasicObject* mode);
+
+// close(2) — true on success, nil on failure (EBADF/EIO).
+BasicObject* intrinsic_os_close(BasicObject* fd);
+
+// read(2) — up to `len` bytes from `fd` into a fresh binary String.
+// Returns the String (possibly shorter than `len`); empty String at EOF;
+// nil on errno failure.
+BasicObject* intrinsic_os_read(BasicObject* fd, BasicObject* len);
+
+// write(2) — writes the byte content of `bytes` (String) to `fd`.
+// Returns Integer byte count written, or nil on errno failure.
+BasicObject* intrinsic_os_write(BasicObject* fd, BasicObject* bytes);
+
+// lseek(2) — whence is SEEK_SET|SEEK_CUR|SEEK_END (0|1|2). Returns the
+// new offset as Integer, or nil on failure (ESPIPE on pipes/sockets).
+BasicObject* intrinsic_os_lseek(BasicObject* fd, BasicObject* offset, BasicObject* whence);
+
+// fstat(2) — same 16-tuple shape as os_stat/os_lstat (OS_STAT_*). nil on
+// failure (EBADF on closed fd).
+BasicObject* intrinsic_os_fstat(BasicObject* fd);
+
+// isatty(3) — true if fd refers to a terminal, false otherwise. Never
+// raises; ENOTTY/EBADF both map to false.
+BasicObject* intrinsic_os_isatty(BasicObject* fd);
+
 }  // namespace Ruby
 
 #endif  // FROZONE_FILE_INTRINSICS_HPP

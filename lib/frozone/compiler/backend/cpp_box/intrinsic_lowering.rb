@@ -115,6 +115,7 @@ module Frozone
             os_stat os_lstat os_access os_realpath os_readlink os_euid os_egid
             os_unlink os_rename os_link os_symlink os_chmod os_truncate
             os_utimes os_mkfifo os_umask os_fnmatch
+            os_open os_close os_read os_write os_lseek os_fstat os_isatty
             file_read
             os_getenv os_setenv os_unsetenv os_environ_pairs
             random_new random_new_seed random_seed random_state
@@ -159,6 +160,9 @@ module Frozone
             os_chmod: :file, os_truncate: :file, os_utimes: :file,
             os_mkfifo: :file, os_umask: :file, os_fnmatch: :file,
             os_euid: :file, os_egid: :file,
+            os_open: :file, os_close: :file, os_read: :file,
+            os_write: :file, os_lseek: :file, os_fstat: :file,
+            os_isatty: :file,
             os_getenv: :env, os_setenv: :env, os_unsetenv: :env,
             os_environ_pairs: :env,
             os_time_now: :time, os_localtime: :time, os_gmtime: :time,

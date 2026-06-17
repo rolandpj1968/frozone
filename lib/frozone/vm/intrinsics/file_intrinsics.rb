@@ -33,6 +33,27 @@ module Frozone
         def os_mkfifo(_, p, m) = (File.mkfifo(p.raw, m.raw); FTRUE) rescue FNIL
         def os_umask(_, m) = fnil?(m) ? n2f_int(File.umask) : n2f_int(File.umask(m.raw))
         def os_fnmatch(_, pat, p, flags) = n2f_bool(File.fnmatch(pat.raw, p.raw, flags.raw))
+
+        # fd-level POSIX primitives. MRI bridges only — under bin/frozone_box
+        # compiled mode the cpp_box codegen synthesizes the Vm::Intrinsics
+        # eigenclass slot to call intrinsic_os_X(...) directly, skipping
+        # these Ruby bodies entirely (see method_emitter HPP_INTRINSICS
+        # synthesis). So `.raw` / `::IO.sysopen` / `::IO.for_fd` here are
+        # MRI-only — they never execute in box-first.
+        def os_open(_, path, flags, mode) = n2f_int(::IO.sysopen(path.raw, flags.raw, mode.raw)) rescue FNIL
+        def os_close(_, fd) = (::IO.for_fd(fd.raw, autoclose: false).close; FTRUE) rescue FNIL
+        def os_read(_, fd, len)
+          s = ::IO.for_fd(fd.raw, autoclose: false).sysread(len.raw)
+          n2f_str(s)
+        rescue EOFError
+          n2f_str('')
+        rescue
+          FNIL
+        end
+        def os_write(_, fd, bytes) = n2f_int(::IO.for_fd(fd.raw, autoclose: false).syswrite(bytes.raw)) rescue FNIL
+        def os_lseek(_, fd, offset, whence) = n2f_int(::IO.for_fd(fd.raw, autoclose: false).sysseek(offset.raw, whence.raw)) rescue FNIL
+        def os_fstat(_, fd) = stat_array(::IO.for_fd(fd.raw, autoclose: false).stat) rescue FNIL
+        def os_isatty(_, fd) = n2f_bool(::IO.for_fd(fd.raw, autoclose: false).isatty) rescue n2f_bool(false)
         def os_utimes(_, p, asec, ansec, msec, mnsec, follow)
           atime = Time.at(asec.raw, ansec.raw / 1000, :usec)
           mtime = Time.at(msec.raw, mnsec.raw / 1000, :usec)
