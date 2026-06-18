@@ -652,13 +652,32 @@ BasicObject* intrinsic_string_to_sym(BasicObject* self_) {
   return intern(_buf.c_str());
 }
 
-// `String#to_i(base)` — std::strtoll on the byte buffer. Empty /
+// `String#to_i(base)` — std::strtoll on the byte buffer after stripping
+// MRI-style underscores between digits ("1_000" → "1000"). Empty /
 // non-numeric prefix returns 0 (matches MRI). Stub: doesn't handle
 // 0x/0b/0o prefixes for base==0; widen as needed.
 BasicObject* intrinsic_string_to_i_base(BasicObject* self_, BasicObject* base) {
   auto* _s = static_cast<String*>(self_);
   if (_s->bytes.empty()) return new Integer(0);
-  std::string _buf(reinterpret_cast<const char*>(_s->bytes.data()), _s->bytes.size());
+  std::string _buf;
+  _buf.reserve(_s->bytes.size());
+  size_t i = 0;
+  const auto n = _s->bytes.size();
+  while (i < n && std::isspace(_s->bytes[i])) { _buf.push_back((char)_s->bytes[i]); i++; }
+  if (i < n && (_s->bytes[i] == '+' || _s->bytes[i] == '-')) { _buf.push_back((char)_s->bytes[i]); i++; }
+  bool seen_digit = false;
+  while (i < n) {
+    uint8_t c = _s->bytes[i];
+    if (c == '_') {
+      if (!seen_digit || i + 1 >= n || !std::isalnum(_s->bytes[i + 1])) break;
+      i++;
+      continue;
+    }
+    if (!std::isalnum(c)) break;
+    _buf.push_back((char)c);
+    seen_digit = true;
+    i++;
+  }
   int _b = static_cast<int>(static_cast<Integer*>(base)->raw_);
   char* _end = nullptr;
   long long _v = std::strtoll(_buf.c_str(), &_end, _b);
