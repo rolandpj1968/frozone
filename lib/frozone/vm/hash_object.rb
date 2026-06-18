@@ -83,18 +83,12 @@ module Frozone
 
       private
 
-      # While this body is interpreted (MRI Frozone or Frozone²),
-      # @elements is a host Ruby Hash whose native hash/eql? on Vm objects
-      # falls back to object identity — KeyWrapper bridges to guest
-      # hash/eql? semantics. When this body is compiled native code,
-      # @elements is the runtime Hash whose Hasher/KeyEq already give
-      # value-based behaviour for primitives (Integer/Float/String via
-      # m_hash_value; Symbol via interned identity), so the wrapper is
-      # dead weight (and actively wrong — `v->m_hash()` on a KeyWrapper
-      # would hit the NA-vs-universal slot mismatch). Skip the wrap when
-      # the surrounding code isn't interpreted.
+      # @elements is the host hash backing for the interpreter's HashObject.
+      # KeyWrapper bridges its host KeyEq to guest hash/eql? semantics.
+      # Whether this body runs as MRI Ruby or as compiled cpp from a
+      # self-built bin/frozone_box, the role is the same: interpreter
+      # machinery. The wrap is always needed.
       def wrap(key)
-        return key unless Intrinsics.interpreted?(self)
         compare_by_identity? ? IdentityKeyWrapper.new(key) : KeyWrapper.new(key)
       end
     end
