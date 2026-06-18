@@ -116,7 +116,6 @@ module Frozone
             os_unlink os_rename os_link os_symlink os_chmod os_truncate
             os_utimes os_mkfifo os_umask os_fnmatch
             os_open os_close os_read os_write os_lseek os_fstat os_isatty
-            file_read
             os_getenv os_setenv os_unsetenv os_environ_pairs
             random_new random_new_seed random_seed random_state
             random_rand random_bytes random_urandom random_marshal_load

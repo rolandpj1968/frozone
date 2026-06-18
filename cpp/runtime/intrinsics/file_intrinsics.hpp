@@ -39,10 +39,6 @@ BasicObject* intrinsic_os_readlink(BasicObject* path);
 BasicObject* intrinsic_os_euid();
 BasicObject* intrinsic_os_egid();
 
-// Whole-file slurp. Caller (File.read) handles encoding. Returns nil if
-// the path can't be opened; the Ruby side maps that to Errno::ENOENT.
-BasicObject* intrinsic_file_read(BasicObject* path);
-
 // ---- Mutating POSIX primitives -----------------------------------
 // Each returns nil on errno failure; Ruby maps nil → the appropriate
 // Errno::* via inspecting errno or trying again.

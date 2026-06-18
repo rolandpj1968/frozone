@@ -66,18 +66,7 @@ module Frozone
         def file_atime(_, path) = reraise(Errno::ENOENT) { n2f_time(File.atime(path.raw)) }
         def file_mtime(_, path) = reraise(Errno::ENOENT) { n2f_time(File.mtime(path.raw)) }
         def file_ctime(_, path) = reraise(Errno::ENOENT) { n2f_time(File.ctime(path.raw)) }
-        def file_read(_, path) = n2f_str(File.read(path.raw))
-
         def file_fnmatch(_, pattern, path, flags) = n2f_bool(File.fnmatch(pattern.raw, path.raw, flags.raw))
-
-        def file_binread(_, path, len_obj, offset_obj)
-          path_s = path.raw
-          len = fnil?(len_obj) ? nil : len_obj.raw
-          offset = fnil?(offset_obj) ? nil : offset_obj.raw
-          reraise(::Errno::ENOENT, ::Errno::EACCES, ::ArgumentError) do
-            n2f_str(File.binread(path_s, *[len, offset].compact))
-          end
-        end
         # Validate path exists; stat info is accessed lazily via individual methods (path-based)
         def file_stat_native(_, path)
           reraise(Errno::ENOENT, Errno::ENOTDIR) { File.stat(path.raw) }
@@ -162,74 +151,6 @@ module Frozone
         def file_size(_, path)
           s = File.size?(path.raw)
           s ? n2f_int(s) : FNIL
-        end
-
-        def file_write(_, path, content)
-          File.write(path.raw, content.raw)
-          n2f_int(content.raw.length)
-        end
-
-        def file_open(context, path, mode, block, perm = nil, flags = nil, extra_opts = nil)
-          mode_raw = fnil?(mode) ? nil : mode.raw
-          perm_int = (perm && !fnil?(perm) && fint?(perm)) ? perm.raw : 0o666
-          flags_int = (flags && !fnil?(flags) && fint?(flags)) ? flags.raw : nil
-          # Build extra open kwargs (newline:, etc.)
-          base_kwargs = {}
-          if extra_opts && !fnil?(extra_opts) && fhash?(extra_opts)
-            extra_opts.raw.each do |k, v|
-              key = k.is_a?(::Symbol) ? k : (k.respond_to?(:raw) ? k.raw.to_sym : nil)
-              val = v.respond_to?(:raw) ? v.raw : v
-              base_kwargs[key] = val if key
-            end
-          end
-          # Combine mode with flags: if mode is an integer, bitwise-OR with flags;
-          # if string mode, pass flags as separate option to File.open.
-          if mode_raw.is_a?(Integer) && flags_int
-            mode_combined = mode_raw | flags_int
-            open_args = [path.raw, mode_combined, perm_int]
-            open_kwargs = base_kwargs
-          elsif flags_int
-            # String mode + flags: use File.open with flags: keyword
-            mode_str = mode_raw || 'r'
-            open_args = [path.raw, mode_str, perm_int]
-            open_kwargs = base_kwargs.merge(flags: flags_int)
-          else
-            mode_str = mode_raw || 'r'
-            open_args = [path.raw, mode_str, perm_int]
-            open_kwargs = base_kwargs
-          end
-          file_klass = Core.file_class || Core.io_class
-          if !fnil?(block)
-            f = reraise(::Errno::ENOENT, ::Errno::EACCES, ::Errno::EEXIST, ::Errno::EISDIR,
-                        ::Errno::ENOTDIR, ::ArgumentError, ::TypeError, ::SystemCallError) do
-              File.open(*open_args, **open_kwargs)
-            end
-            io_obj = IOObject.new(f, file_klass)
-            close_error = nil
-            result = begin
-              block.invoke(context, [io_obj])
-            ensure
-              # Call Frozone's close so singleton-method overrides are respected.
-              # Capture close errors to re-raise after ensure (matching MRI behavior:
-              # non-IOError/non-"closed stream" close errors propagate).
-              begin
-                io_obj.dispatch(context, :close, [], {}, nil)
-              rescue FrozoneException => e
-                # IOError with "closed stream" is suppressed; other errors propagate
-                msg = e.message.to_s rescue ''
-                close_error = e unless msg.include?('closed stream')
-              rescue => e
-                close_error = e
-              end
-            end
-            raise close_error if close_error
-            result
-          else
-            reraise(::Errno::ENOENT, ::Errno::EACCES, ::Errno::EEXIST, ::Errno::EISDIR,
-                    ::Errno::ENOTDIR, ::ArgumentError, ::TypeError, ::SystemCallError) do
-              IOObject.new(File.open(*open_args, **open_kwargs), file_klass)
-            end
-          end
         end
 
         def file_delete_strict(context, paths)

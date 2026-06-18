@@ -82,17 +82,6 @@ BasicObject* intrinsic_os_egid() {
   return new Integer(static_cast<int64_t>(::getegid()));
 }
 
-// Whole-file slurp. Caller (File.read) handles encoding. Returns nil if
-// the path can't be opened; the Ruby side maps that to Errno::ENOENT.
-BasicObject* intrinsic_file_read(BasicObject* path) {
-  std::ifstream f(fs_detail::str_of(path), std::ios::binary);
-  if (!f.is_open()) return nil_instance();
-  std::stringstream ss;
-  ss << f.rdbuf();
-  std::string s = ss.str();
-  return new String(s.data(), s.size());
-}
-
 // ---- Mutating POSIX primitives -----------------------------------
 // Each returns nil on errno failure; Ruby maps nil → the appropriate
 // Errno::* via inspecting errno or trying again.
