@@ -285,7 +285,16 @@ class IO
   def getc = Intrinsics.io_getc(self)
   def readbyte = Intrinsics.io_readbyte(self)
   def readchar = Intrinsics.io_readchar(self)
-  def sysread(len, buf = nil) = Intrinsics.io_sysread(self, len, buf)
+  def sysread(len, buf = nil)
+    if @fd
+      raise IOError, "closed stream" if @closed
+      result = Intrinsics.os_read(@fd, len)
+      raise EOFError, "end of file reached" if result.empty?
+      buf ? buf.replace(result) : result
+    else
+      Intrinsics.io_sysread(self, len, buf)
+    end
+  end
 
   def ungetbyte(b)
     return nil if b.nil?
@@ -314,7 +323,12 @@ class IO
     rescue NoMethodError
       str.to_s  # re-raises NoMethodError "undefined method 'to_s'" for BasicObject
     end
-    Intrinsics.io_syswrite(self, str)
+    if @fd
+      raise IOError, "closed stream" if @closed
+      Intrinsics.os_write(@fd, str)
+    else
+      Intrinsics.io_syswrite(self, str)
+    end
   end
 
   def pread(length, offset, buf = nil) = Intrinsics.io_pread(self, length, offset, buf)
@@ -339,7 +353,12 @@ class IO
     offset = __coerce_to_int__(offset)
     whence = SEEK_WHENCE_SYMS.fetch(whence) { whence } if whence.is_a?(Symbol)
     whence = __coerce_to_int__(whence)
-    Intrinsics.io_sysseek(self, offset, whence)
+    if @fd
+      raise IOError, "closed stream" if @closed
+      Intrinsics.os_lseek(@fd, offset, whence)
+    else
+      Intrinsics.io_sysseek(self, offset, whence)
+    end
   end
 
   def pwrite(str, offset)
