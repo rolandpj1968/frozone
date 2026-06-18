@@ -2,7 +2,7 @@ $LOADED_FEATURES << File.expand_path('../harness/loader.rb', __dir__)
 def run_benchmark(*, &); end
 require_relative '../test_harness'
 
-# Under --aot, everything below is compiled to Crystal.
+# Under --aot, everything below is compiled.
 describe "Array" do
   describe "#size" do
     it "returns the number of elements" do

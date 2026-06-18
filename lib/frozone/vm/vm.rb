@@ -597,7 +597,7 @@ module Frozone
         Fiber[:file_stack]&.pop
       end
 
-      # --aot mode: split, flatten modules, then compile the execute phase to Crystal.
+      # --aot mode: split, flatten modules, then compile the execute phase.
       def aot_compile(path)
         context, execute_nodes, full_path, load_count = split_and_load(path, flatten: :codegen)
 

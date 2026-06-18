@@ -2,7 +2,7 @@ $LOADED_FEATURES << File.expand_path('../harness/loader.rb', __dir__)
 def run_benchmark(*, &); end
 require_relative '../benchmarks/binarytrees_nosplat'
 
-# Under --aot, everything below is compiled to Crystal.
+# Under --aot, everything below is compiled.
 total = 0
 60.times do
   stretch_tree = bottom_up_tree(STRETCH_DEPTH)

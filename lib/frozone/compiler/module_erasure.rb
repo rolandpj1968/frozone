@@ -16,7 +16,7 @@ module Frozone
       # Flatten all user classes reachable from the given scope.
       # Mutates the live ClassObject method/constant tables in place.
       #
-      # codegen: true  → rename prepend originals + record super targets (for Crystal)
+      # codegen: true  → rename prepend originals + record super targets (for AOT)
       #          false → just flatten methods (interpreter super uses live MRO)
       def self.flatten!(scope, codegen: false)
         visited = Set.new

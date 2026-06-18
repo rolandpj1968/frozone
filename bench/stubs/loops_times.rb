@@ -2,7 +2,7 @@ $LOADED_FEATURES << File.expand_path('../harness/loader.rb', __dir__)
 def run_benchmark(*, &); end
 require_relative '../benchmarks/loops-times'
 
-# Under --aot, everything below is compiled to Crystal.
+# Under --aot, everything below is compiled.
 # Correctness check (same as benchmark's own check)
 u = U; r = R
 a = Array.new(10000, 0)

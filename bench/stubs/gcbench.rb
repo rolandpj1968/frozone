@@ -2,7 +2,7 @@ $LOADED_FEATURES << File.expand_path('../harness/loader.rb', __dir__)
 def run_benchmark(*, &); end
 require_relative '../benchmarks/gcbench_compiled'
 
-# Under --aot, everything below is compiled to Crystal.
+# Under --aot, everything below is compiled.
 gc_make_tree(STRETCH_TREE_DEPTH)
 
 long_lived_tree = GCNode.new

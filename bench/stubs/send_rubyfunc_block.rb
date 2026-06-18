@@ -2,7 +2,7 @@ $LOADED_FEATURES << File.expand_path('../harness/loader.rb', __dir__)
 def run_benchmark(*, &); end
 require_relative '../benchmarks/send_rubyfunc_block'
 
-# Under --aot, everything below is compiled to Crystal.
+# Under --aot, everything below is compiled.
 instance = C.new
 count = 0
 500.times do

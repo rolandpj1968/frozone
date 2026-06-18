@@ -2,7 +2,7 @@ $LOADED_FEATURES << File.expand_path('../../harness/loader.rb', __dir__)
 def run_benchmark(*, &); end
 require_relative '../../benchmarks/nbody/benchmark'
 
-# Under --aot, everything below is compiled to Crystal.
+# Under --aot, everything below is compiled.
 last_x = 0.0
 20.times do
   nbodies = NBODIES

@@ -3,7 +3,7 @@ def run_benchmark(*, &); end
 def make_shareable(x); x; end
 require_relative '../benchmarks/blurhash/benchmark'
 
-# Under --aot, everything below is compiled to Crystal.
+# Under --aot, everything below is compiled.
 last = ""
-10.times { last = Blurhash.encode_rb(204, 204, ARRAY) }
+3.times { last = Blurhash.encode_rb(204, 204, ARRAY) }
 puts last

@@ -5,7 +5,7 @@ def make_shareable(x); x; end
 ENV["RUBY_BENCH_RACTOR_HARNESS"] = "1"
 require_relative '../benchmarks/str_concat'
 
-# Under --aot, everything below is compiled to Crystal.
+# Under --aot, everything below is compiled.
 last_len = 0
 100.times do
   100.times { last_len = concat_test.length }

@@ -1,14 +1,14 @@
 # Frozone compilation stub for matmul benchmark.
 #
 # Load phase: require the benchmark (matgen/matmul defined, N settles).
-# Execute phase: everything after the require is compiled to Crystal via --aot.
+# Execute phase: everything after the require is compiled via --aot.
 
 $LOADED_FEATURES << File.expand_path('../../harness/loader.rb', __dir__)
 def run_benchmark(*, &); end
 def make_shareable(x) = x
 require_relative '../../benchmarks/matmul'
 
-# Under --aot, everything below is compiled to Crystal.
+# Under --aot, everything below is compiled.
 last = 0.0
 4.times do
   a = matgen(N)
