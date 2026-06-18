@@ -4,5 +4,5 @@ require_relative '../benchmarks/fib'
 
 # Under --aot, everything below is compiled.
 total = 0
-30.times { total = total + fib(35) }
+12.times { total = total + fib(35) }
 puts total

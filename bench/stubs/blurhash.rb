@@ -5,5 +5,5 @@ require_relative '../benchmarks/blurhash/benchmark'
 
 # Under --aot, everything below is compiled.
 last = ""
-3.times { last = Blurhash.encode_rb(204, 204, ARRAY) }
+5.times { last = Blurhash.encode_rb(204, 204, ARRAY) }
 puts last

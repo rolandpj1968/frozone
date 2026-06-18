@@ -4,5 +4,5 @@ require_relative '../benchmarks/nqueens'
 
 # Under --aot, everything below is compiled.
 last = 0
-12.times { last = nq_solve(12) }
+4.times { last = nq_solve(12) }
 puts last

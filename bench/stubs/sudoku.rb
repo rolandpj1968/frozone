@@ -6,7 +6,9 @@ require_relative '../benchmarks/sudoku'
 # Under --aot, everything below is compiled.
 mr, mc = sd_genmat
 last = ""
-HARD20.each do |line|
-  last = sd_solve(mr, mc, line)
+4.times do
+  HARD20.each do |line|
+    last = sd_solve(mr, mc, line)
+  end
 end
 puts last
