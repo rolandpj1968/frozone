@@ -357,25 +357,12 @@ class File < IO
     end
 
     def open(path, mode = nil, perm = 0o666, **opts, &block)
-      mode = opts.delete(:mode) || mode || 'r'
-      raise ArgumentError, "newline decorator with binary mode" if opts[:newline] && mode.to_s.include?('b')
-      mode = __mode_with_encoding__(mode, opts)
-      if path.is_a?(Integer)
-        io = Intrinsics.file_new_from_fd(path, mode, opts.empty? ? nil : opts)
-        if block
-          begin
-            block.call(io)
-          ensure
-            io.close rescue nil
-          end
-        else
-          io
-        end
-      else
-        flags = opts[:flags]
-        extra_opts = {}
-        extra_opts[:newline] = opts[:newline] if opts[:newline]
-        Intrinsics.file_open(_coerce_path(path), mode, block, perm, flags, extra_opts.empty? ? nil : extra_opts)
+      io = new(path, mode, perm, **opts)
+      return io unless block
+      begin
+        block.call(io)
+      ensure
+        io.close rescue nil
       end
     end
 
@@ -384,13 +371,12 @@ class File < IO
         Intrinsics.kernel_deprecation_warn(self, "File::new() does not take block; use File::open() instead")
       end
       mode = opts.delete(:mode) || mode || 'r'
+      raise ArgumentError, "newline decorator with binary mode" if opts[:newline] && mode.to_s.include?('b')
       mode = __mode_with_encoding__(mode, opts)
-      if path.is_a?(Integer)
-        Intrinsics.file_new_from_fd(path, mode, opts.empty? ? nil : opts)
-      else
-        flags = opts[:flags]
-        Intrinsics.file_open(_coerce_path(path), mode, nil, perm, flags)
-      end
+      fd = path.is_a?(Integer) ? path : IO.sysopen(_coerce_path(path), mode, perm)
+      io = allocate
+      io.send(:initialize, fd, mode)
+      io
     end
 
     def chown(uid, gid, *paths)
