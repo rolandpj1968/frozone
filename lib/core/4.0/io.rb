@@ -244,7 +244,7 @@ class IO
     else
       raise ArgumentError, "wrong number of arguments (given #{args.length}, expected 0..2)"
     end
-    line = Intrinsics.io_gets(self, sep, lim)
+    line = @fd ? __fd_gets__(sep, lim) : Intrinsics.io_gets(self, sep, lim)
     line = line.chomp if chomp && !line.nil?
     if line.nil?
       $_ = nil
@@ -266,7 +266,7 @@ class IO
     sep, lim = __parse_sep_limit__(args)
     raise ArgumentError, "invalid limit: 0 for #{self.class}#readlines" if lim == 0
     lines = []
-    while (line = Intrinsics.io_gets(self, sep, lim))
+    while (line = @fd ? __fd_gets__(sep, lim) : Intrinsics.io_gets(self, sep, lim))
       @lineno = (@lineno || 0) + 1
       $. = @lineno
       if chomp
@@ -280,6 +280,48 @@ class IO
     end
     lines
   end
+
+  # Read up to lim bytes (or unbounded if lim is nil) or until sep appears
+  # at the end of the result. Slurp mode when sep is nil. Paragraph mode
+  # when sep is empty — separator becomes "\n\n" and we consume any extra
+  # trailing newlines past the first paragraph break. Returns nil only on
+  # EOF-with-empty-result; otherwise returns the bytes read (partial line
+  # at EOF is fine).
+  def __fd_gets__(sep, lim)
+    raise IOError, "closed stream" if @closed
+    if sep.nil?
+      result = +''
+      while (b = __fd_read1__)
+        result << b
+        break if lim && result.bytesize >= lim
+      end
+      return result.empty? ? nil : result
+    end
+    para = sep.empty?
+    sep = "\n\n" if para
+    result = +''
+    sep_bs = sep.bytesize
+    while (b = __fd_read1__)
+      result << b
+      break if lim && result.bytesize >= lim
+      if result.bytesize >= sep_bs && result.byteslice(-sep_bs, sep_bs) == sep
+        if para
+          while (extra = __fd_read1__)
+            if extra == "\n"
+              result << extra
+              break if lim && result.bytesize >= lim
+            else
+              @ungetbuf = (@ungetbuf ? extra + @ungetbuf : +extra)
+              break
+            end
+          end
+        end
+        break
+      end
+    end
+    result.empty? ? nil : result
+  end
+  private :__fd_gets__
 
   # Fd-IO byte/char readers go through the unget buffer (@ungetbuf) first,
   # then os_read. @ungetbuf carries pushed-back bytes from ungetbyte/ungetc
@@ -480,7 +522,7 @@ class IO
     return to_enum(:each_line, *args, chomp: chomp) unless block
     sep, lim = __parse_sep_limit__(args)
     raise ArgumentError, "invalid limit: 0 for #{self.class}#each_line" if lim == 0
-    while (line = Intrinsics.io_gets(self, sep, lim))
+    while (line = @fd ? __fd_gets__(sep, lim) : Intrinsics.io_gets(self, sep, lim))
       @lineno = (@lineno || 0) + 1
       $. = @lineno
       if chomp
