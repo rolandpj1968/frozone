@@ -338,21 +338,10 @@ class File < IO
     end
 
     def read(path, length = nil, offset = nil, **opts)
-      mode = opts.delete(:mode)
-      open_opts = opts
-      if mode || !open_opts.empty?
-        open_mode = mode || 'r'
-        open(path, open_mode, **open_opts) do |f|
-          f.seek(offset) if offset && offset != 0
-          length ? f.read(length) : f.read
-        end
-      elsif length || (offset && offset != 0)
-        open(path, 'r') do |f|
-          f.seek(offset) if offset && offset != 0
-          length ? f.read(length) : f.read
-        end
-      else
-        Intrinsics.file_read(_coerce_path(path))
+      mode = opts.delete(:mode) || 'r'
+      open(path, mode, **opts) do |f|
+        f.seek(offset) if offset && offset != 0
+        length ? f.read(length) : f.read
       end
     end
 
