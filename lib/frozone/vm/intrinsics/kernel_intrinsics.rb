@@ -679,7 +679,7 @@ module Frozone
           end
           return FFALSE if loaded_paths.include?(full_path)
           # Guard against recursive require: add to $LOADED_FEATURES before loading
-          loaded.push(n2f_str(full_path))
+          loaded.raw.push(n2f_str(full_path))
           currently_loading.add(full_path)
           begin
             Fiber[:vm_evaluate].call(full_path, raise_syntax_errors: true)
@@ -806,7 +806,7 @@ module Frozone
             return FFALSE
           end
           return FFALSE if loaded_paths.include?(full_path)
-          loaded.push(n2f_str(full_path))
+          loaded.raw.push(n2f_str(full_path))
           currently_loading.add(full_path)
           begin
             Fiber[:vm_evaluate].call(full_path, raise_syntax_errors: true)
