@@ -281,10 +281,80 @@ class IO
     lines
   end
 
-  def getbyte = Intrinsics.io_getbyte(self)
-  def getc = Intrinsics.io_getc(self)
-  def readbyte = Intrinsics.io_readbyte(self)
-  def readchar = Intrinsics.io_readchar(self)
+  # Fd-IO byte/char readers go through the unget buffer (@ungetbuf) first,
+  # then os_read. @ungetbuf carries pushed-back bytes from ungetbyte/ungetc
+  # and one-byte-readahead from getc decoding. Returns String (1 byte) or nil
+  # at EOF — never an empty String, so callers can do a simple nil check.
+  def __fd_read1__
+    raise IOError, "closed stream" if @closed
+    if @ungetbuf && !@ungetbuf.empty?
+      b = @ungetbuf.byteslice(0, 1)
+      @ungetbuf = @ungetbuf.byteslice(1, @ungetbuf.bytesize - 1) || +''
+      b
+    else
+      r = Intrinsics.os_read(@fd, 1)
+      r.empty? ? nil : r
+    end
+  end
+  private :__fd_read1__
+
+  def getbyte
+    if @fd
+      b = __fd_read1__
+      b.nil? ? nil : b.getbyte(0)
+    else
+      Intrinsics.io_getbyte(self)
+    end
+  end
+
+  def getc
+    if @fd
+      b1 = __fd_read1__
+      return nil if b1.nil?
+      enc = external_encoding || Encoding.default_external || Encoding::UTF_8
+      # UTF-8 fast path: read continuation bytes based on leading byte
+      if enc == Encoding::UTF_8
+        c0 = b1.getbyte(0)
+        n_extra =
+          if c0 < 0x80 then 0
+          elsif c0 < 0xC0 then 0  # malformed: treat as 1-byte
+          elsif c0 < 0xE0 then 1
+          elsif c0 < 0xF0 then 2
+          else 3
+          end
+        n_extra.times do
+          more = __fd_read1__
+          break if more.nil?
+          b1 += more
+        end
+        b1.force_encoding(enc)
+      else
+        b1.force_encoding(enc)
+      end
+    else
+      Intrinsics.io_getc(self)
+    end
+  end
+
+  def readbyte
+    if @fd
+      b = getbyte
+      raise EOFError, "end of file reached" if b.nil?
+      b
+    else
+      Intrinsics.io_readbyte(self)
+    end
+  end
+
+  def readchar
+    if @fd
+      c = getc
+      raise EOFError, "end of file reached" if c.nil?
+      c
+    else
+      Intrinsics.io_readchar(self)
+    end
+  end
   def sysread(len, buf = nil)
     if @fd
       raise IOError, "closed stream" if @closed
@@ -299,21 +369,34 @@ class IO
   def ungetbyte(b)
     return nil if b.nil?
     b = b.to_str unless b.is_a?(String) || b.is_a?(Integer)
-    Intrinsics.io_ungetbyte(self, b)
+    if @fd
+      bytes = b.is_a?(Integer) ? (b & 0xFF).chr : b.dup.force_encoding(Encoding::BINARY)
+      @ungetbuf = (@ungetbuf ? bytes + @ungetbuf : +bytes)
+      nil
+    else
+      Intrinsics.io_ungetbyte(self, b)
+    end
   end
 
   def ungetc(s)
     if s.is_a?(Integer)
       enc = external_encoding || Encoding.default_external || Encoding::UTF_8
-      Intrinsics.io_ungetc(self, s.chr(enc))
+      s = s.chr(enc)
     elsif s.is_a?(String)
-      Intrinsics.io_ungetc(self, s)
+      # ok
     elsif s.nil?
       raise TypeError, "no implicit conversion of nil into String"
     elsif s.respond_to?(:to_str)
-      Intrinsics.io_ungetc(self, s.to_str)
+      s = s.to_str
     else
       raise TypeError, "no implicit conversion of #{s.class} into String"
+    end
+    if @fd
+      bytes = s.dup.force_encoding(Encoding::BINARY)
+      @ungetbuf = (@ungetbuf ? bytes + @ungetbuf : +bytes)
+      nil
+    else
+      Intrinsics.io_ungetc(self, s)
     end
   end
 
@@ -417,12 +500,26 @@ class IO
 
   def each_byte(&block)
     return to_enum(:each_byte) unless block
-    Intrinsics.io_each_byte(self, block)
+    if @fd
+      while (b = getbyte)
+        block.call(b)
+      end
+      self
+    else
+      Intrinsics.io_each_byte(self, block)
+    end
   end
 
   def each_char(&block)
     return to_enum(:each_char) unless block
-    Intrinsics.io_each_char(self, block)
+    if @fd
+      while (c = getc)
+        block.call(c)
+      end
+      self
+    else
+      Intrinsics.io_each_char(self, block)
+    end
   end
 
   def each_codepoint(&block)
