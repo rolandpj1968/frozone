@@ -38,10 +38,12 @@ module Frozone
 
           # Range of values pre-seeded into the literal pool AND made
           # available via the runtime `__SMALL_INTS__[]` LUT used by
-          # boxed_int(). 513 statics → ~16KB of .data. Wider than -128..128
-          # because typical loop iterators / index math stays within ±256
-          # for most hot paths.
-          SMALL_INT_RANGE = (-256..256)
+          # boxed_int(). 256 statics → ~16KB. Positive-only — negatives
+          # earn nothing in the bench suite (fib/sudoku/nqueens/blurhash);
+          # most hot paths are loop counters and small unsigned bitmasks.
+          # Extending to 1023 helped sudoku ~8% but was noise elsewhere;
+          # keep minimal until a wider workload justifies the memory.
+          SMALL_INT_RANGE = (0..255)
 
           # Seed @int_literals with every value in SMALL_INT_RANGE so
           # the corresponding _f_i_<N> statics are guaranteed to exist.
