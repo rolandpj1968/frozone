@@ -8,7 +8,7 @@ module Frozone
         def hash_size(_, h) = n2f_int(h.size)
         def hash_key(_, h, key) = n2f_bool(h.key?(key))
         def hash_get_default_proc(_, h) = h.default_block || FNIL
-        def hash_compare_by_identity_q(_, h) = n2f_bool(fhash?(h) && h.compare_by_identity_flag)
+        def hash_compare_by_identity_q(_, h) = n2f_bool(fhash?(h) && h.compare_by_identity?)
         def hash_ruby2_keywords_hash_q(_, h) = n2f_bool(fhash?(h) && h.ruby2_keywords)
 
         def hash_index_write(_, h, key, value) = (h[key] = value; value)

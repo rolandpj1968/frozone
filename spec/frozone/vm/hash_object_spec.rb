@@ -23,18 +23,6 @@ RSpec.describe Frozone::Vm::HashObject do
     end
   end
 
-  describe '#to_s' do
-    it 'returns "{}" for an empty hash' do
-      expect(described_class.new({}).to_s).to eq("{}")
-    end
-
-    it 'includes key and value representations' do
-      obj = described_class.new({ k => v })
-      expect(obj.to_s).to include(":key")
-      expect(obj.to_s).to include("42")
-    end
-  end
-
   describe '#hash and #eql?' do
     it 'is not eql? to a HashObject with different contents' do
       other_v = Frozone::Vm::IntegerObject.new(99)

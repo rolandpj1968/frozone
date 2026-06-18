@@ -72,6 +72,7 @@ class Hash
 
   def initialize(default = nil, &block)
     __check_frozen__
+    @compare_by_identity = false
     if block
       Intrinsics.hash_set_default_proc(self, block)
     else
@@ -100,8 +101,14 @@ class Hash
   def to_proc; h = self; ->(k) { h[k] }; end
   def to_hash = self
   def deconstruct_keys(_) = self
-  def compare_by_identity = Intrinsics.hash_compare_by_identity(self)
-  def compare_by_identity? = Intrinsics.hash_compare_by_identity_q(self)
+  def compare_by_identity
+    return self if @compare_by_identity
+    raise FrozenError.new("can't modify frozen Hash: #{inspect}", receiver: self) if frozen?
+    @compare_by_identity = true
+    Intrinsics.hash_compare_by_identity(self)
+    self
+  end
+  def compare_by_identity? = @compare_by_identity
   def sort(&block) = to_a.sort(&block)
   def take(n) = to_a.take(n)
 

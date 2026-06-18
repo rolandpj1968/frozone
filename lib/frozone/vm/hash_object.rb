@@ -15,7 +15,7 @@ module Frozone
         end
 
         def hash = @hash
-        def eql?(v) = v.is_a?(KeyWrapper) && (@unwrap.equal?(v.unwrap) || @unwrap.dispatch(Fiber[:context], :eql?, [v.unwrap], {}).truthy?)
+        def eql?(v) = @unwrap.equal?(v.unwrap) || @unwrap.dispatch(Fiber[:context], :eql?, [v.unwrap], {}).truthy?
       end
 
       # Identity-based key wrapper for compare_by_identity hashes.
@@ -28,11 +28,10 @@ module Frozone
         end
 
         def hash = @id
-        def eql?(v) = v.is_a?(IdentityKeyWrapper) && @unwrap.equal?(v.unwrap)
+        def eql?(v) = @unwrap.equal?(v.unwrap)
       end
 
-      attr_accessor :default_block, :default_value, :compare_by_identity_flag
-
+      attr_accessor :default_block, :default_value
       attr_accessor :ruby2_keywords
 
       def initialize(elements = {}, default_value: nil, default_block: nil)
@@ -40,12 +39,18 @@ module Frozone
 
         super(Core::HASH_CLASS)
 
-        @compare_by_identity_flag = false
+        # Set @compare_by_identity ivar at construction (canonical location
+        # in core/4.0/hash.rb's #initialize, but Vm::HashObject.new bypasses
+        # that path). wrap() reads it via get_ivar.
+        @instance_variables_hash[:@compare_by_identity] = FalseObject::FALSE
+
         @elements = elements.to_h { |k, v| [wrap(k), v] }
         @default_value = default_value
         @default_block = default_block
         @ruby2_keywords = false
       end
+
+      def compare_by_identity? = get_ivar(:@compare_by_identity).truthy?
 
       # Returns a Hash with the original VM-object keys (unwrapped).
       def raw = @elements.transform_keys { |k| k.unwrap }
@@ -57,15 +62,11 @@ module Frozone
         raise FrozoneException.make(:FrozenError, "can't modify frozen Hash: #{inspect_for_error}", receiver: self) if frozen_object?
         # String keys are dup'd (no singleton methods) and frozen, matching MRI behaviour,
         # UNLESS we're in compare_by_identity mode (identity means we keep the original object).
-        key = StringObject.new(key.raw.dup, frozen: true) if !@compare_by_identity_flag && key.is_a?(StringObject) && !key.frozen_object?
+        key = StringObject.new(key.raw.dup, frozen: true) if !compare_by_identity? && key.is_a?(StringObject) && !key.frozen_object?
         @elements[wrap(key)] = value
       end
 
       def compare_by_identity!
-        return self if @compare_by_identity_flag
-        raise FrozoneException.make(:FrozenError, "can't modify frozen Hash: #{inspect_for_error}", receiver: self) if frozen_object?
-        @compare_by_identity_flag = true
-        # Rebuild the hash table with identity-based keys
         old = @elements
         @elements = {}
         old.each { |kw, v| @elements[IdentityKeyWrapper.new(kw.unwrap)] = v }
@@ -73,16 +74,12 @@ module Frozone
       end
 
       def reset_compare_by_identity!
-        @compare_by_identity_flag = false
         self
       end
 
-      def size = @elements.size
       def key?(key) = @elements.key?(wrap(key))
       def delete(key) = @elements.delete(wrap(key))
       def clear_elements = tap { @elements.clear }
-
-      def to_s = "{#{@elements.map { |k, v| "#{k.unwrap} => #{v}" }.join(', ')}}"
 
       private
 
@@ -98,7 +95,7 @@ module Frozone
       # the surrounding code isn't interpreted.
       def wrap(key)
         return key unless Intrinsics.interpreted?(self)
-        @compare_by_identity_flag ? IdentityKeyWrapper.new(key) : KeyWrapper.new(key)
+        compare_by_identity? ? IdentityKeyWrapper.new(key) : KeyWrapper.new(key)
       end
     end
   end
