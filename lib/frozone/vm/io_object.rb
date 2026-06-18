@@ -35,7 +35,7 @@ module Frozone
         @stream_tag = tag
         @explicit_encoding = false
         @frozen_object = false
-        @instance_variables_hash = nil
+        @instance_variables_hash = {}
         @eigenclass = nil
       end
 
