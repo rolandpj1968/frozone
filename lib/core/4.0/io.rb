@@ -20,7 +20,23 @@ class IO
     end
   end
 
-  def print(*args) = Intrinsics.io_print(self, args)
+  def print(*args)
+    if @fd
+      raise IOError, "closed stream" if @closed
+      args = [$_] if args.empty?
+      sep = $,
+      out = +''
+      args.each_with_index do |a, i|
+        out << sep.to_s if i > 0 && sep
+        out << (a.is_a?(String) ? a : a.to_s)
+      end
+      out << $\.to_s if $\
+      Intrinsics.os_write(@fd, out)
+      nil
+    else
+      Intrinsics.io_print(self, args)
+    end
+  end
 
   def puts(*args)
     if args.empty?
@@ -115,8 +131,26 @@ class IO
       Intrinsics.io_close(self)
     end
   end
-  def close_read = Intrinsics.io_close_read(self)
-  def close_write = Intrinsics.io_close_write(self)
+  def close_read
+    if @fd
+      return nil if @closed
+      Intrinsics.os_close(@fd)
+      @closed = true
+      nil
+    else
+      Intrinsics.io_close_read(self)
+    end
+  end
+  def close_write
+    if @fd
+      return nil if @closed
+      Intrinsics.os_close(@fd)
+      @closed = true
+      nil
+    else
+      Intrinsics.io_close_write(self)
+    end
+  end
   def closed? = (@fd ? @closed : Intrinsics.io_closed?(self))
   def fileno = (@fd || Intrinsics.io_fileno(self))
   alias to_i fileno
@@ -456,14 +490,26 @@ class IO
     end
   end
 
-  def pread(length, offset, buf = nil) = Intrinsics.io_pread(self, length, offset, buf)
+  def pread(length, offset, buf = nil)
+    if @fd
+      raise IOError, "closed stream" if @closed
+      saved = Intrinsics.os_lseek(@fd, 0, SEEK_CUR)
+      Intrinsics.os_lseek(@fd, offset, SEEK_SET)
+      result = Intrinsics.os_read(@fd, length)
+      Intrinsics.os_lseek(@fd, saved, SEEK_SET)
+      raise EOFError, "end of file reached" if result.empty?
+      buf ? buf.replace(result) : result
+    else
+      Intrinsics.io_pread(self, length, offset, buf)
+    end
+  end
   def read_nonblock(len, buf = nil, exception: true) = Intrinsics.io_read_nonblock(self, len, buf, exception)
   def readpartial(len, buf = nil) = Intrinsics.io_sysread(self, len, buf)
   def each(*args, chomp: false, &block) = each_line(*args, chomp: chomp, &block)
-  def atime = Intrinsics.io_atime(self)
-  def mtime = Intrinsics.io_mtime(self)
-  def ctime = Intrinsics.io_ctime(self)
-  def birthtime = Intrinsics.io_birthtime(self)
+  def atime = @fd ? stat.atime : Intrinsics.io_atime(self)
+  def mtime = @fd ? stat.mtime : Intrinsics.io_mtime(self)
+  def ctime = @fd ? stat.ctime : Intrinsics.io_ctime(self)
+  def birthtime = @fd ? stat.birthtime : Intrinsics.io_birthtime(self)
   def path = Intrinsics.io_path(self)
   def to_path = path
   def to_io = self
@@ -493,7 +539,16 @@ class IO
       str.to_s  # re-raises NoMethodError "undefined method 'to_s'" for BasicObject
     end
     offset = __coerce_to_int__(offset)
-    Intrinsics.io_pwrite(self, str, offset)
+    if @fd
+      raise IOError, "closed stream" if @closed
+      saved = Intrinsics.os_lseek(@fd, 0, SEEK_CUR)
+      Intrinsics.os_lseek(@fd, offset, SEEK_SET)
+      n = Intrinsics.os_write(@fd, str)
+      Intrinsics.os_lseek(@fd, saved, SEEK_SET)
+      n
+    else
+      Intrinsics.io_pwrite(self, str, offset)
+    end
   end
 
   def seek(offset, whence = SEEK_SET)
