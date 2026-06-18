@@ -167,6 +167,19 @@ class File < IO
       raise Errno::ENOENT, @path if @stat.nil?
     end
 
+    # IO#stat — tuple read from os_fstat on a live fd; no path.
+    def self.__from_tuple__(tuple)
+      s = allocate
+      s.__init_from_tuple__(tuple)
+      s
+    end
+
+    def __init_from_tuple__(tuple)
+      @path = nil
+      @lstat = false
+      @stat = tuple
+    end
+
     def <=>(other)
       return nil unless other.is_a?(Stat)
       mtime <=> other.mtime

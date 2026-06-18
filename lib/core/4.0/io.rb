@@ -100,8 +100,8 @@ class IO
     end
   end
   def flush = @fd ? 0 : Intrinsics.io_flush(self)
-  def sync=(val) = Intrinsics.io_sync_set(self, val)
-  def sync       = Intrinsics.io_sync(self)
+  def sync=(val) = (@fd ? (@sync = val ? true : false) : Intrinsics.io_sync_set(self, val))
+  def sync       = (@fd ? (@sync || false) : Intrinsics.io_sync(self))
   def autoclose=(val)  = (@fd ? (@autoclose = val ? true : false) : Intrinsics.io_autoclose_set(self, val))
   def autoclose?       = (@fd ? @autoclose : Intrinsics.io_autoclose?(self))
   def <<(str); write(str.is_a?(String) ? str : str.to_s); self; end
@@ -120,21 +120,56 @@ class IO
   def closed? = (@fd ? @closed : Intrinsics.io_closed?(self))
   def fileno = (@fd || Intrinsics.io_fileno(self))
   alias to_i fileno
-  def eof? = Intrinsics.io_eof?(self)
+  def eof?
+    if @fd
+      raise IOError, "closed stream" if @closed
+      cur = Intrinsics.os_lseek(@fd, 0, SEEK_CUR)
+      return false if cur.nil?
+      size = Intrinsics.os_lseek(@fd, 0, SEEK_END)
+      Intrinsics.os_lseek(@fd, cur, SEEK_SET)
+      cur >= size
+    else
+      Intrinsics.io_eof?(self)
+    end
+  end
   def eof = eof?
   def close_on_exec? = Intrinsics.io_close_on_exec_q(self)
   def close_on_exec=(val) = Intrinsics.io_close_on_exec_set(self, val)
-  def isatty = Intrinsics.io_isatty(self)
+  def isatty = (@fd ? Intrinsics.os_isatty(@fd) : Intrinsics.io_isatty(self))
   def tty? = isatty
   def fsync = Intrinsics.io_fsync(self)
   def ioctl(integer_cmd, arg = 0) = Intrinsics.io_ioctl(self, integer_cmd, arg)
-  def binmode = Intrinsics.io_binmode(self)
-  def binmode? = Intrinsics.io_binmode?(self)
-  def pos = Intrinsics.io_pos(self)
-  def pos=(p)          = Intrinsics.io_pos_set(self, p)
+  def binmode = (@fd ? (@binmode = true; self) : Intrinsics.io_binmode(self))
+  def binmode? = (@fd ? (@binmode || false) : Intrinsics.io_binmode?(self))
+  def pos
+    if @fd
+      raise IOError, "closed stream" if @closed
+      Intrinsics.os_lseek(@fd, 0, SEEK_CUR)
+    else
+      Intrinsics.io_pos(self)
+    end
+  end
+  def pos=(p)
+    if @fd
+      raise IOError, "closed stream" if @closed
+      Intrinsics.os_lseek(@fd, p, SEEK_SET)
+      p
+    else
+      Intrinsics.io_pos_set(self, p)
+    end
+  end
   def tell = pos
-  def stat = Intrinsics.io_stat(self)
-  def inspect = Intrinsics.io_inspect(self)
+  def stat
+    if @fd
+      raise IOError, "closed stream" if @closed
+      arr = Intrinsics.os_fstat(@fd)
+      raise SystemCallError, "fstat failed" if arr.nil?
+      File::Stat.__from_tuple__(arr)
+    else
+      Intrinsics.io_stat(self)
+    end
+  end
+  def inspect = (@fd ? "#<#{self.class}:fd #{@fd}>" : Intrinsics.io_inspect(self))
 
   def pid
     raise IOError, "closed stream" if closed?
@@ -321,7 +356,13 @@ class IO
     offset = __coerce_to_int__(offset)
     whence = SEEK_WHENCE_SYMS.fetch(whence) { __coerce_to_int__(whence) } if whence.is_a?(Symbol)
     whence = __coerce_to_int__(whence)
-    Intrinsics.io_seek(self, offset, whence)
+    if @fd
+      raise IOError, "closed stream" if @closed
+      Intrinsics.os_lseek(@fd, offset, whence)
+      0
+    else
+      Intrinsics.io_seek(self, offset, whence)
+    end
   end
 
   def write_nonblock(str, exception: true)
@@ -474,6 +515,20 @@ class IO
 
     def new(fd, mode_or_opts = nil, **opts, &block)
       warn "warning: IO::new() does not take block; use IO::open() instead" if block
+      # Native-fd path: allocate + initialize directly, so the
+      # def initialize fd-branch sets @fd and the IO routes through
+      # Intrinsics.os_* without going via the legacy io_new_from_fd
+      # bridge (which builds a native_io-backed IOObject incompatible
+      # with the @fd machinery).
+      if fd.is_a?(Integer)
+        io = allocate
+        if mode_or_opts.is_a?(Hash)
+          io.send(:initialize, fd, **mode_or_opts.merge(opts))
+        else
+          io.send(:initialize, fd, mode_or_opts, **opts)
+        end
+        return io
+      end
       opts_arg = opts.empty? ? nil : opts
       Intrinsics.io_new_from_fd(fd, mode_or_opts, opts_arg)
     end
