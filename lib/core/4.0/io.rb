@@ -211,10 +211,28 @@ class IO
   end
 
   def rewind
-    Intrinsics.io_rewind(self)
+    if @fd
+      raise IOError, "closed stream" if @closed
+      Intrinsics.os_lseek(@fd, 0, SEEK_SET)
+      @ungetbuf = nil
+    else
+      Intrinsics.io_rewind(self)
+    end
     @lineno = 0
     0
   end
+
+  # True if the IO permits reading. For fd-IOs, checks @mode for 'r' or '+';
+  # for legacy IOs falls through to io_readable? intrinsic.
+  def __fd_readable__?
+    if @fd
+      m = @mode.to_s
+      m.include?('r') || m.include?('+')
+    else
+      Intrinsics.io_readable?(self)
+    end
+  end
+  private :__fd_readable__?
 
   def read(len = nil, buf = nil)
     buf = buf.to_str if buf && !buf.is_a?(String) && buf.respond_to?(:to_str)
@@ -240,13 +258,13 @@ class IO
 
   def lineno
     raise IOError, "closed stream" if closed?
-    raise IOError, "not opened for reading" unless Intrinsics.io_readable?(self)
+    raise IOError, "not opened for reading" unless __fd_readable__?
     @lineno ||= 0
   end
 
   def lineno=(n)
     raise IOError, "closed stream" if closed?
-    raise IOError, "not opened for reading" unless Intrinsics.io_readable?(self)
+    raise IOError, "not opened for reading" unless __fd_readable__?
     val = __coerce_to_int__(n)
     raise RangeError, "integer #{val} too big to convert into 'int'" if val > 2_147_483_647 || val < -2_147_483_648
     @lineno = val
