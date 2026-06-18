@@ -32,16 +32,16 @@ namespace time_detail {
   //  isdst, utc_offset_sec, zone_string].
   inline Array* tm_to_array(const struct tm& tm, int32_t utc_offset, const char* zone) {
     Array* arr = new Array();
-    arr->data.push_back(new Integer(tm.tm_sec));
-    arr->data.push_back(new Integer(tm.tm_min));
-    arr->data.push_back(new Integer(tm.tm_hour));
-    arr->data.push_back(new Integer(tm.tm_mday));
-    arr->data.push_back(new Integer(tm.tm_mon + 1));
-    arr->data.push_back(new Integer(tm.tm_year + 1900));
-    arr->data.push_back(new Integer(tm.tm_wday));
-    arr->data.push_back(new Integer(tm.tm_yday + 1));
+    arr->data.push_back(boxed_int(tm.tm_sec));
+    arr->data.push_back(boxed_int(tm.tm_min));
+    arr->data.push_back(boxed_int(tm.tm_hour));
+    arr->data.push_back(boxed_int(tm.tm_mday));
+    arr->data.push_back(boxed_int(tm.tm_mon + 1));
+    arr->data.push_back(boxed_int(tm.tm_year + 1900));
+    arr->data.push_back(boxed_int(tm.tm_wday));
+    arr->data.push_back(boxed_int(tm.tm_yday + 1));
     arr->data.push_back(boxed_bool(tm.tm_isdst > 0));
-    arr->data.push_back(new Integer(utc_offset));
+    arr->data.push_back(boxed_int(utc_offset));
     arr->data.push_back(new String(zone, std::strlen(zone)));
     return arr;
   }
@@ -66,9 +66,9 @@ BasicObject* intrinsic_os_time_now() {
   off = static_cast<int32_t>(::mktime(&gt) - ::mktime(&lt));
 #endif
   Array* arr = new Array();
-  arr->data.push_back(new Integer(static_cast<int64_t>(ts.tv_sec)));
-  arr->data.push_back(new Integer(static_cast<int64_t>(ts.tv_nsec)));
-  arr->data.push_back(new Integer(off));
+  arr->data.push_back(boxed_int(static_cast<int64_t>(ts.tv_sec)));
+  arr->data.push_back(boxed_int(static_cast<int64_t>(ts.tv_nsec)));
+  arr->data.push_back(boxed_int(off));
   return arr;
 }
 
@@ -110,7 +110,7 @@ BasicObject* intrinsic_os_mktime(BasicObject* year, BasicObject* month,
   tm.tm_sec  = static_cast<int>(static_cast<Integer*>(sec)->raw_);
   tm.tm_isdst = -1;
   time_t out = (use_utc == true_instance()) ? ::timegm(&tm) : ::mktime(&tm);
-  return new Integer(static_cast<int64_t>(out));
+  return boxed_int(static_cast<int64_t>(out));
 }
 
 // os_strftime: format using libc strftime. utc_offset and is_utc determine
@@ -151,11 +151,11 @@ BasicObject* intrinsic_time_make(BasicObject* sec, BasicObject* nsec,
 }
 
 BasicObject* intrinsic_time_to_i(BasicObject* self_) {
-  return new Integer(static_cast<Time*>(self_)->sec_);
+  return boxed_int(static_cast<Time*>(self_)->sec_);
 }
 
 BasicObject* intrinsic_time_nsec(BasicObject* self_) {
-  return new Integer(static_cast<Time*>(self_)->nsec_);
+  return boxed_int(static_cast<Time*>(self_)->nsec_);
 }
 
 BasicObject* intrinsic_time_utc_q(BasicObject* self_) {
@@ -164,7 +164,7 @@ BasicObject* intrinsic_time_utc_q(BasicObject* self_) {
 
 BasicObject* intrinsic_time_utc_offset(BasicObject* self_) {
   auto* t = static_cast<Time*>(self_);
-  return new Integer(t->is_utc_ ? 0 : t->utc_offset_);
+  return boxed_int(t->is_utc_ ? 0 : t->utc_offset_);
 }
 
 BasicObject* intrinsic_time_utc(BasicObject* self_) {

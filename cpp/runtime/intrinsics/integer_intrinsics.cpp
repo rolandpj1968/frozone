@@ -40,23 +40,23 @@ namespace integer_detail {
 BasicObject* intrinsic_integer_bit_length(BasicObject* self_) {
   std::int64_t _v = static_cast<Integer*>(self_)->raw_;
   std::uint64_t _u = (_v < 0) ? static_cast<std::uint64_t>(~_v) : static_cast<std::uint64_t>(_v);
-  if (_u == 0) return new Integer(0);
-  return new Integer(64 - __builtin_clzll(_u));
+  if (_u == 0) return boxed_int(0);
+  return boxed_int(64 - __builtin_clzll(_u));
 }
 
 // static_cast<Integer*>: integer.rb dispatches `Intrinsics.integer_X(self, n)`
 // only when `n.is_a?(Integer)` is already true (see e.g. `def +(v) = v.is_a?(Integer) ? Intrinsics.integer__plus_(...)` patterns).
 // So both args are guaranteed Integer at the intrinsic boundary.
 BasicObject* intrinsic_integer_bitand(BasicObject* s, BasicObject* o) {
-  return new Integer(static_cast<Integer*>(s)->raw_ & static_cast<Integer*>(o)->raw_);
+  return boxed_int(static_cast<Integer*>(s)->raw_ & static_cast<Integer*>(o)->raw_);
 }
 
 BasicObject* intrinsic_integer_bitor(BasicObject* s, BasicObject* o) {
-  return new Integer(static_cast<Integer*>(s)->raw_ | static_cast<Integer*>(o)->raw_);
+  return boxed_int(static_cast<Integer*>(s)->raw_ | static_cast<Integer*>(o)->raw_);
 }
 
 BasicObject* intrinsic_integer_bitxor(BasicObject* s, BasicObject* o) {
-  return new Integer(static_cast<Integer*>(s)->raw_ ^ static_cast<Integer*>(o)->raw_);
+  return boxed_int(static_cast<Integer*>(s)->raw_ ^ static_cast<Integer*>(o)->raw_);
 }
 
 BasicObject* intrinsic_integer__div_(BasicObject* s, BasicObject* o) {
@@ -65,7 +65,7 @@ BasicObject* intrinsic_integer__div_(BasicObject* s, BasicObject* o) {
     std::fprintf(stderr, "[box-first] divided by 0\n");
     std::abort();  // ZeroDivisionError - integer.rb's __raise_zero_division__ is supposed to fire upstream
   }
-  return new Integer(integer_detail::ruby_div(static_cast<Integer*>(s)->raw_, b));
+  return boxed_int(integer_detail::ruby_div(static_cast<Integer*>(s)->raw_, b));
 }
 
 BasicObject* intrinsic_integer__mod_(BasicObject* s, BasicObject* o) {
@@ -74,7 +74,7 @@ BasicObject* intrinsic_integer__mod_(BasicObject* s, BasicObject* o) {
     std::fprintf(stderr, "[box-first] divided by 0\n");
     std::abort();
   }
-  return new Integer(integer_detail::ruby_mod(static_cast<Integer*>(s)->raw_, b));
+  return boxed_int(integer_detail::ruby_mod(static_cast<Integer*>(s)->raw_, b));
 }
 
 BasicObject* intrinsic_integer_fdiv(BasicObject* s, BasicObject* o) {
@@ -95,19 +95,19 @@ BasicObject* intrinsic_integer_fdiv(BasicObject* s, BasicObject* o) {
 BasicObject* intrinsic_integer_lshift(BasicObject* s, BasicObject* n) {
   int64_t a = static_cast<Integer*>(s)->raw_;
   int64_t k = static_cast<Integer*>(n)->raw_;
-  if (k >= 64) return new Integer(0);
-  if (k <= -64) return new Integer(a < 0 ? -1 : 0);
-  if (k < 0) return new Integer(a >> (-k));
-  return new Integer(static_cast<int64_t>(static_cast<uint64_t>(a) << k));
+  if (k >= 64) return boxed_int(0);
+  if (k <= -64) return boxed_int(a < 0 ? -1 : 0);
+  if (k < 0) return boxed_int(a >> (-k));
+  return boxed_int(static_cast<int64_t>(static_cast<uint64_t>(a) << k));
 }
 
 BasicObject* intrinsic_integer_rshift(BasicObject* s, BasicObject* n) {
   int64_t a = static_cast<Integer*>(s)->raw_;
   int64_t k = static_cast<Integer*>(n)->raw_;
-  if (k >= 64) return new Integer(a < 0 ? -1 : 0);
-  if (k <= -64) return new Integer(0);
-  if (k < 0) return new Integer(static_cast<int64_t>(static_cast<uint64_t>(a) << (-k)));
-  return new Integer(a >> k);
+  if (k >= 64) return boxed_int(a < 0 ? -1 : 0);
+  if (k <= -64) return boxed_int(0);
+  if (k < 0) return boxed_int(static_cast<int64_t>(static_cast<uint64_t>(a) << (-k)));
+  return boxed_int(a >> k);
 }
 
 BasicObject* intrinsic_integer__pow_(BasicObject* s, BasicObject* v) {
@@ -143,7 +143,7 @@ BasicObject* intrinsic_integer__pow_(BasicObject* s, BasicObject* v) {
       base = sq;
     }
   }
-  return new Integer(result);
+  return boxed_int(result);
 }
 
 BasicObject* intrinsic_integer_to_f(BasicObject* s) {

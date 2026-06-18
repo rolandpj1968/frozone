@@ -13,6 +13,15 @@
 # `write_raw_int_arrays` plus a runtime build call — cuts source size
 # and cc1plus parse time vs emitting `(&_f_i_X), ` per element.
 #
+# Small-int runtime cache: the literal pool is ALWAYS pre-seeded with
+# every value in SMALL_INT_RANGE (regardless of whether source code
+# references it). A parallel `__SMALL_INTS__[]` LUT of pointers lets
+# `boxed_int(v)` return a pre-allocated `&_f_i_<v>` for values in
+# range without `new`, falling back to `new Integer(v)` for big
+# values. Used by arithmetic intrinsics — matches the interpreter's
+# IntegerObject.from() caching and keeps GC heat down on tight loops
+# (1+1+1+…).
+#
 # Mixed into Cpp so call sites stay `intern_int(v)` /
 # `int_literal_name(v)` (no namespace change).
 
@@ -26,6 +35,20 @@ module Frozone
           # Small arrays stay as `(new Array({...}))` brace-init —
           # the per-element overhead doesn't matter at small N.
           INT_ARRAY_THRESHOLD = 8
+
+          # Range of values pre-seeded into the literal pool AND made
+          # available via the runtime `__SMALL_INTS__[]` LUT used by
+          # boxed_int(). 513 statics → ~16KB of .data. Wider than -128..128
+          # because typical loop iterators / index math stays within ±256
+          # for most hot paths.
+          SMALL_INT_RANGE = (-256..256)
+
+          # Seed @int_literals with every value in SMALL_INT_RANGE so
+          # the corresponding _f_i_<N> statics are guaranteed to exist.
+          # Called once at cache init.
+          def seed_small_int_literals
+            SMALL_INT_RANGE.each { |n| @int_literals[n] = true }
+          end
 
           # Return a reference to the interned Integer for `value`.
           # Each unique value becomes one named static `_f_i_<N>` (with
@@ -98,6 +121,41 @@ module Frozone
             @int_literals.each_key do |value|
               emit.line "Integer #{int_literal_name(value)}(#{value}LL);"
             end
+            emit.blank
+          end
+
+          # Emit the small-int LUT extern decl + boxed_int inline helper
+          # to the same header that has the _f_i_<N> externs. Every
+          # intrinsic TU includes this header (via frozone_all.hpp), so
+          # `boxed_int(v)` is available everywhere — replaces direct
+          # `new Integer(v)` in arithmetic / coerce sites.
+          def write_small_int_lut_decls(emit)
+            emit.line "// Small-int runtime cache — LUT of pointers into the"
+            emit.line "// _f_i_<N> pool. boxed_int(v) returns a pre-allocated"
+            emit.line "// instance when |v| <= SMALL_INT_MAX, else `new Integer(v)`."
+            emit.line "constexpr int64_t SMALL_INT_MIN = #{SMALL_INT_RANGE.min};"
+            emit.line "constexpr int64_t SMALL_INT_MAX = #{SMALL_INT_RANGE.max};"
+            emit.line "constexpr int64_t SMALL_INT_LUT_SIZE = #{SMALL_INT_RANGE.size};"
+            emit.line "extern Integer* const __SMALL_INTS__[SMALL_INT_LUT_SIZE];"
+            emit.blank
+            emit.line "inline BasicObject* boxed_int(int64_t v) {"
+            emit.line "  if (v >= SMALL_INT_MIN && v <= SMALL_INT_MAX) {"
+            emit.line "    return __SMALL_INTS__[v - SMALL_INT_MIN];"
+            emit.line "  }"
+            emit.line "  return new Integer(v);"
+            emit.line "}"
+            emit.blank
+          end
+
+          # Emit the small-int LUT storage definition — one TU pays for
+          # the table; everyone else just sees the extern.
+          def write_small_int_lut_defs(emit)
+            emit.line "// Small-int LUT — pointers into the _f_i_<N> pool."
+            emit.line "Integer* const __SMALL_INTS__[SMALL_INT_LUT_SIZE] = {"
+            SMALL_INT_RANGE.each_slice(16) do |chunk|
+              emit.line "  " + chunk.map { |n| "&#{int_literal_name(n)}" }.join(", ") + ","
+            end
+            emit.line "};"
             emit.blank
           end
         end

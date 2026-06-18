@@ -17,22 +17,22 @@ namespace Ruby {
 namespace fs_detail {
   inline BasicObject* stat_array(const struct stat& st) {
     return new Array({
-      static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_mode))),
-      static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_size))),
-      static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_uid))),
-      static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_gid))),
-      static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_dev))),
-      static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_ino))),
-      static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_nlink))),
-      static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_rdev))),
-      static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_blocks))),
-      static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_blksize))),
-      static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_atim.tv_sec))),
-      static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_atim.tv_nsec))),
-      static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_mtim.tv_sec))),
-      static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_mtim.tv_nsec))),
-      static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_ctim.tv_sec))),
-      static_cast<BasicObject*>(new Integer(static_cast<int64_t>(st.st_ctim.tv_nsec))),
+      static_cast<BasicObject*>(boxed_int(static_cast<int64_t>(st.st_mode))),
+      static_cast<BasicObject*>(boxed_int(static_cast<int64_t>(st.st_size))),
+      static_cast<BasicObject*>(boxed_int(static_cast<int64_t>(st.st_uid))),
+      static_cast<BasicObject*>(boxed_int(static_cast<int64_t>(st.st_gid))),
+      static_cast<BasicObject*>(boxed_int(static_cast<int64_t>(st.st_dev))),
+      static_cast<BasicObject*>(boxed_int(static_cast<int64_t>(st.st_ino))),
+      static_cast<BasicObject*>(boxed_int(static_cast<int64_t>(st.st_nlink))),
+      static_cast<BasicObject*>(boxed_int(static_cast<int64_t>(st.st_rdev))),
+      static_cast<BasicObject*>(boxed_int(static_cast<int64_t>(st.st_blocks))),
+      static_cast<BasicObject*>(boxed_int(static_cast<int64_t>(st.st_blksize))),
+      static_cast<BasicObject*>(boxed_int(static_cast<int64_t>(st.st_atim.tv_sec))),
+      static_cast<BasicObject*>(boxed_int(static_cast<int64_t>(st.st_atim.tv_nsec))),
+      static_cast<BasicObject*>(boxed_int(static_cast<int64_t>(st.st_mtim.tv_sec))),
+      static_cast<BasicObject*>(boxed_int(static_cast<int64_t>(st.st_mtim.tv_nsec))),
+      static_cast<BasicObject*>(boxed_int(static_cast<int64_t>(st.st_ctim.tv_sec))),
+      static_cast<BasicObject*>(boxed_int(static_cast<int64_t>(st.st_ctim.tv_nsec))),
     });
   }
 }
@@ -75,11 +75,11 @@ BasicObject* intrinsic_os_readlink(BasicObject* path) {
 // euid/egid for owned?/grpowned? — separate from the eu*id intrinsics in
 // process_intrinsics so File doesn't pull in Process namespace.
 BasicObject* intrinsic_os_euid() {
-  return new Integer(static_cast<int64_t>(::geteuid()));
+  return boxed_int(static_cast<int64_t>(::geteuid()));
 }
 
 BasicObject* intrinsic_os_egid() {
-  return new Integer(static_cast<int64_t>(::getegid()));
+  return boxed_int(static_cast<int64_t>(::getegid()));
 }
 
 // ---- Mutating POSIX primitives -----------------------------------
@@ -143,10 +143,10 @@ BasicObject* intrinsic_os_umask(BasicObject* new_mask) {
   if (new_mask == nil_instance()) {
     mode_t prev = ::umask(0);
     ::umask(prev);
-    return new Integer(static_cast<int64_t>(prev));
+    return boxed_int(static_cast<int64_t>(prev));
   }
   mode_t m = static_cast<mode_t>(static_cast<Integer*>(new_mask)->raw_);
-  return new Integer(static_cast<int64_t>(::umask(m)));
+  return boxed_int(static_cast<int64_t>(::umask(m)));
 }
 
 BasicObject* intrinsic_os_fnmatch(BasicObject* pattern, BasicObject* path, BasicObject* flags) {
@@ -162,7 +162,7 @@ BasicObject* intrinsic_os_open(BasicObject* path, BasicObject* flags, BasicObjec
   int f = static_cast<int>(static_cast<Integer*>(flags)->raw_);
   mode_t m = static_cast<mode_t>(static_cast<Integer*>(mode)->raw_);
   int fd = ::open(fs_detail::str_of(path).c_str(), f, m);
-  return fd >= 0 ? static_cast<BasicObject*>(new Integer(static_cast<int64_t>(fd))) : nil_instance();
+  return fd >= 0 ? static_cast<BasicObject*>(boxed_int(static_cast<int64_t>(fd))) : nil_instance();
 }
 
 BasicObject* intrinsic_os_close(BasicObject* fd) {
@@ -183,7 +183,7 @@ BasicObject* intrinsic_os_write(BasicObject* fd, BasicObject* bytes) {
   int f = static_cast<int>(static_cast<Integer*>(fd)->raw_);
   const auto* s = static_cast<String*>(bytes);
   ssize_t w = ::write(f, reinterpret_cast<const char*>(s->bytes.data()), s->bytes.size());
-  return w >= 0 ? static_cast<BasicObject*>(new Integer(static_cast<int64_t>(w))) : nil_instance();
+  return w >= 0 ? static_cast<BasicObject*>(boxed_int(static_cast<int64_t>(w))) : nil_instance();
 }
 
 BasicObject* intrinsic_os_lseek(BasicObject* fd, BasicObject* offset, BasicObject* whence) {
@@ -191,7 +191,7 @@ BasicObject* intrinsic_os_lseek(BasicObject* fd, BasicObject* offset, BasicObjec
   off_t o = static_cast<off_t>(static_cast<Integer*>(offset)->raw_);
   int w = static_cast<int>(static_cast<Integer*>(whence)->raw_);
   off_t r = ::lseek(f, o, w);
-  return r >= 0 ? static_cast<BasicObject*>(new Integer(static_cast<int64_t>(r))) : nil_instance();
+  return r >= 0 ? static_cast<BasicObject*>(boxed_int(static_cast<int64_t>(r))) : nil_instance();
 }
 
 BasicObject* intrinsic_os_fstat(BasicObject* fd) {

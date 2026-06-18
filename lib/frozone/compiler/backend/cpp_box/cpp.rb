@@ -356,6 +356,7 @@ module Frozone
             @method_scope = []
             @super_context = nil
             @int_literals = {}
+            seed_small_int_literals
             @raw_int_arrays = []
             @tmp_counter = 0
             @in_block = false

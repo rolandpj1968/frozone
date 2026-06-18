@@ -344,10 +344,12 @@ module Frozone
             emit.with_stream(:int_literals_hpp) do
               emit.cpp.write_raw_int_array_decls(emit)
               emit.cpp.write_int_literal_decls(emit)
+              emit.cpp.write_small_int_lut_decls(emit)
             end
             emit.with_stream(:int_literals_cpp) do
               emit.cpp.write_raw_int_array_defs(emit)
               emit.cpp.write_int_literal_defs(emit)
+              emit.cpp.write_small_int_lut_defs(emit)
             end
             # Note: intrinsic-category includes are NOT emitted here.
             # Per-class TUs include only the categories their bodies

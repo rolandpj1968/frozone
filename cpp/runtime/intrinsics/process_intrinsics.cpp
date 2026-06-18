@@ -23,10 +23,10 @@ BasicObject* intrinsic_process_clock_gettime(BasicObject* /*clock_id*/, BasicObj
   auto _now = std::chrono::steady_clock::now().time_since_epoch();
   if (&typeid(*unit) == &typeid(Symbol)) {
     const char* n = static_cast<Symbol*>(unit)->name_;
-    if (std::strcmp(n, "second")      == 0) return new Integer(std::chrono::duration_cast<std::chrono::seconds>(_now).count());
-    if (std::strcmp(n, "millisecond") == 0) return new Integer(std::chrono::duration_cast<std::chrono::milliseconds>(_now).count());
-    if (std::strcmp(n, "microsecond") == 0) return new Integer(std::chrono::duration_cast<std::chrono::microseconds>(_now).count());
-    if (std::strcmp(n, "nanosecond")  == 0) return new Integer(std::chrono::duration_cast<std::chrono::nanoseconds>(_now).count());
+    if (std::strcmp(n, "second")      == 0) return boxed_int(std::chrono::duration_cast<std::chrono::seconds>(_now).count());
+    if (std::strcmp(n, "millisecond") == 0) return boxed_int(std::chrono::duration_cast<std::chrono::milliseconds>(_now).count());
+    if (std::strcmp(n, "microsecond") == 0) return boxed_int(std::chrono::duration_cast<std::chrono::microseconds>(_now).count());
+    if (std::strcmp(n, "nanosecond")  == 0) return boxed_int(std::chrono::duration_cast<std::chrono::nanoseconds>(_now).count());
   }
   return new Float(std::chrono::duration<double>(_now).count());
 }
@@ -41,15 +41,15 @@ BasicObject* intrinsic_process_clock_gettime(BasicObject* /*clock_id*/, BasicObj
 // ProcessStatusObject + GLOBALS["$?"] update path that no current
 // caller exercises.
 
-BasicObject* intrinsic_process_pid()  { return new Integer(static_cast<int64_t>(::getpid()));  }
+BasicObject* intrinsic_process_pid()  { return boxed_int(static_cast<int64_t>(::getpid()));  }
 
-BasicObject* intrinsic_process_uid()  { return new Integer(static_cast<int64_t>(::getuid()));  }
+BasicObject* intrinsic_process_uid()  { return boxed_int(static_cast<int64_t>(::getuid()));  }
 
-BasicObject* intrinsic_process_euid() { return new Integer(static_cast<int64_t>(::geteuid())); }
+BasicObject* intrinsic_process_euid() { return boxed_int(static_cast<int64_t>(::geteuid())); }
 
-BasicObject* intrinsic_process_gid()  { return new Integer(static_cast<int64_t>(::getgid()));  }
+BasicObject* intrinsic_process_gid()  { return boxed_int(static_cast<int64_t>(::getgid()));  }
 
-BasicObject* intrinsic_process_egid() { return new Integer(static_cast<int64_t>(::getegid())); }
+BasicObject* intrinsic_process_egid() { return boxed_int(static_cast<int64_t>(::getegid())); }
 
 BasicObject* intrinsic_process_groups() {
   int n = ::getgroups(0, nullptr);
@@ -57,7 +57,7 @@ BasicObject* intrinsic_process_groups() {
   std::vector<gid_t> buf(static_cast<std::size_t>(n));
   if (n > 0) ::getgroups(n, buf.data());
   Array* arr = new Array();
-  for (gid_t g : buf) arr->data.push_back(new Integer(static_cast<int64_t>(g)));
+  for (gid_t g : buf) arr->data.push_back(boxed_int(static_cast<int64_t>(g)));
   return arr;
 }
 
@@ -108,10 +108,10 @@ BasicObject* intrinsic_process_clock_getres(BasicObject* /*clock_id*/, BasicObje
   double res_seconds = static_cast<double>(period::num) / static_cast<double>(period::den);
   if (&typeid(*unit) == &typeid(Symbol)) {
     const char* n = static_cast<Symbol*>(unit)->name_;
-    if (std::strcmp(n, "second")      == 0) return new Integer(static_cast<int64_t>(res_seconds));
-    if (std::strcmp(n, "millisecond") == 0) return new Integer(static_cast<int64_t>(res_seconds * 1e3));
-    if (std::strcmp(n, "microsecond") == 0) return new Integer(static_cast<int64_t>(res_seconds * 1e6));
-    if (std::strcmp(n, "nanosecond")  == 0) return new Integer(static_cast<int64_t>(res_seconds * 1e9));
+    if (std::strcmp(n, "second")      == 0) return boxed_int(static_cast<int64_t>(res_seconds));
+    if (std::strcmp(n, "millisecond") == 0) return boxed_int(static_cast<int64_t>(res_seconds * 1e3));
+    if (std::strcmp(n, "microsecond") == 0) return boxed_int(static_cast<int64_t>(res_seconds * 1e6));
+    if (std::strcmp(n, "nanosecond")  == 0) return boxed_int(static_cast<int64_t>(res_seconds * 1e9));
   }
   return new Float(res_seconds);
 }
@@ -135,8 +135,8 @@ BasicObject* intrinsic_os_waitpid(BasicObject* pid_obj, BasicObject* flags_obj) 
     std::abort();
   }
   Array* result = new Array();
-  result->data.push_back(static_cast<BasicObject*>(new Integer(static_cast<int64_t>(got))));
-  result->data.push_back(static_cast<BasicObject*>(new Integer(static_cast<int64_t>(status))));
+  result->data.push_back(static_cast<BasicObject*>(boxed_int(static_cast<int64_t>(got))));
+  result->data.push_back(static_cast<BasicObject*>(boxed_int(static_cast<int64_t>(status))));
   return result;
 }
 

@@ -33,7 +33,7 @@ BasicObject* intrinsic_string_index(BasicObject* self_, BasicObject* sub, BasicO
     auto* _md = regexp_match_helper(sub, _s, _boff);
     if (!_md) return nil_instance();
     std::int64_t _bm = _md->captures_[0].first;
-    return new Integer(_bytewise ? _bm : str_byte_to_char(_s, static_cast<std::size_t>(_bm)));
+    return boxed_int(_bytewise ? _bm : str_byte_to_char(_s, static_cast<std::size_t>(_bm)));
   }
   if (sub->m_class(univ) != reinterpret_cast<BasicObject*>(&String_CLASS)) {
     std::fprintf(stderr, "[frozone-box-first] string_index: non-String/Regexp sub not yet supported\n");
@@ -41,11 +41,11 @@ BasicObject* intrinsic_string_index(BasicObject* self_, BasicObject* sub, BasicO
   }
   auto* _sub = static_cast<String*>(sub);
   std::int64_t _nsize = static_cast<std::int64_t>(_sub->bytes.size());
-  if (_nsize == 0) return new Integer(_off);
+  if (_nsize == 0) return boxed_int(_off);
   if (_boff + _nsize > _hsize) return nil_instance();
   for (std::int64_t _i = _boff; _i + _nsize <= _hsize; _i++) {
     if (std::memcmp(&_s->bytes[_i], _sub->bytes.data(), _nsize) == 0) {
-      return new Integer(_bytewise ? _i : str_byte_to_char(_s, static_cast<std::size_t>(_i)));
+      return boxed_int(_bytewise ? _i : str_byte_to_char(_s, static_cast<std::size_t>(_i)));
     }
   }
   return nil_instance();
@@ -556,7 +556,7 @@ BasicObject* intrinsic_string_hash(BasicObject* self_) {
     _h ^= _b;
     _h *= 0x100000001b3ULL;
   }
-  return new Integer(static_cast<std::int64_t>(_h));
+  return boxed_int(static_cast<std::int64_t>(_h));
 }
 
 // `String#count(*selectors)` — count bytes in self that match the
@@ -569,7 +569,7 @@ BasicObject* intrinsic_string_hash(BasicObject* self_) {
 BasicObject* intrinsic_string_count_raw(BasicObject* self_, BasicObject* args_obj) {
   auto* _s = static_cast<String*>(self_);
   auto* _args = static_cast<Array*>(args_obj);
-  if (_args->data.empty()) return new Integer(0);
+  if (_args->data.empty()) return boxed_int(0);
   bool _set[256] = {false};
   for (std::size_t _i = 0; _i < _args->data.size(); ++_i) {
     auto* _arg = static_cast<String*>(_args->data[_i]);
@@ -583,7 +583,7 @@ BasicObject* intrinsic_string_count_raw(BasicObject* self_, BasicObject* args_ob
   }
   std::int64_t _count = 0;
   for (auto _b : _s->bytes) if (_set[_b]) ++_count;
-  return new Integer(_count);
+  return boxed_int(_count);
 }
 
 // ---- Array ---------------------------------------------------------
@@ -658,7 +658,7 @@ BasicObject* intrinsic_string_to_sym(BasicObject* self_) {
 // 0x/0b/0o prefixes for base==0; widen as needed.
 BasicObject* intrinsic_string_to_i_base(BasicObject* self_, BasicObject* base) {
   auto* _s = static_cast<String*>(self_);
-  if (_s->bytes.empty()) return new Integer(0);
+  if (_s->bytes.empty()) return boxed_int(0);
   std::string _buf;
   _buf.reserve(_s->bytes.size());
   size_t i = 0;
@@ -681,7 +681,7 @@ BasicObject* intrinsic_string_to_i_base(BasicObject* self_, BasicObject* base) {
   int _b = static_cast<int>(static_cast<Integer*>(base)->raw_);
   char* _end = nullptr;
   long long _v = std::strtoll(_buf.c_str(), &_end, _b);
-  return new Integer(static_cast<std::int64_t>(_v));
+  return boxed_int(static_cast<std::int64_t>(_v));
 }
 
 // ---- String (Tier-B continuation) ----------------------------------
@@ -788,10 +788,10 @@ BasicObject* intrinsic_string_byteindex(BasicObject* self_, BasicObject* sub, Ba
   int64_t hsize = static_cast<int64_t>(s->bytes.size());
   if (off < 0) off = std::max<int64_t>(0, hsize + off);
   if (off > hsize) return nil_instance();
-  if (p->bytes.empty()) return new Integer(off);
+  if (p->bytes.empty()) return boxed_int(off);
   for (int64_t i = off; i + static_cast<int64_t>(p->bytes.size()) <= hsize; ++i) {
     if (std::memcmp(s->bytes.data() + i, p->bytes.data(), p->bytes.size()) == 0) {
-      return new Integer(i);
+      return boxed_int(i);
     }
   }
   return nil_instance();
@@ -808,10 +808,10 @@ BasicObject* intrinsic_string_byterindex(BasicObject* self_, BasicObject* sub, B
     if (end_pos < 0) end_pos += hsize;
   }
   if (end_pos > hsize - psize) end_pos = hsize - psize;
-  if (psize == 0) return new Integer(end_pos < 0 ? 0 : end_pos);
+  if (psize == 0) return boxed_int(end_pos < 0 ? 0 : end_pos);
   for (int64_t i = end_pos; i >= 0; --i) {
     if (std::memcmp(s->bytes.data() + i, p->bytes.data(), psize) == 0) {
-      return new Integer(i);
+      return boxed_int(i);
     }
   }
   return nil_instance();
@@ -837,13 +837,13 @@ BasicObject* intrinsic_string_ord(BasicObject* self_) {
   }
   // Decode first UTF-8 codepoint (BINARY → first byte).
   uint8_t b = s->bytes[0];
-  if (s->enc == String::BINARY || b < 0x80) return new Integer(b);
+  if (s->enc == String::BINARY || b < 0x80) return boxed_int(b);
   int n = (b < 0xC0) ? 1 : (b < 0xE0) ? 2 : (b < 0xF0) ? 3 : 4;
   int64_t cp = b & ((1 << (7 - n)) - 1);
   for (int j = 1; j < n && j < static_cast<int>(s->bytes.size()); ++j) {
     cp = (cp << 6) | (s->bytes[j] & 0x3F);
   }
-  return new Integer(cp);
+  return boxed_int(cp);
 }
 
 BasicObject* intrinsic_string_oct(BasicObject* self_) {
@@ -856,7 +856,7 @@ BasicObject* intrinsic_string_oct(BasicObject* self_) {
   // Skip leading whitespace.
   std::size_t i = 0;
   while (i < str.size() && std::isspace(static_cast<unsigned char>(str[i]))) ++i;
-  if (i >= str.size()) return new Integer(0);
+  if (i >= str.size()) return boxed_int(0);
   std::string sub = str.substr(i);
   // Default to octal — prefix the digits with 0 if no prefix present.
   bool has_prefix = sub.size() >= 2 &&
@@ -874,7 +874,7 @@ BasicObject* intrinsic_string_oct(BasicObject* self_) {
   }
   char* endp = nullptr;
   long long v = std::strtoll(sub.c_str(), &endp, base);
-  return new Integer(v);
+  return boxed_int(v);
 }
 
 BasicObject* intrinsic_string_rindex(BasicObject* self_, BasicObject* sub, BasicObject* offset) {
@@ -892,12 +892,12 @@ BasicObject* intrinsic_string_rindex(BasicObject* self_, BasicObject* sub, Basic
     if (_o < 0) _o += _clen;
     if (_o < 0) return nil_instance();
     if (_o > _clen) _o = _clen;
-    _boff = new Integer(static_cast<std::int64_t>(str_char_to_byte(_s, _o)));
+    _boff = boxed_int(static_cast<std::int64_t>(str_char_to_byte(_s, _o)));
   }
   BasicObject* _r = intrinsic_string_byterindex(self_, sub, _boff);
   if (_r == nil_instance()) return _r;
   std::int64_t _bm = static_cast<Integer*>(_r)->raw_;
-  return new Integer(str_byte_to_char(_s, static_cast<std::size_t>(_bm)));
+  return boxed_int(str_byte_to_char(_s, static_cast<std::size_t>(_bm)));
 }
 
 BasicObject* intrinsic_string_each_line(BasicObject* self_, BasicObject* sep, BasicObject* /*limit*/) {
@@ -1188,7 +1188,7 @@ BasicObject* intrinsic_array_initialize(BasicObject* self_, BasicObject* size_or
     auto* _b = static_cast<Proc*>(block);
     _a->data.reserve(static_cast<std::size_t>(_n));
     for (std::int64_t i = 0; i < _n; i++) {
-      _a->data.push_back(_b->call1(new Integer(i)));
+      _a->data.push_back(_b->call1(boxed_int(i)));
     }
   } else {
     BasicObject* _fv = (fill == nil_instance()) ? nil_instance() : fill;

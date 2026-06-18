@@ -69,7 +69,7 @@ BasicObject* intrinsic_regexp_new(BasicObject* /*klass*/, BasicObject* pat, Basi
   auto* _re = new Regexp();
   auto* _a = new Array({
       pat,
-      (opts == nil_instance() ? static_cast<BasicObject*>(new Integer(0)) : opts),
+      (opts == nil_instance() ? static_cast<BasicObject*>(boxed_int(0)) : opts),
   });
   _re->m_initialize(univ, _a);
   return _re;
@@ -78,7 +78,7 @@ BasicObject* intrinsic_regexp_new(BasicObject* /*klass*/, BasicObject* pat, Basi
 // `re =~ str` — Integer byte-offset of first match, or nil. Sets $~.
 BasicObject* intrinsic_regexp_match_index(BasicObject* self_, BasicObject* str) {
   auto* _md = regexp_match_helper(self_, str, 0);
-  return _md ? static_cast<BasicObject*>(new Integer(_md->captures_[0].first)) : nil_instance();
+  return _md ? static_cast<BasicObject*>(boxed_int(_md->captures_[0].first)) : nil_instance();
 }
 
 // `re.match(str, pos)` — MatchData or nil. Sets $~.
@@ -145,7 +145,7 @@ BasicObject* intrinsic_match_data_match_length(BasicObject* self_, BasicObject* 
   auto* _md = static_cast<MatchData*>(self_);
   std::int64_t _i = static_cast<Integer*>(n)->raw_;
   auto [_b, _e] = _md->captures_[_i];
-  return new Integer(_e - _b);
+  return boxed_int(_e - _b);
 }
 
 

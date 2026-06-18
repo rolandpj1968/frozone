@@ -46,7 +46,7 @@ namespace random_detail {
 BasicObject* intrinsic_random_new_seed(BasicObject* /*receiver*/) {
   // Ruby returns a 128-bit seed; box-first stays 64-bit until users
   // notice (de-intrinsification flagged this is a soundness gap).
-  return new Integer(static_cast<int64_t>(random_detail::fresh_seed()));
+  return boxed_int(static_cast<int64_t>(random_detail::fresh_seed()));
 }
 
 BasicObject* intrinsic_random_new(BasicObject* /*receiver*/, BasicObject* seed) {
@@ -69,7 +69,7 @@ BasicObject* intrinsic_random_new(BasicObject* /*receiver*/, BasicObject* seed) 
   // this intrinsic), so call m_initialize directly on the fresh obj.
   Array* init_args = new Array();
   init_args->data.push_back(seed == nil_instance()
-                              ? static_cast<BasicObject*>(new Integer(static_cast<int64_t>(s)))
+                              ? static_cast<BasicObject*>(boxed_int(static_cast<int64_t>(s)))
                               : seed);
   obj->m_initialize(univ, init_args, &EMPTY_KWARGS, nil_instance());
   // Also keep per_obj populated so intrinsic_random_rand (the path
@@ -80,10 +80,10 @@ BasicObject* intrinsic_random_new(BasicObject* /*receiver*/, BasicObject* seed) 
 }
 
 BasicObject* intrinsic_random_seed(BasicObject* v) {
-  if (v == nil_instance()) return new Integer(0);  // default rng has no recoverable seed
+  if (v == nil_instance()) return boxed_int(0);  // default rng has no recoverable seed
   auto& m = random_detail::per_obj();
   auto it = m.find(v);
-  return new Integer(it == m.end() ? 0 : static_cast<int64_t>(it->second.seed));
+  return boxed_int(it == m.end() ? 0 : static_cast<int64_t>(it->second.seed));
 }
 
 BasicObject* intrinsic_random_state(BasicObject* v) {
@@ -107,7 +107,7 @@ BasicObject* intrinsic_random_rand(BasicObject* v, BasicObject* n) {
       std::abort();
     }
     std::uniform_int_distribution<int64_t> dist(0, bound - 1);
-    return new Integer(dist(rng));
+    return boxed_int(dist(rng));
   }
   if (n->m_class(univ) == reinterpret_cast<BasicObject*>(&Float_CLASS)) {
     double bound = static_cast<Float*>(n)->raw_;

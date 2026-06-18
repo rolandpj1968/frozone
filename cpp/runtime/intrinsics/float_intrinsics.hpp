@@ -28,7 +28,7 @@ inline BasicObject* __float_round_to__(BasicObject* self_, BasicObject* nd, Op o
   ret_int = ret_int || (d <= 0);
   double sc = std::pow(10.0, static_cast<double>(d));
   double r = op(v * sc) / sc;
-  return ret_int ? static_cast<BasicObject*>(new Integer(static_cast<std::int64_t>(r)))
+  return ret_int ? static_cast<BasicObject*>(boxed_int(static_cast<std::int64_t>(r)))
                  : static_cast<BasicObject*>(new Float(r));
 }
 

@@ -39,13 +39,13 @@ BasicObject* intrinsic_dir_chdir(BasicObject* path, BasicObject* block) {
   std::string target;
   if (path == nil_instance()) {
     const char* h = std::getenv("HOME");
-    if (!h) return new Integer(0);
+    if (!h) return boxed_int(0);
     target = h;
   } else {
     target = fs_detail::str_of(path);
   }
   (void)::chdir(target.c_str());
-  return new Integer(0);
+  return boxed_int(0);
 }
 
 BasicObject* intrinsic_dir_home(BasicObject* user) {
@@ -158,12 +158,12 @@ BasicObject* intrinsic_dir_mkdir(BasicObject* path, BasicObject* /*perm*/) {
     std::fprintf(stderr, "[box-first] dir_mkdir failed: %s\n", std::strerror(errno));
     std::abort();
   }
-  return new Integer(0);
+  return boxed_int(0);
 }
 
 BasicObject* intrinsic_dir_rmdir(BasicObject* path) {
   ::rmdir(fs_detail::str_of(path).c_str());
-  return new Integer(0);
+  return boxed_int(0);
 }
 
 BasicObject* intrinsic_dir_exist(BasicObject* path) {

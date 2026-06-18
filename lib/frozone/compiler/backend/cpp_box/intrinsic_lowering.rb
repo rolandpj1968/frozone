@@ -233,7 +233,7 @@ module Frozone
             class_allocate: ->(klass) { "static_cast<Class*>(#{klass})->m_raw_allocate(univ)" },
 
             # Array
-            array_length: ->(self_) { "(new Integer(static_cast<int64_t>(static_cast<Array*>(#{self_})->data.size())))" },
+            array_length: ->(self_) { "(boxed_int(static_cast<int64_t>(static_cast<Array*>(#{self_})->data.size())))" },
             array_at: ->(self_, i) {
               Cpp.block_expr(
                 ["auto* _a = static_cast<Array*>(#{self_});",
@@ -281,14 +281,14 @@ module Frozone
             },
 
             # Integer arithmetic — direct unboxed ops on raw_ + box.
-            integer__plus_:  ->(s, o) { "(new Integer(static_cast<Integer*>(#{s})->raw_ + static_cast<Integer*>(#{o})->raw_))" },
-            integer__minus_: ->(s, o) { "(new Integer(static_cast<Integer*>(#{s})->raw_ - static_cast<Integer*>(#{o})->raw_))" },
-            integer__mul_:   ->(s, o) { "(new Integer(static_cast<Integer*>(#{s})->raw_ * static_cast<Integer*>(#{o})->raw_))" },
+            integer__plus_:  ->(s, o) { "(boxed_int(static_cast<Integer*>(#{s})->raw_ + static_cast<Integer*>(#{o})->raw_))" },
+            integer__minus_: ->(s, o) { "(boxed_int(static_cast<Integer*>(#{s})->raw_ - static_cast<Integer*>(#{o})->raw_))" },
+            integer__mul_:   ->(s, o) { "(boxed_int(static_cast<Integer*>(#{s})->raw_ * static_cast<Integer*>(#{o})->raw_))" },
             integer_spaceship: ->(s, o) {
-              "(new Integer(static_cast<int64_t>((static_cast<Integer*>(#{s})->raw_ > static_cast<Integer*>(#{o})->raw_) - (static_cast<Integer*>(#{s})->raw_ < static_cast<Integer*>(#{o})->raw_))))"
+              "(boxed_int(static_cast<int64_t>((static_cast<Integer*>(#{s})->raw_ > static_cast<Integer*>(#{o})->raw_) - (static_cast<Integer*>(#{s})->raw_ < static_cast<Integer*>(#{o})->raw_))))"
             },
             float_spaceship: ->(s, o) {
-              "(new Integer(static_cast<int64_t>((static_cast<Float*>(#{s})->raw_ > static_cast<Float*>(#{o})->raw_) - (static_cast<Float*>(#{s})->raw_ < static_cast<Float*>(#{o})->raw_))))"
+              "(boxed_int(static_cast<int64_t>((static_cast<Float*>(#{s})->raw_ > static_cast<Float*>(#{o})->raw_) - (static_cast<Float*>(#{s})->raw_ < static_cast<Float*>(#{o})->raw_))))"
             },
 
             integer__lt_:    ->(s, o) { "boxed_bool(static_cast<Integer*>(#{s})->raw_ <  static_cast<Integer*>(#{o})->raw_)" },
@@ -296,7 +296,7 @@ module Frozone
             integer__le_:    ->(s, o) { "boxed_bool(static_cast<Integer*>(#{s})->raw_ <= static_cast<Integer*>(#{o})->raw_)" },
             integer__ge_:    ->(s, o) { "boxed_bool(static_cast<Integer*>(#{s})->raw_ >= static_cast<Integer*>(#{o})->raw_)" },
             integer__eq_:    ->(s, o) { "boxed_bool(static_cast<Integer*>(#{s})->raw_ == static_cast<Integer*>(#{o})->raw_)" },
-            integer_bitnot:  ->(s) { "(new Integer(~static_cast<Integer*>(#{s})->raw_))" },
+            integer_bitnot:  ->(s) { "(boxed_int(~static_cast<Integer*>(#{s})->raw_))" },
             float__mod_:     ->(s, o) { "(new Float(std::fmod(static_cast<Float*>(#{s})->raw_, static_cast<Float*>(#{o})->raw_)))" },
             float_divmod:    ->(s, o) {
               Cpp.block_expr(
@@ -307,7 +307,7 @@ module Frozone
                 "(new Array({static_cast<BO*>(new Float(_q)), static_cast<BO*>(new Float(_r))}))"
               )
             },
-            float_hash:      ->(s) { "(new Integer(static_cast<int64_t>(std::hash<double>{}(static_cast<Float*>(#{s})->raw_))))" },
+            float_hash:      ->(s) { "(boxed_int(static_cast<int64_t>(std::hash<double>{}(static_cast<Float*>(#{s})->raw_))))" },
             float_to_s:      ->(s) {
               Cpp.staged_block_expr([
                 { stmts: ["char _buf[32];", "double _v = static_cast<Float*>(#{s})->raw_;"],
@@ -436,13 +436,13 @@ module Frozone
             module_set_protected:  ->(_self_, _recv, _names) { "nil_instance()" },
 
             string_get_byte: ->(self_, i) {
-              "(new Integer(static_cast<int64_t>(static_cast<String*>(#{self_})->bytes[static_cast<Integer*>(#{i})->raw_])))"
+              "(boxed_int(static_cast<int64_t>(static_cast<String*>(#{self_})->bytes[static_cast<Integer*>(#{i})->raw_])))"
             },
             string_setbyte: ->(self_, i, b) {
               "(static_cast<String*>(#{self_})->bytes[static_cast<Integer*>(#{i})->raw_] = static_cast<std::uint8_t>(static_cast<Integer*>(#{b})->raw_), #{b})"
             },
             string_bytesize: ->(self_) {
-              "(new Integer(static_cast<int64_t>(static_cast<String*>(#{self_})->bytes.size())))"
+              "(boxed_int(static_cast<int64_t>(static_cast<String*>(#{self_})->bytes.size())))"
             },
             # Stubs for box-first; implement properly later. See aotcompile note.
             string_to_f: ->(self_) {
@@ -455,7 +455,7 @@ module Frozone
               )
             },
             string_to_r: ->(_self_) {
-              "(&Rational_CLASS)->m_new(univ, new Array({static_cast<BO*>(new Integer(0)), static_cast<BO*>(new Integer(1))}))"
+              "(&Rational_CLASS)->m_new(univ, new Array({static_cast<BO*>(boxed_int(0)), static_cast<BO*>(boxed_int(1))}))"
             },
             # `String#to_sym` — interns the string. intern() takes a
             # const char*, so the string must be NUL-terminated. Copy
@@ -471,7 +471,7 @@ module Frozone
             kernel_lambda: ->(_self_) { "static_cast<BO*>(_block)" },
             kernel_proc: ->(_self_) { "static_cast<BO*>(_block)" },
             basic_object__equal_equal_: ->(s, o) { "boxed_bool(#{s} == #{o})" },
-            basic_object___id__: ->(s) { "(new Integer(reinterpret_cast<int64_t>(#{s})))" },
+            basic_object___id__: ->(s) { "(boxed_int(reinterpret_cast<int64_t>(#{s})))" },
 
             # ---- Regexp / MatchData ----------------------------------
             # Most lower to direct field access on Regexp* / MatchData*.
@@ -479,7 +479,7 @@ module Frozone
             # KernelFn so $~ side-effects + capture-snapshot stay in
             # one place.
             regexp_source:  ->(self_) { "(static_cast<Regexp*>(#{self_})->source_)" },
-            regexp_options: ->(self_) { "(new Integer(static_cast<Regexp*>(#{self_})->options_))" },
+            regexp_options: ->(self_) { "(boxed_int(static_cast<Regexp*>(#{self_})->options_))" },
             regexp_newly_created_q: ->(self_) { "boxed_bool(!static_cast<Regexp*>(#{self_})->initialized_)" },
             regexp_encoding: ->(_self_) { %((new String("UTF-8", 5))) },
             # `re.match?(str, pos)` — short enough to keep inline; doesn't
@@ -507,13 +507,13 @@ module Frozone
 
             # MatchData accessors. md[N] (Integer N) routes here.
             match_data_index: ->(self_, n) { "matchdata_cap(#{self_}, static_cast<Integer*>(#{n})->raw_)" },
-            match_data_size:  ->(self_) { "(new Integer(static_cast<int64_t>(static_cast<MatchData*>(#{self_})->captures_.size())))" },
+            match_data_size:  ->(self_) { "(boxed_int(static_cast<int64_t>(static_cast<MatchData*>(#{self_})->captures_.size())))" },
             match_data_string: ->(self_) { "(static_cast<MatchData*>(#{self_})->iv_string)" },
             match_data_regexp: ->(self_) { "(static_cast<MatchData*>(#{self_})->iv_regexp)" },
-            match_data_begin: ->(self_, n) { "(new Integer(static_cast<MatchData*>(#{self_})->captures_[static_cast<Integer*>(#{n})->raw_].first))" },
-            match_data_end:   ->(self_, n) { "(new Integer(static_cast<MatchData*>(#{self_})->captures_[static_cast<Integer*>(#{n})->raw_].second))" },
-            match_data_bytebegin: ->(self_, n) { "(new Integer(static_cast<MatchData*>(#{self_})->captures_[static_cast<Integer*>(#{n})->raw_].first))" },
-            match_data_byteend:   ->(self_, n) { "(new Integer(static_cast<MatchData*>(#{self_})->captures_[static_cast<Integer*>(#{n})->raw_].second))" },
+            match_data_begin: ->(self_, n) { "(boxed_int(static_cast<MatchData*>(#{self_})->captures_[static_cast<Integer*>(#{n})->raw_].first))" },
+            match_data_end:   ->(self_, n) { "(boxed_int(static_cast<MatchData*>(#{self_})->captures_[static_cast<Integer*>(#{n})->raw_].second))" },
+            match_data_bytebegin: ->(self_, n) { "(boxed_int(static_cast<MatchData*>(#{self_})->captures_[static_cast<Integer*>(#{n})->raw_].first))" },
+            match_data_byteend:   ->(self_, n) { "(boxed_int(static_cast<MatchData*>(#{self_})->captures_[static_cast<Integer*>(#{n})->raw_].second))" },
             # Stubs — return whole-match for slice forms so md[0,len] /
             # md[range] don't blow up the auto-emitter (each branch of
             # MatchData#[] is emitted regardless of which one runs).
@@ -546,7 +546,7 @@ module Frozone
               )
             },
             hash_size: ->(self_) {
-              "(new Integer(static_cast<int64_t>(static_cast<Hash*>(#{self_})->live)))"
+              "(boxed_int(static_cast<int64_t>(static_cast<Hash*>(#{self_})->live)))"
             },
             hash_clear: ->(self_) { "(static_cast<Hash*>(#{self_})->clear_kvps(), #{self_})" },
 
@@ -646,7 +646,7 @@ module Frozone
             # equality is the canonical equality; pointer-as-int gives
             # a stable hash. Equivalent to BasicObject#__id__.
             symbol_hash: ->(self_) {
-              "(new Integer(reinterpret_cast<int64_t>(#{self_})))"
+              "(boxed_int(reinterpret_cast<int64_t>(#{self_})))"
             },
 
             # ---- Regexp ---------------------------------------------
@@ -659,7 +659,7 @@ module Frozone
             # the integer itself. Good enough for Hash-key purposes
             # (hashing equal ints to equal hashes is the only invariant).
             integer_hash: ->(self_) {
-              "(new Integer(static_cast<Integer*>(#{self_})->raw_))"
+              "(boxed_int(static_cast<Integer*>(#{self_})->raw_))"
             },
 
             # ---- Module / Class -------------------------------------
@@ -690,7 +690,7 @@ module Frozone
             # track block arity at AOT time; -1 is MRI's default for
             # &-blocks with rest args, and harmless for callers that
             # check arity for warning purposes.
-            proc_arity: ->(_self_) { "(new Integer(-1))" },
+            proc_arity: ->(_self_) { "(boxed_int(-1))" },
             # `Proc#lambda?` — stub. We don't distinguish Procs from
             # lambdas (every block becomes a Proc with default-Proc
             # semantics). Returning false matches the more permissive

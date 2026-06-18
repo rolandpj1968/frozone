@@ -29,7 +29,7 @@ BasicObject* intrinsic_io_raw_write_stdout(BasicObject* /*self_*/, BasicObject* 
   }
   auto* str = static_cast<String*>(s);
   std::size_t n = std::fwrite(str->bytes.data(), 1, str->bytes.size(), stdout);
-  return new Integer(static_cast<int64_t>(n));
+  return boxed_int(static_cast<int64_t>(n));
 }
 
 BasicObject* intrinsic_io_raw_write_stderr(BasicObject* /*self_*/, BasicObject* s) {
@@ -40,7 +40,7 @@ BasicObject* intrinsic_io_raw_write_stderr(BasicObject* /*self_*/, BasicObject* 
   }
   auto* str = static_cast<String*>(s);
   std::size_t n = std::fwrite(str->bytes.data(), 1, str->bytes.size(), stderr);
-  return new Integer(static_cast<int64_t>(n));
+  return boxed_int(static_cast<int64_t>(n));
 }
 
 

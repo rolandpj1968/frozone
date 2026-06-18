@@ -87,7 +87,7 @@ BasicObject* intrinsic_kernel_rand(BasicObject* /*self_*/, BasicObject* n) {
 // Integer via existing helper.
 BasicObject* intrinsic_kernel_integer(BasicObject* /*self_*/, BasicObject* val,
                                              BasicObject* /*base*/, BasicObject* /*exception*/) {
-  return new Integer(coerce_to_int(val));
+  return boxed_int(coerce_to_int(val));
 }
 
 // `Kernel#Float(val)` — coerce to Float. Fast path for Integer/Float;

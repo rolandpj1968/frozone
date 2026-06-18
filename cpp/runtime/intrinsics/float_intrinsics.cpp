@@ -52,7 +52,7 @@ BasicObject* intrinsic_float_round(BasicObject* self_, BasicObject* nd, BasicObj
     r = std::round(x);
   }
   double res = r / sc;
-  return ret_int ? static_cast<BasicObject*>(new Integer(static_cast<std::int64_t>(res)))
+  return ret_int ? static_cast<BasicObject*>(boxed_int(static_cast<std::int64_t>(res)))
                  : static_cast<BasicObject*>(new Float(res));
 }
 
@@ -61,7 +61,7 @@ BasicObject* intrinsic_float_frexp(BasicObject* self_) {
   int e;
   double m = std::frexp(static_cast<Float*>(self_)->raw_, &e);
   return new Array({ static_cast<BasicObject*>(new Float(m)),
-                     static_cast<BasicObject*>(new Integer(static_cast<std::int64_t>(e))) });
+                     static_cast<BasicObject*>(boxed_int(static_cast<std::int64_t>(e))) });
 }
 
 // Math.lgamma(x) → [log|gamma(x)|, sign]. lgamma_r supplies the sign.
@@ -69,7 +69,7 @@ BasicObject* intrinsic_float_lgamma(BasicObject* self_) {
   int sgn;
   double r = lgamma_r(static_cast<Float*>(self_)->raw_, &sgn);
   return new Array({ static_cast<BasicObject*>(new Float(r)),
-                     static_cast<BasicObject*>(new Integer(static_cast<std::int64_t>(sgn))) });
+                     static_cast<BasicObject*>(boxed_int(static_cast<std::int64_t>(sgn))) });
 }
 
 BasicObject* intrinsic_float_gamma(BasicObject* self_) {
