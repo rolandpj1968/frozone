@@ -11,46 +11,10 @@
 namespace Ruby {
 
 // --- character <-> byte offset mapping (UTF-8 aware) -------------------
-// Map a character index to a byte offset honouring the string's encoding.
-// For BINARY, char index == byte index. For UTF-8, walk codepoints (a
-// continuation byte matches 10xxxxxx). char_idx is clamped to
-// [0, length]; char_idx == length returns bytes.size().
-inline std::size_t str_char_to_byte(const String* s, std::int64_t char_idx) {
-  std::int64_t n = static_cast<std::int64_t>(s->bytes.size());
-  if (char_idx <= 0) return 0;
-  if (s->enc == String::BINARY) return static_cast<std::size_t>(char_idx > n ? n : char_idx);
-  // Search cache (MRI's pattern). The WQ lexer accesses the same source
-  // string with monotonically increasing codepoint indices; without the
-  // cache each call walks bytes from 0 → O(N²) per file. For backward /
-  // random access (cached idx > requested), the seed (0,0) starting
-  // point reproduces the original behaviour at no cost.
-  std::size_t bo = 0;
-  std::int64_t ci = 0;
-  if (s->cp_cache_idx_ > 0 && s->cp_cache_idx_ <= char_idx && s->cp_cache_byte_ <= s->bytes.size()) {
-    ci = s->cp_cache_idx_;
-    bo = s->cp_cache_byte_;
-  }
-  while (bo < s->bytes.size() && ci < char_idx) {
-    bo++;
-    while (bo < s->bytes.size() && (s->bytes[bo] & 0xC0) == 0x80) bo++;
-    ci++;
-  }
-  s->cp_cache_idx_ = ci;
-  s->cp_cache_byte_ = bo;
-  return bo;
-}
-
-// Inverse: byte offset -> character index (count of codepoint starts in
-// [0, byte_off)). For BINARY, byte index == char index.
-inline std::int64_t str_byte_to_char(const String* s, std::size_t byte_off) {
-  if (s->enc == String::BINARY) return static_cast<std::int64_t>(byte_off);
-  std::int64_t ci = 0;
-  std::size_t n = std::min(byte_off, s->bytes.size());
-  for (std::size_t b = 0; b < n; b++) {
-    if ((s->bytes[b] & 0xC0) != 0x80) ci++;
-  }
-  return ci;
-}
+// Character ↔ byte index helpers — defined in string_intrinsics.cpp.
+// TU-local: only intrinsic_string_X bodies need them.
+std::size_t str_char_to_byte(const String* s, std::int64_t char_idx);
+std::int64_t str_byte_to_char(const String* s, std::size_t byte_off);
 
 BasicObject* intrinsic_string_index(BasicObject* self_, BasicObject* sub, BasicObject* offset);
 
