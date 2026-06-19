@@ -81,12 +81,12 @@ class Hash
     self
   end
 
-  def [](key) = Intrinsics.hash_index(self, key)
+  def [](key) = Intrinsics.hash_index(self, key, @compare_by_identity)
   def default_proc = Intrinsics.hash_get_default_proc(self)
   def size = Intrinsics.hash_size(self)
   alias length size
   def empty? = size == 0
-  def key?(key) = Intrinsics.hash_key(self, key)
+  def key?(key) = Intrinsics.hash_key(self, key, @compare_by_identity)
   alias has_key? key?
   alias include? key?
   alias member? key?
@@ -105,7 +105,7 @@ class Hash
     return self if @compare_by_identity
     raise FrozenError.new("can't modify frozen Hash: #{inspect}", receiver: self) if frozen?
     @compare_by_identity = true
-    Intrinsics.hash_compare_by_identity(self)
+    Intrinsics.hash_set_identity_mode(self, true)
     self
   end
   def compare_by_identity? = @compare_by_identity
@@ -128,7 +128,7 @@ class Hash
     end
   end
 
-  def []=(key, value) = Intrinsics.hash_index_write(self, key, value)
+  def []=(key, value) = Intrinsics.hash_index_write(self, key, value, @compare_by_identity)
   alias store []=
 
   def default(key = :__no_key__)
@@ -282,7 +282,8 @@ class Hash
     __check_frozen__
     other = __coerce_to_hash__(other)
     Intrinsics.hash_clear(self)
-    Intrinsics.hash_reset_compare_by_identity(self)
+    @compare_by_identity = false
+    Intrinsics.hash_set_identity_mode(self, false)
     other.each { |k, v| self[k] = v }
     if other.default_proc
       Intrinsics.hash_set_default_proc(self, other.default_proc)
@@ -295,21 +296,21 @@ class Hash
 
   def delete(key, &block)
     __check_frozen__
-    return Intrinsics.hash_delete(self, key) if key?(key)
+    return Intrinsics.hash_delete(self, key, @compare_by_identity) if key?(key)
     block ? block.call(key) : nil
   end
 
   def delete_if(&block)
     return to_enum(:delete_if) { size } unless block
     __check_frozen__
-    each { |k, v| Intrinsics.hash_delete(self, k) if block.call(k, v) }
+    each { |k, v| Intrinsics.hash_delete(self, k, @compare_by_identity) if block.call(k, v) }
     self
   end
 
   def keep_if(&block)
     return to_enum(:keep_if) { size } unless block
     __check_frozen__
-    each { |k, v| Intrinsics.hash_delete(self, k) unless block.call(k, v) }
+    each { |k, v| Intrinsics.hash_delete(self, k, @compare_by_identity) unless block.call(k, v) }
     self
   end
 
@@ -348,7 +349,7 @@ class Hash
     return to_enum(:select!) { size } unless block
     __check_frozen__
     changed = false
-    each { |k, v| unless block.call(k, v); Intrinsics.hash_delete(self, k); changed = true; end }
+    each { |k, v| unless block.call(k, v); Intrinsics.hash_delete(self, k, @compare_by_identity); changed = true; end }
     changed ? self : nil
   end
 
@@ -366,7 +367,7 @@ class Hash
     return to_enum(:reject!) { size } unless block
     __check_frozen__
     changed = false
-    each { |k, v| if block.call(k, v); Intrinsics.hash_delete(self, k); changed = true; end }
+    each { |k, v| if block.call(k, v); Intrinsics.hash_delete(self, k, @compare_by_identity); changed = true; end }
     changed ? self : nil
   end
 
@@ -438,7 +439,7 @@ class Hash
     __check_frozen__
     return nil if empty?
     k = keys.first
-    v = Intrinsics.hash_delete(self, k)
+    v = Intrinsics.hash_delete(self, k, @compare_by_identity)
     [k, v]
   end
 
@@ -457,7 +458,7 @@ class Hash
   def slice(*keys)
     r = Hash.new
     r.compare_by_identity if compare_by_identity?
-    keys.each { |k| r[k] = Intrinsics.hash_index(self, k) if key?(k) }
+    keys.each { |k| r[k] = Intrinsics.hash_index(self, k, @compare_by_identity) if key?(k) }
     r
   end
 

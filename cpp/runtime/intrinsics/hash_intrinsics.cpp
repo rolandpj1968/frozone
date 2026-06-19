@@ -33,45 +33,30 @@ BasicObject* intrinsic_hash_each(BasicObject* self_, BasicObject* block) {
   return _h;
 }
 
-// `Hash#delete(key)` — remove and return value, or nil if key absent.
+// `Hash#delete(key, by_id)` — remove and return value, or nil if absent.
 // Does NOT call the default proc on miss (matches MRI Hash#delete).
 // erase_key tombstones the insertion_order slot and triggers a compact
-// pass if the waste ratio exceeds half.
-BasicObject* intrinsic_hash_delete(BasicObject* self_, BasicObject* key) {
+// pass if waste ratio exceeds half. by_id is the per-call compare-by-identity
+// mode (caller's @compare_by_identity); the cpp Hash's internal cache must
+// match (kept consistent via hash_set_identity_mode).
+BasicObject* intrinsic_hash_delete(BasicObject* self_, BasicObject* key, BasicObject* /*by_id*/) {
   auto* _h = static_cast<Hash*>(self_);
   BasicObject* _v = _h->erase_key(key);
   return _v ? _v : nil_instance();
 }
 
-// `Hash#compare_by_identity` (setter) — switch to pointer-identity
-// keys + pointer-hash. The Hasher/KeyEq functors hold a pointer to
-// compare_by_identity_; flipping it + rehash(0) redistributes
-// existing entries under the new mode. Per MRI: previously-collapsed
-// duplicate keys (value-equal but distinct pointers) STAY collapsed.
-// Returns self.
-BasicObject* intrinsic_hash_compare_by_identity(BasicObject* self_) {
+// Set cpp Hash's internal mode cache + rebuild bucket layout.
+// Replaces hash_compare_by_identity / hash_reset_compare_by_identity.
+// The canonical @compare_by_identity truth lives at the Ruby layer and is
+// threaded through each hash op as a per-call bool param; this intrinsic
+// keeps the cpp implementation's internal field consistent. Idempotent.
+BasicObject* intrinsic_hash_set_identity_mode(BasicObject* self_, BasicObject* by_id) {
   auto* _h = static_cast<Hash*>(self_);
-  _h->compare_by_identity_ = true;
+  bool new_mode = (by_id == true_instance());
+  if (_h->compare_by_identity_ == new_mode) return _h;
+  _h->compare_by_identity_ = new_mode;
   _h->data.rehash(0);
   _h->order_idx.rehash(0);
-  return _h;
-}
-
-// `Hash#compare_by_identity?` — true iff the hash is in identity mode.
-BasicObject* intrinsic_hash_compare_by_identity_q(BasicObject* self_) {
-  return boxed_bool(static_cast<Hash*>(self_)->compare_by_identity_);
-}
-
-// Reset compare_by_identity flag (used by Hash#replace before copying
-// the source hash's mode). MRI doesn't expose a public setter that
-// flips the mode back; this is for our Ruby-side replace impl only.
-BasicObject* intrinsic_hash_reset_compare_by_identity(BasicObject* self_) {
-  auto* _h = static_cast<Hash*>(self_);
-  if (_h->compare_by_identity_) {
-    _h->compare_by_identity_ = false;
-    _h->data.rehash(0);
-    _h->order_idx.rehash(0);
-  }
   return _h;
 }
 

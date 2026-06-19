@@ -20,27 +20,19 @@ namespace Ruby {
 // insertion-order; tombstoned (nullptr) slots are skipped.
 BasicObject* intrinsic_hash_each(BasicObject* self_, BasicObject* block);
 
-// `Hash#delete(key)` — remove and return value, or nil if key absent.
+// `Hash#delete(key, by_id)` — remove and return value, or nil if absent.
 // Does NOT call the default proc on miss (matches MRI Hash#delete).
-// erase_key tombstones the insertion_order slot and triggers a compact
-// pass if the waste ratio exceeds half.
-BasicObject* intrinsic_hash_delete(BasicObject* self_, BasicObject* key);
+// by_id is the per-call compare-by-identity mode threaded from the Ruby
+// layer (@compare_by_identity); the cpp Hash's internal cache must match.
+BasicObject* intrinsic_hash_delete(BasicObject* self_, BasicObject* key, BasicObject* by_id);
 
-// `Hash#compare_by_identity` (setter) — switch to pointer-identity
-// keys + pointer-hash. The Hasher/KeyEq functors hold a pointer to
-// compare_by_identity_; flipping it + rehash(0) redistributes
-// existing entries under the new mode. Per MRI: previously-collapsed
-// duplicate keys (value-equal but distinct pointers) STAY collapsed.
-// Returns self.
-BasicObject* intrinsic_hash_compare_by_identity(BasicObject* self_);
-
-// `Hash#compare_by_identity?` — true iff the hash is in identity mode.
-BasicObject* intrinsic_hash_compare_by_identity_q(BasicObject* self_);
-
-// Reset compare_by_identity flag (used by Hash#replace before copying
-// the source hash's mode). MRI doesn't expose a public setter that
-// flips the mode back; this is for our Ruby-side replace impl only.
-BasicObject* intrinsic_hash_reset_compare_by_identity(BasicObject* self_);
+// Set the cpp Hash's internal mode cache + rebuild bucket layout.
+// Canonical truth for compare-by-identity lives at the Ruby layer in
+// @compare_by_identity and is threaded through each hash op as a bool
+// param; this intrinsic keeps the cpp implementation's internal field
+// consistent. Idempotent. Replaces the old hash_compare_by_identity /
+// hash_reset_compare_by_identity / hash_compare_by_identity_q triple.
+BasicObject* intrinsic_hash_set_identity_mode(BasicObject* self_, BasicObject* by_id);
 
 // Hash default value / default proc — MRI exclusivity: setting one
 // clears the other. Setters handle that; getters are direct reads.

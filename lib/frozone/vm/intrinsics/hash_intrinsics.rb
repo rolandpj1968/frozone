@@ -6,19 +6,17 @@ module Frozone
       class << self
         # Hash
         def hash_size(_, h) = n2f_int(h.size)
-        def hash_key(_, h, key) = n2f_bool(h.key?(key))
+        def hash_key(_, h, key, by_id) = n2f_bool(h.key?(key, by_identity: by_id.truthy?))
         def hash_get_default_proc(_, h) = h.default_block || FNIL
-        def hash_compare_by_identity_q(_, h) = n2f_bool(fhash?(h) && h.compare_by_identity?)
         def hash_ruby2_keywords_hash_q(_, h) = n2f_bool(fhash?(h) && h.ruby2_keywords)
 
-        def hash_index_write(_, h, key, value) = (h[key] = value; value)
-        def hash_each(context, h, block) = (h.raw.each { |k, v| block.invoke(context, [n2f_arr([k, v])]) }; h)
-        def hash_compare_by_identity(_, h) = (h.compare_by_identity! if fhash?(h); h)
-        def hash_reset_compare_by_identity(_, h) = (h.reset_compare_by_identity! if fhash?(h); h)
+        def hash_index_write(_, h, key, value, by_id) = (h.send(:[]=, key, value, by_identity: by_id.truthy?); value)
+        def hash_each(context, h, block) = (h.raw_each { |k, v| block.invoke(context, [n2f_arr([k, v])]) }; h)
+        def hash_set_identity_mode(_, h, by_id) = (h.set_identity_mode!(by_id.truthy?) if fhash?(h); h)
         def hash_ruby2_keywords_hash(_, h) = (h.ruby2_keywords = true if fhash?(h); h)
 
-        def hash_index(context, h, key)
-          value = h[key]
+        def hash_index(context, h, key, by_id)
+          value = h.send(:[], key, by_identity: by_id.truthy?)
           return value unless value.nil?
           # Key not found — dispatch to VM-level #default to allow subclass overrides
           h.dispatch(context, :default, [key], {})
@@ -69,9 +67,8 @@ module Frozone
           end
         end
 
-        def hash_delete(_, h, key)
-          val = h[key]
-          h.delete(key)
+        def hash_delete(_, h, key, by_id)
+          val = h.delete(key, by_identity: by_id.truthy?)
           val.nil? ? FNIL : val
         end
 
@@ -81,7 +78,8 @@ module Frozone
         end
 
         def hash_transform_keys_bang(context, h, hash_arg, block_arg)
-          original_pairs = h.raw.to_a
+          original_pairs = h.raw_each.to_a
+          by_id = h.compare_by_identity?
           new_pairs = []
           processed = 0
           begin
@@ -100,7 +98,7 @@ module Frozone
             # break occurred mid-iteration: remaining pairs stay with original keys
           end
           h.clear_elements
-          original_pairs[processed..].each { |k, v| h[k] = v }
+          original_pairs[processed..].each { |k, v| h.send(:[]=, k, v, by_identity: by_id) }
           new_pairs.each { |k, v| h[k] = v }
           h
         end

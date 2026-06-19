@@ -16,19 +16,9 @@ module Frozone
 
         def hash = @hash
         def eql?(v) = @unwrap.equal?(v.unwrap) || @unwrap.dispatch(Fiber[:context], :eql?, [v.unwrap], {}).truthy?
-      end
-
-      # Identity-based key wrapper for compare_by_identity hashes.
-      class IdentityKeyWrapper
-        attr_reader :unwrap
-
-        def initialize(key)
-          @unwrap = key
-          @id = key.object_id
-        end
-
-        def hash = @id
-        def eql?(v) = @unwrap.equal?(v.unwrap)
+        # MRI Hash collisions check via #eql?; cpp Hash's KeyEq uses op_eq_q (==).
+        # Alias makes the wrapper work in both backends.
+        alias == eql?
       end
 
       attr_accessor :default_block, :default_value
@@ -39,58 +29,81 @@ module Frozone
 
         super(Core::HASH_CLASS)
 
-        # Set @compare_by_identity ivar at construction (canonical location
-        # in core/4.0/hash.rb's #initialize, but Vm::HashObject.new bypasses
-        # that path). wrap() reads it via get_ivar.
+        # Seed the guest @compare_by_identity ivar to false — core/4.0/hash.rb's
+        # #initialize sets it there, but `{}` literals and Vm::HashObject.new
+        # callsites bypass that path. Initial mode is value-eq.
         @instance_variables_hash[:@compare_by_identity] = FalseObject::FALSE
 
-        @elements = elements.to_h { |k, v| [wrap(k), v] }
+        @elements = elements.to_h { |k, v| [KeyWrapper.new(k), v] }
         @default_value = default_value
         @default_block = default_block
         @ruby2_keywords = false
       end
 
-      def compare_by_identity? = get_ivar(:@compare_by_identity).truthy?
+      # Iterate (key, value) pairs with keys logically unwrapped.
+      # With no block, returns an Enumerator so callers can chain
+      # `.to_a` / `.map` / etc.
+      def raw_each
+        return enum_for(:raw_each) unless block_given?
+        @elements.each { |k, v| yield __unwrap_key__(k), v }
+      end
 
       # Returns a Hash with the original VM-object keys (unwrapped).
-      def raw = @elements.transform_keys { |k| k.unwrap }
+      # Allocating; prefer #raw_each when iterating.
+      def raw = @elements.transform_keys { |k| __unwrap_key__(k) }
 
-      # VM-correct key lookup via KeyWrapper dispatch (requires Fiber[:context]).
-      def [](key) = @elements[wrap(key)]
+      def [](key, by_identity:) = @elements[wrap(key, by_identity)]
 
-      def []=(key, value)
+      def []=(key, value, by_identity:)
         raise FrozoneException.make(:FrozenError, "can't modify frozen Hash: #{inspect_for_error}", receiver: self) if frozen_object?
         # String keys are dup'd (no singleton methods) and frozen, matching MRI behaviour,
-        # UNLESS we're in compare_by_identity mode (identity means we keep the original object).
-        key = StringObject.new(key.raw.dup, frozen: true) if !compare_by_identity? && key.is_a?(StringObject) && !key.frozen_object?
-        @elements[wrap(key)] = value
+        # UNLESS we're in compare_by_identity mode (identity keeps the original object).
+        key = StringObject.new(key.raw.dup, frozen: true) if !by_identity && key.is_a?(StringObject) && !key.frozen_object?
+        @elements[wrap(key, by_identity)] = value
       end
 
-      def compare_by_identity!
+      # Rebuild @elements after a compare-by-identity flip.
+      # In identity mode we don't wrap: host MRI Hash's default key semantics
+      # (object-identity #hash + #equal? #eql?) already give us what we want.
+      # In value-eq mode we wrap with KeyWrapper to bridge to guest #hash/#eql?.
+      def set_identity_mode!(by_identity)
         old = @elements
         @elements = {}
-        old.each { |kw, v| @elements[IdentityKeyWrapper.new(kw.unwrap)] = v }
+        if by_identity
+          old.each { |k, v| @elements[__unwrap_key__(k)] = v }
+        else
+          old.each { |k, v| @elements[KeyWrapper.new(__unwrap_key__(k))] = v }
+        end
         self
       end
 
-      def reset_compare_by_identity!
-        self
-      end
-
-      def key?(key) = @elements.key?(wrap(key))
-      def delete(key) = @elements.delete(wrap(key))
+      def key?(key, by_identity:) = @elements.key?(wrap(key, by_identity))
+      def delete(key, by_identity:) = @elements.delete(wrap(key, by_identity))
       def clear_elements = tap { @elements.clear }
+      # Host-side count helper used by hash_size intrinsic bridge.
+      def size = @elements.size
+
+      # Host-side predicate used by intrinsic bridges that need to know the
+      # current compare-by-identity mode (e.g. hash_transform_keys_bang's
+      # rebuild loop). Reads the guest @compare_by_identity ivar, which is
+      # the canonical truth (set/cleared by core/4.0/hash.rb).
+      def compare_by_identity? = get_ivar(:@compare_by_identity).truthy?
 
       private
 
       # @elements is the host hash backing for the interpreter's HashObject.
-      # KeyWrapper bridges its host KeyEq to guest hash/eql? semantics.
-      # Whether this body runs as MRI Ruby or as compiled cpp from a
-      # self-built bin/frozone_box, the role is the same: interpreter
-      # machinery. The wrap is always needed.
-      def wrap(key)
-        compare_by_identity? ? IdentityKeyWrapper.new(key) : KeyWrapper.new(key)
+      # In value-eq mode we wrap with KeyWrapper to bridge host KeyEq to
+      # guest #hash/#eql?. In identity mode we store the raw key — MRI's
+      # default host Hash KeyEq (object_id.hash + equal?) gives identity
+      # semantics for guest Vm objects without any bridging.
+      def wrap(key, by_identity)
+        by_identity ? key : KeyWrapper.new(key)
       end
+
+      # Pull the logical (guest-level) key from a host @elements key,
+      # which is either a KeyWrapper (value-eq mode) or the raw key
+      # (identity mode).
+      def __unwrap_key__(k) = k.is_a?(KeyWrapper) ? k.unwrap : k
     end
   end
 end

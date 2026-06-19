@@ -97,8 +97,7 @@ module Frozone
             match_data_to_a match_data_captures match_data_pre_match
             match_data_post_match match_data_match_length
             hash_each hash_delete hash_new hash_transform_keys_bang
-            hash_compare_by_identity hash_compare_by_identity_q
-            hash_reset_compare_by_identity
+            hash_set_identity_mode
             hash_get_default hash_set_default
             hash_get_default_proc hash_set_default_proc
             array_to_s
@@ -527,17 +526,21 @@ module Frozone
             # Hash intrinsics — direct ->data access. Hash class is
             # universe-defined with map_t data; these intrinsics
             # bypass the op_aref/op_aset Array allocation.
-            hash_key: ->(self_, k) {
+            # The by_id parameter is informational at the cpp emit level —
+            # the Hash's internal compare_by_identity_ field (set via
+            # hash_set_identity_mode) drives the std::unordered_map's
+            # Hasher/KeyEq dispatch. core/4.0 keeps both consistent.
+            hash_key: ->(self_, k, _by_id) {
               "boxed_bool(static_cast<Hash*>(#{self_})->data.find(#{k}) != static_cast<Hash*>(#{self_})->data.end())"
             },
-            hash_index: ->(self_, k) {
+            hash_index: ->(self_, k, _by_id) {
               Cpp.block_expr(
                 ["auto* _h = static_cast<Hash*>(#{self_});",
                  "auto _it = _h->data.find(#{k});"],
                 "(_it == _h->data.end()) ? nil_instance() : _it->second"
               )
             },
-            hash_index_write: ->(self_, k, v) {
+            hash_index_write: ->(self_, k, v, _by_id) {
               Cpp.block_expr(
                 ["auto* _h = static_cast<Hash*>(#{self_});",
                  "BO* _v = #{v};",
