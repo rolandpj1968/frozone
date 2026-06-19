@@ -1,9 +1,5 @@
 class BasicObject
   def __id__ = Intrinsics.basic_object___id__(self)
-  # In compiled box-first, HashObject stores raw keys (no KeyWrapper),
-  # so any key's `.unwrap` must be a no-op identity. KeyWrapper /
-  # IdentityKeyWrapper override this with the real unwrap.
-  def unwrap = self
   def ! = false.equal?(self) || nil.equal?(self)
   def ==(v) = Intrinsics.basic_object__equal_equal_(self, v)
   alias eql? ==
