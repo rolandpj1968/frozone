@@ -216,11 +216,20 @@ module Frozone
         bt_obj = vm_obj.get_ivar(:@backtrace)
         bt = bt_obj.is_a?(ArrayObject) ? bt_obj.raw.map { |e| e.is_a?(StringObject) ? e.raw : e.to_s } : []
         if bt.empty?
-          $stderr.puts "#{msg} (#{cls_name})"
+          report_to_stderr("#{msg} (#{cls_name})")
         else
-          $stderr.puts "#{bt[0]}: #{msg} (#{cls_name})"
-          bt[1..].each { |line| $stderr.puts "\tfrom #{line}" }
+          report_to_stderr("#{bt[0]}: #{msg} (#{cls_name})")
+          bt[1..].each { |line| report_to_stderr("\tfrom #{line}") }
         end
+      end
+
+      # Stderr write that doesn't depend on $stderr being a live IO. Box-first
+      # compiled mode can reach this reporter before / after stdio bootstrap
+      # (e.g. uncaught exception escaping ::Vm#run), and $stderr being nil
+      # turned every exception into "puts on NilClass" — masking the real
+      # error. Write to fd 2 directly via Intrinsics.os_write.
+      def report_to_stderr(line)
+        Intrinsics.os_write(2, "#{line}\n")
       end
 
       # Load the standard library into the shared class hierarchy.
