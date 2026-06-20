@@ -428,7 +428,7 @@ module Frozone
                     emit.line "if (__blkargs__->data.size() == 1) {"
                     emit.indented do
                       emit.line "BO* _a0 = __blkargs__->data[0];"
-                      emit.line "if (&typeid(*_a0) == &typeid(Array)) __blkargs__ = static_cast<Array*>(_a0);"
+                      emit.line "if (auto* _arr = BO::try_cast<Array>(_a0)) __blkargs__ = _arr;"
                     end
                     emit.line "}"
                   end

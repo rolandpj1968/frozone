@@ -34,7 +34,7 @@ BasicObject* intrinsic_kernel_catch(BasicObject* /*self_*/, BasicObject* tag, Ba
 // fflush so output appears immediately even on abort. Use when the
 // regular puts chain is broken (e.g. during dispatch-table bring-up).
 BasicObject* intrinsic_dbg_write(BasicObject* /*self_*/, BasicObject* s) {
-  if (&typeid(*s) == &typeid(String)) {
+  if (s->typeid_eq_q<String>()) {
     auto* str = static_cast<String*>(s);
     std::fwrite(str->bytes.data(), 1, str->bytes.size(), stderr);
     std::fputc('\n', stderr);
@@ -93,8 +93,8 @@ BasicObject* intrinsic_kernel_integer(BasicObject* /*self_*/, BasicObject* val,
 // `Kernel#Float(val)` — coerce to Float. Fast path for Integer/Float;
 // else dispatches to_f.
 BasicObject* intrinsic_kernel_float(BasicObject* /*self_*/, BasicObject* val) {
-  if (&typeid(*val) == &typeid(Integer)) return new Float(static_cast<double>(static_cast<Integer*>(val)->raw_));
-  if (&typeid(*val) == &typeid(Float)) return val;
+  if (val->typeid_eq_q<Integer>()) return new Float(static_cast<double>(static_cast<Integer*>(val)->raw_));
+  if (val->typeid_eq_q<Float>()) return val;
   return val->m_to_f(univ);
 }
 

@@ -21,19 +21,19 @@ namespace Ruby {
 // on for non-Ruby-defined classes). Real impl would call
 // m_initialize_copy.
 BasicObject* intrinsic_object_dup(BasicObject* self_) {
-  if (&typeid(*self_) == &typeid(String)) {
+  if (self_->typeid_eq_q<String>()) {
     auto* _s = static_cast<String*>(self_);
     auto* _r = new String();
     _r->bytes = _s->bytes;
     return _r;
   }
-  if (&typeid(*self_) == &typeid(Array)) {
+  if (self_->typeid_eq_q<Array>()) {
     auto* _a = static_cast<Array*>(self_);
     auto* _r = new Array();
     _r->data = _a->data;
     return _r;
   }
-  if (&typeid(*self_) == &typeid(Hash)) {
+  if (self_->typeid_eq_q<Hash>()) {
     auto* _h = static_cast<Hash*>(self_);
     auto* _r = new Hash();
     _r->data = _h->data;
@@ -54,7 +54,7 @@ BasicObject* intrinsic_object_public_send(BasicObject* self_, BasicObject* name,
   _full->data.push_back(name);
   for (auto* _e : _a->data) _full->data.push_back(_e);
   g_caller_self = PUBLIC_SEND_SENTINEL;
-  Hash* _kw = (kwargs && &typeid(*kwargs) == &typeid(Hash)) ? static_cast<Hash*>(kwargs) : nullptr;
+  Hash* _kw = (kwargs && kwargs->typeid_eq_q<Hash>()) ? static_cast<Hash*>(kwargs) : nullptr;
   Proc* _blk = (block && block->mm_is_a_q_direct(&Proc_CLASS)) ? static_cast<Proc*>(block) : nullptr;
   return self_->m_send(univ, _full, _kw, _blk);
 }
@@ -70,7 +70,7 @@ BasicObject* intrinsic_basic_object___send__(BasicObject* self_, BasicObject* na
   _full->data.push_back(name);
   for (auto* _e : _a->data) _full->data.push_back(_e);
   g_caller_self = nullptr;
-  Hash* _kw = (kwargs && &typeid(*kwargs) == &typeid(Hash)) ? static_cast<Hash*>(kwargs) : nullptr;
+  Hash* _kw = (kwargs && kwargs->typeid_eq_q<Hash>()) ? static_cast<Hash*>(kwargs) : nullptr;
   Proc* _blk = (block && block->mm_is_a_q_direct(&Proc_CLASS)) ? static_cast<Proc*>(block) : nullptr;
   return self_->m_send(univ, _full, _kw, _blk);
 }

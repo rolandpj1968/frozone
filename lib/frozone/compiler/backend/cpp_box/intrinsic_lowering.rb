@@ -609,21 +609,21 @@ module Frozone
             # generic message.
             kernel_require: ->(_self_, path) {
               Cpp.block_expr(
-                ["auto* _s = ((#{path}) && &typeid(*(#{path})) == &typeid(String)) ? static_cast<String*>(#{path}) : nullptr;",
+                ["auto* _s = BO::try_cast<String>(#{path});",
                  %|std::fprintf(stderr, "[box-first] kernel_require called at runtime \xe2\x80\x94 closed-world AOT can't dynamically load (%.*s)\\n", _s ? (int)_s->bytes.size() : 18, _s ? reinterpret_cast<const char*>(_s->bytes.data()) : "<non-string path>");|],
                 "false_instance()"
               )
             },
             kernel_require_relative: ->(_self_, path) {
               Cpp.block_expr(
-                ["auto* _s = ((#{path}) && &typeid(*(#{path})) == &typeid(String)) ? static_cast<String*>(#{path}) : nullptr;",
+                ["auto* _s = BO::try_cast<String>(#{path});",
                  %|std::fprintf(stderr, "[box-first] kernel_require_relative called at runtime \xe2\x80\x94 closed-world AOT can't dynamically load (%.*s)\\n", _s ? (int)_s->bytes.size() : 18, _s ? reinterpret_cast<const char*>(_s->bytes.data()) : "<non-string path>");|],
                 "false_instance()"
               )
             },
             kernel_load: ->(_self_, path, _wrap) {
               Cpp.block_expr(
-                ["auto* _s = ((#{path}) && &typeid(*(#{path})) == &typeid(String)) ? static_cast<String*>(#{path}) : nullptr;",
+                ["auto* _s = BO::try_cast<String>(#{path});",
                  %|std::fprintf(stderr, "[box-first] kernel_load called at runtime \xe2\x80\x94 closed-world AOT can't dynamically load (%.*s)\\n", _s ? (int)_s->bytes.size() : 18, _s ? reinterpret_cast<const char*>(_s->bytes.data()) : "<non-string path>");|],
                 "false_instance()"
               )
@@ -687,7 +687,7 @@ module Frozone
             # uses typeid (Hash is a leaf class); fall back to
             # &EMPTY_KWARGS so we never pass nullptr.
             proc_call: ->(self_, args, kwargs) {
-              "((#{self_})->m_call(univ, splat_to_array(#{args}), [&]() -> Hash* { return ((#{kwargs}) && &typeid(*(#{kwargs})) == &typeid(Hash)) ? static_cast<Hash*>(#{kwargs}) : &EMPTY_KWARGS; }()))"
+              "((#{self_})->m_call(univ, splat_to_array(#{args}), [&]() -> Hash* { auto* _kw = BO::try_cast<Hash>(#{kwargs}); return _kw ? _kw : &EMPTY_KWARGS; }()))"
             },
             # `Proc#arity` — stub returning -1 (variable-arity). We don't
             # track block arity at AOT time; -1 is MRI's default for

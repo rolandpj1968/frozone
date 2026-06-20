@@ -21,7 +21,7 @@ namespace Ruby {
 // :float_second, Integer otherwise. Sufficient for benchmark probes.
 BasicObject* intrinsic_process_clock_gettime(BasicObject* /*clock_id*/, BasicObject* unit) {
   auto _now = std::chrono::steady_clock::now().time_since_epoch();
-  if (&typeid(*unit) == &typeid(Symbol)) {
+  if (unit->typeid_eq_q<Symbol>()) {
     const char* n = static_cast<Symbol*>(unit)->name_;
     if (std::strcmp(n, "second")      == 0) return boxed_int(std::chrono::duration_cast<std::chrono::seconds>(_now).count());
     if (std::strcmp(n, "millisecond") == 0) return boxed_int(std::chrono::duration_cast<std::chrono::milliseconds>(_now).count());
@@ -73,7 +73,7 @@ BasicObject* intrinsic_process_kill(BasicObject* sig, BasicObject* pid) {
     std::string name;
     if (sig->m_class(univ) == reinterpret_cast<BasicObject*>(&String_CLASS)) {
       name = fs_detail::str_of(sig);
-    } else if (&typeid(*sig) == &typeid(Symbol)) {
+    } else if (sig->typeid_eq_q<Symbol>()) {
       name = static_cast<Symbol*>(sig)->name_;
     } else {
       std::fprintf(stderr, "[box-first] process_kill: unsupported sig type %s\n", sig->ruby_class_name());
@@ -106,7 +106,7 @@ BasicObject* intrinsic_process_clock_getres(BasicObject* /*clock_id*/, BasicObje
   // process_clock_gettime above so callers see consistent behaviour.
   using period = std::chrono::steady_clock::period;
   double res_seconds = static_cast<double>(period::num) / static_cast<double>(period::den);
-  if (&typeid(*unit) == &typeid(Symbol)) {
+  if (unit->typeid_eq_q<Symbol>()) {
     const char* n = static_cast<Symbol*>(unit)->name_;
     if (std::strcmp(n, "second")      == 0) return boxed_int(static_cast<int64_t>(res_seconds));
     if (std::strcmp(n, "millisecond") == 0) return boxed_int(static_cast<int64_t>(res_seconds * 1e3));

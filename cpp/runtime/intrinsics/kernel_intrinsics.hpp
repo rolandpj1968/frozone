@@ -77,7 +77,7 @@ BasicObject* intrinsic_kernel_float(BasicObject* /*self_*/, BasicObject* val);
 [[noreturn]] inline BasicObject* intrinsic_kernel_exit(BasicObject* /*self_*/, BasicObject* code) {
   std::int64_t _status = 0;
   if (code == false_instance()) _status = 1;
-  else if (&typeid(*code) == &typeid(Integer)) _status = static_cast<Integer*>(code)->raw_;
+  else if (code->typeid_eq_q<Integer>()) _status = static_cast<Integer*>(code)->raw_;
   std::fflush(stdout);
   std::fflush(stderr);
   throw SystemExitException{_status};

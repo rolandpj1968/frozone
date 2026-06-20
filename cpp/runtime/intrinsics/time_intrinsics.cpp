@@ -195,7 +195,7 @@ BasicObject* intrinsic_time_localtime(BasicObject* self_, BasicObject* offset) {
   out->sec_ = t->sec_;
   out->nsec_ = t->nsec_;
   out->is_utc_ = false;
-  if (offset && offset != nil_instance() && &typeid(*offset) == &typeid(Integer)) {
+  if (offset && offset != nil_instance() && offset->typeid_eq_q<Integer>()) {
     out->utc_offset_ = static_cast<int32_t>(static_cast<Integer*>(offset)->raw_);
   } else {
     time_t s = static_cast<time_t>(t->sec_);

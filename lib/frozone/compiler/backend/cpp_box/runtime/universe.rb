@@ -155,6 +155,14 @@ module Frozone
               "template<typename T> bool typeid_eq_q() const {",
               "  return &typeid(*this) == &typeid(T);",
               "}",
+              "// Safe narrowing cast: returns nullptr if p is null or the",
+              "// runtime type isn't exactly T. Use instead of static_cast",
+              "// when the value's static type isn't proven (universal-sig",
+              "// callbacks, kwargs/path/exception narrowing). Same single-DSO",
+              "// assumption as typeid_eq_q.",
+              "template<typename T> static T* try_cast(BasicObject* p) {",
+              "  return (p && p->typeid_eq_q<T>()) ? static_cast<T*>(p) : nullptr;",
+              "}",
             ],
             # Genuine BasicObject methods. Other intrinsic-style methods
             # (m_class, m_send, mm_is_a_q, etc.) live on Object and are
@@ -489,7 +497,7 @@ module Frozone
                   BO* idx = args->data[0];
                   BO* val = args->data[1];
                   // 2-arg with Range idx: a[begin..end] = ary → slice replace.
-                  if (&typeid(*idx) == &typeid(Range)) {
+                  if (idx->typeid_eq_q<Range>()) {
                     auto* r = static_cast<Range*>(idx);
                     int64_t b = r->begin_ ? static_cast<Integer*>(r->begin_)->raw_ : 0;
                     int64_t e = r->end_   ? static_cast<Integer*>(r->end_)->raw_   : sz - 1;
@@ -741,7 +749,7 @@ module Frozone
                 body: <<~CPP.chomp,
                   // MRI String#<<: Integer arg appends the codepoint;
                   // String arg appends bytes (with encoding promotion).
-                  if (&typeid(*other) == &typeid(Integer)) {
+                  if (other->typeid_eq_q<Integer>()) {
                     auto* i = static_cast<Integer*>(other);
                     std::int64_t cp = i->raw_;
                     if (cp < 0) {
@@ -949,12 +957,12 @@ module Frozone
               # the yield site. Hash#each relies on this: it yields `[k, v]`
               # and the block sees `k, v` separately. Same logic as the
               # universal Proc's `__blkargs__` rebind in lambda_emitter.rb.
-              "BO* call1(BO* a) final { if (&typeid(*a) == &typeid(Array)) { auto* _arr = static_cast<Array*>(a); BO* _x = _arr->data.size() > 0 ? _arr->data[0] : nil_instance(); BO* _y = _arr->data.size() > 1 ? _arr->data[1] : nil_instance(); return fn2_(_x, _y); } return fn2_(a, nil_instance()); }",
+              "BO* call1(BO* a) final { if (a->typeid_eq_q<Array>()) { auto* _arr = static_cast<Array*>(a); BO* _x = _arr->data.size() > 0 ? _arr->data[0] : nil_instance(); BO* _y = _arr->data.size() > 1 ? _arr->data[1] : nil_instance(); return fn2_(_x, _y); } return fn2_(a, nil_instance()); }",
             ],
             overrides: {
               "m_call" => {
                 params: [],
-                body: "if (args->data.size() == 1) { BO* _a0 = args->data[0]; if (&typeid(*_a0) == &typeid(Array)) { auto* _arr = static_cast<Array*>(_a0); BO* _x = _arr->data.size() > 0 ? _arr->data[0] : nil_instance(); BO* _y = _arr->data.size() > 1 ? _arr->data[1] : nil_instance(); return fn2_(_x, _y); } return fn2_(_a0, nil_instance()); } BO* _a = args->data.size() > 0 ? args->data[0] : nil_instance(); BO* _b = args->data.size() > 1 ? args->data[1] : nil_instance(); return fn2_(_a, _b);",
+                body: "if (args->data.size() == 1) { BO* _a0 = args->data[0]; if (_a0->typeid_eq_q<Array>()) { auto* _arr = static_cast<Array*>(_a0); BO* _x = _arr->data.size() > 0 ? _arr->data[0] : nil_instance(); BO* _y = _arr->data.size() > 1 ? _arr->data[1] : nil_instance(); return fn2_(_x, _y); } return fn2_(_a0, nil_instance()); } BO* _a = args->data.size() > 0 ? args->data[0] : nil_instance(); BO* _b = args->data.size() > 1 ? args->data[1] : nil_instance(); return fn2_(_a, _b);",
               },
             },
           )
@@ -1259,7 +1267,7 @@ module Frozone
                     return new Float(mri_next_float());
                   }
                   BO* n = args->data[0];
-                  if (&typeid(*n) == &typeid(Integer)) {
+                  if (n->typeid_eq_q<Integer>()) {
                     auto* i = static_cast<Integer*>(n);
                     if (i->raw_ <= 0) return new Float(mri_next_float());
                     // MRI's rand(n): rejection-sample with the
@@ -1276,7 +1284,7 @@ module Frozone
                       if (v <= lim) return new Integer(static_cast<int64_t>(v));
                     }
                   }
-                  if (&typeid(*n) == &typeid(Float)) {
+                  if (n->typeid_eq_q<Float>()) {
                     auto* f = static_cast<Float*>(n);
                     return new Float(mri_next_float() * f->raw_);
                   }
@@ -1322,7 +1330,7 @@ module Frozone
                   int64_t opts = 0;
                   if (args->data.size() >= 2) {
                     BO* a1 = args->data[1];
-                    if (&typeid(*a1) == &typeid(Integer)) opts = static_cast<Integer*>(a1)->raw_;
+                    if (a1->typeid_eq_q<Integer>()) opts = static_cast<Integer*>(a1)->raw_;
                   }
                   source_ = pat;
                   options_ = opts;
@@ -1602,8 +1610,8 @@ module Frozone
             body: <<~CPP.chomp,
               // `puts` with no args calls ruby_puts(nullptr); MRI prints just a newline.
               if (!o)                                       { std::putchar('\\n'); return; }
-              if (&typeid(*o) == &typeid(Integer))            { std::printf("%lld\\n", static_cast<long long>(static_cast<Integer*>(o)->raw_)); return; }
-              if (&typeid(*o) == &typeid(Float))              {
+              if (o->typeid_eq_q<Integer>())            { std::printf("%lld\\n", static_cast<long long>(static_cast<Integer*>(o)->raw_)); return; }
+              if (o->typeid_eq_q<Float>())              {
                 auto* f = static_cast<Float*>(o);
                 if (std::isnan(f->raw_))      { std::printf("NaN\\n");      return; }
                 if (std::isinf(f->raw_))      { std::printf("%sInfinity\\n", f->raw_ < 0 ? "-" : ""); return; }
@@ -1620,8 +1628,8 @@ module Frozone
                 if (!has_dot && n + 2 < (int)sizeof(buf)) { buf[n++] = '.'; buf[n++] = '0'; }
                 std::fwrite(buf, 1, n, stdout); std::putchar('\\n'); return;
               }
-              if (&typeid(*o) == &typeid(Symbol))             { std::printf("%s\\n", static_cast<Symbol*>(o)->name_); return; }
-              if (&typeid(*o) == &typeid(String))             { auto* str = static_cast<String*>(o); std::fwrite(str->bytes.data(), 1, str->bytes.size(), stdout); std::putchar('\\n'); return; }
+              if (o->typeid_eq_q<Symbol>())             { std::printf("%s\\n", static_cast<Symbol*>(o)->name_); return; }
+              if (o->typeid_eq_q<String>())             { auto* str = static_cast<String*>(o); std::fwrite(str->bytes.data(), 1, str->bytes.size(), stdout); std::putchar('\\n'); return; }
               if (o == true_instance())                      { std::printf("true\\n"); return; }
               if (o == false_instance())                     { std::printf("false\\n"); return; }
               if (o == nil_instance())                       { std::printf("\\n"); return; }
@@ -2140,7 +2148,7 @@ module Frozone
             body: <<~CPP.chomp,
               auto* self = static_cast<String*>(self_obj);
               if (!pat) return self;
-              if (&typeid(*pat) == &typeid(String)) {
+              if (pat->typeid_eq_q<String>()) {
                 auto* spat = static_cast<String*>(pat);
                 if (!repl || repl == nil_instance() || block != nullptr) {
                   std::fprintf(stderr, "[box-first] String#gsub block-form not supported yet\\n");
@@ -2170,7 +2178,7 @@ module Frozone
               // Regexp pattern + String replacement. First-cut: plain
               // substitution (no back-references like \\1, \\&). Block form
               // and \\<n> escapes deferred until a caller exercises them.
-              if (&typeid(*pat) == &typeid(Regexp)) {
+              if (pat->typeid_eq_q<Regexp>()) {
                 auto* re = static_cast<Regexp*>(pat);
                 if (!repl || repl == nil_instance() || block != nullptr) {
                   std::fprintf(stderr, "[box-first] String#gsub Regexp block-form not supported yet\\n");
@@ -2230,7 +2238,7 @@ module Frozone
               Array* results = new Array();
 
               // String pattern: literal non-overlapping search.
-              if (&typeid(*pat_obj) == &typeid(String)) {
+              if (pat_obj->typeid_eq_q<String>()) {
                 auto* spat = static_cast<String*>(pat_obj);
                 if (spat->bytes.empty()) return has_block ? self_obj : static_cast<BO*>(results);
                 const std::uint8_t* hay = self->bytes.data();
@@ -2255,7 +2263,7 @@ module Frozone
               }
 
               // Regexp pattern: onig_search loop.
-              if (&typeid(*pat_obj) == &typeid(Regexp)) {
+              if (pat_obj->typeid_eq_q<Regexp>()) {
                 auto* re = static_cast<Regexp*>(pat_obj);
                 if (!re->compiled_) return has_block ? self_obj : static_cast<BO*>(results);
                 const UChar* s = self->bytes.data();

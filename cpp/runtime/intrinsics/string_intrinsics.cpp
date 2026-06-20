@@ -100,7 +100,7 @@ BasicObject* intrinsic_string_index(BasicObject* self_, BasicObject* sub, BasicO
 BasicObject* intrinsic_string_slice(BasicObject* self_, BasicObject* idx, BasicObject* len) {
   auto* _s = static_cast<String*>(self_);
   // Regexp idx: return the matched substring (or capture group via len).
-  if (&typeid(*idx) == &typeid(Regexp)) {
+  if (idx->typeid_eq_q<Regexp>()) {
     auto* _re = static_cast<Regexp*>(idx);
     OnigRegion* _region = onig_region_new();
     const UChar* _p = _s->bytes.data();
@@ -110,7 +110,7 @@ BasicObject* intrinsic_string_slice(BasicObject* self_, BasicObject* idx, BasicO
     if (_r < 0) { onig_region_free(_region, 1); return nil_instance(); }
     int _grp = 0;
     if (len && len != intern("__unset__") && len != nil_instance()) {
-      if (&typeid(*len) == &typeid(Integer)) _grp = static_cast<int>(static_cast<Integer*>(len)->raw_);
+      if (len->typeid_eq_q<Integer>()) _grp = static_cast<int>(static_cast<Integer*>(len)->raw_);
     }
     if (_grp < 0 || _grp >= _region->num_regs ||
         _region->beg[_grp] < 0 || _region->end[_grp] < 0) {
@@ -126,11 +126,11 @@ BasicObject* intrinsic_string_slice(BasicObject* self_, BasicObject* idx, BasicO
   // Range idx: byte slice [begin, end) (or [begin, end] depending on
   // exclude_end_). Negative bounds count from end. Out-of-range begin
   // returns nil; out-of-range end clamps.
-  if (&typeid(*idx) == &typeid(Range)) {
+  if (idx->typeid_eq_q<Range>()) {
     auto* _rng = static_cast<Range*>(idx);
     auto to_int = [](BasicObject* v, std::int64_t dflt) -> std::int64_t {
       if (!v || v == nil_instance()) return dflt;
-      return &typeid(*v) == &typeid(Integer) ? static_cast<Integer*>(v)->raw_ : dflt;
+      return v->typeid_eq_q<Integer>() ? static_cast<Integer*>(v)->raw_ : dflt;
     };
     std::int64_t _clen = _s->length();
     std::int64_t _b = to_int(_rng->begin_, 0);
@@ -149,7 +149,7 @@ BasicObject* intrinsic_string_slice(BasicObject* self_, BasicObject* idx, BasicO
     return _r2;
   }
   // String idx: return idx if it's a substring of self, else nil.
-  if (&typeid(*idx) == &typeid(String)) {
+  if (idx->typeid_eq_q<String>()) {
     auto* _ss = static_cast<String*>(idx);
     auto _it = std::search(_s->bytes.begin(), _s->bytes.end(),
                            _ss->bytes.begin(), _ss->bytes.end());
@@ -211,7 +211,7 @@ BasicObject* intrinsic_string_store(BasicObject* self_, BasicObject* idx, BasicO
   bool _by_bytes = false;
   std::size_t _bb0 = 0, _bb1 = 0;
   std::int64_t _c0 = 0, _c1 = 0;
-  if (&typeid(*idx) == &typeid(Integer)) {
+  if (idx->typeid_eq_q<Integer>()) {
     auto* _ri = static_cast<Integer*>(idx);
     std::int64_t _i = _ri->raw_;
     if (_i < 0) _i += _clen;
@@ -222,18 +222,18 @@ BasicObject* intrinsic_string_store(BasicObject* self_, BasicObject* idx, BasicO
     std::int64_t _len = 1;
     if (_rn >= 2) {
       BasicObject* _l0 = _rest->data[0];
-      _len = (&typeid(*_l0) == &typeid(Integer)) ? static_cast<Integer*>(_l0)->raw_ : 0;
+      _len = (_l0->typeid_eq_q<Integer>()) ? static_cast<Integer*>(_l0)->raw_ : 0;
       if (_len < 0) {
         char _b[64]; std::snprintf(_b, sizeof(_b), "negative length %lld", (long long)_len);
         throw_index_error(_b);
       }
     }
     _c0 = _i; _c1 = std::min<std::int64_t>(_i + _len, _clen);
-  } else if (&typeid(*idx) == &typeid(Range)) {
+  } else if (idx->typeid_eq_q<Range>()) {
     auto* _rg = static_cast<Range*>(idx);
     auto _toi = [](BasicObject* v, std::int64_t d) -> std::int64_t {
       if (!v || v == nil_instance()) return d;
-      return &typeid(*v) == &typeid(Integer) ? static_cast<Integer*>(v)->raw_ : d;
+      return v->typeid_eq_q<Integer>() ? static_cast<Integer*>(v)->raw_ : d;
     };
     std::int64_t _b = _toi(_rg->begin_, 0);
     std::int64_t _e = _toi(_rg->end_, _clen);
@@ -247,7 +247,7 @@ BasicObject* intrinsic_string_store(BasicObject* self_, BasicObject* idx, BasicO
     if (_e > _clen) _e = _clen;
     if (_e < _b) _e = _b;
     _c0 = _b; _c1 = _e;
-  } else if (&typeid(*idx) == &typeid(String)) {
+  } else if (idx->typeid_eq_q<String>()) {
     auto* _ss = static_cast<String*>(idx);
     auto _it = std::search(_s->bytes.begin(), _s->bytes.end(), _ss->bytes.begin(), _ss->bytes.end());
     if (_it == _s->bytes.end() && !_ss->bytes.empty()) {
@@ -433,7 +433,7 @@ namespace {
   // Byte-equal-to-c-string helper. Centralises the
   // `bytes.size() == len && memcmp == 0` pattern.
   inline bool __string_bytes_eq__(BasicObject* str, const char* cstr, std::size_t len) {
-    if (!str || &typeid(*str) != &typeid(String)) return false;
+    if (!str || !(str->typeid_eq_q<String>())) return false;
     auto* s = static_cast<String*>(str);
     return s->bytes.size() == len && std::memcmp(s->bytes.data(), cstr, len) == 0;
   }
@@ -449,7 +449,7 @@ namespace {
   // Everything else (Symbol, nil, other) → false (treated as UTF-8).
   bool __is_binary_encoding__(BasicObject* enc) {
     if (!enc || enc == nil_instance()) return false;
-    if (&typeid(*enc) == &typeid(String)) {
+    if (enc->typeid_eq_q<String>()) {
       return __string_bytes_eq_lit__(enc, "ASCII-8BIT") ||
              __string_bytes_eq_lit__(enc, "BINARY");
     }
@@ -1155,10 +1155,10 @@ namespace {
     auto* _s = static_cast<String*>(self_);
     auto* _a = static_cast<Array*>(args);
     for (BasicObject* _arg : _a->data) {
-      if (&typeid(*_arg) == &typeid(String)) {
+      if (_arg->typeid_eq_q<String>()) {
         auto* _src = static_cast<String*>(_arg);
         _s->bytes.insert(_s->bytes.end(), _src->bytes.begin(), _src->bytes.end());
-      } else if (&typeid(*_arg) == &typeid(Integer)) {
+      } else if (_arg->typeid_eq_q<Integer>()) {
         std::int64_t _v = static_cast<Integer*>(_arg)->raw_;
         _s->bytes.push_back(static_cast<std::uint8_t>(_v & 0xFF));
       } else {
@@ -1193,8 +1193,8 @@ BasicObject* intrinsic_string_bytesplice(BasicObject* self_, BasicObject* args) 
   BasicObject* _i = _a->data[0];
   BasicObject* _l = _a->data[1];
   BasicObject* _r = _a->data[2];
-  if (&typeid(*_i) != &typeid(Integer) || &typeid(*_l) != &typeid(Integer) ||
-      &typeid(*_r) != &typeid(String)) {
+  if (!(_i->typeid_eq_q<Integer>()) || !(_l->typeid_eq_q<Integer>()) ||
+      !(_r->typeid_eq_q<String>())) {
     throw_type_error("bytesplice: expected (Integer, Integer, String)");
   }
   std::int64_t _idx = static_cast<Integer*>(_i)->raw_;
@@ -1218,7 +1218,7 @@ BasicObject* intrinsic_array_initialize(BasicObject* self_, BasicObject* size_or
   auto* _a = static_cast<Array*>(self_);
   _a->data.clear();
   if (size_or_array == nil_instance()) return _a;
-  if (&typeid(*size_or_array) == &typeid(Array)) {
+  if (size_or_array->typeid_eq_q<Array>()) {
     auto* _src = static_cast<Array*>(size_or_array);
     _a->data = _src->data;
     return _a;

@@ -40,7 +40,7 @@ BasicObject* intrinsic_basic_object___send__(BasicObject* self_, BasicObject* na
 // defined method_missing.
 [[noreturn]] inline BasicObject* intrinsic_basic_object_method_missing(BasicObject* /*self_*/, BasicObject* name,
                                                                        BasicObject* /*args*/, BasicObject* /*kwargs*/) {
-  const char* _name = &typeid(*name) == &typeid(Symbol) ? static_cast<Symbol*>(name)->name_ : "<?>";
+  const char* _name = name->typeid_eq_q<Symbol>() ? static_cast<Symbol*>(name)->name_ : "<?>";
   std::string _msg = std::string("undefined method '") + _name + "'";
   throw static_cast<Exception*>(
       (&NoMethodError_CLASS)->m_new(univ, new Array({static_cast<BasicObject*>(new String(_msg.data(), _msg.size()))})));
