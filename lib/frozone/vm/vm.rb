@@ -343,8 +343,19 @@ module Frozone
 
       def init_globals
         gem_paths = Gem::Specification.flat_map(&:full_require_paths).select { |p| File.directory?(p) }
+        # bin/frozone_box doesn't initialize RubyGems → Gem::Specification is empty.
+        # Fall back to walking GEM_HOME/gems/*/lib so installed gems (mspec, etc.) load.
+        if gem_paths.empty? && (gem_home = ENV['GEM_HOME'])
+          gem_paths = Dir["#{gem_home}/gems/*/lib"].select { |p| File.directory?(p) }
+        end
+        # Honor RUBYLIB (standard MRI env hook for $LOAD_PATH).
+        rubylib_paths = (ENV['RUBYLIB'] || '').split(File::PATH_SEPARATOR).reject(&:empty?)
+        # FROZONE_LOAD_PATHS — explicit colon-separated list for cases where neither
+        # GEM_HOME nor RUBYLIB carries what we need (e.g. running under `bundle exec`
+        # where Bundler stages paths via in-process setup, not env vars).
+        explicit_paths = (ENV['FROZONE_LOAD_PATHS'] || '').split(File::PATH_SEPARATOR).reject(&:empty?)
         core_path = File.expand_path("../../core/#{FROZONE_CORE_VERSION}", __dir__)
-        all_load_paths = ([core_path] + $LOAD_PATH + gem_paths).uniq.reject { |p| p == '.' || p == '' }
+        all_load_paths = ([core_path] + $LOAD_PATH + rubylib_paths + explicit_paths + gem_paths).uniq.reject { |p| p == '.' || p == '' }
         sitelibdir = RbConfig::CONFIG['sitelibdir']
         site_idx = sitelibdir ? all_load_paths.index(sitelibdir) : nil
         load_path_objs = all_load_paths.each_with_index.map do |p, i|
