@@ -38,6 +38,19 @@ module Frozone
           def from_raise(arg_nodes, locals)
             return Cpp.throw_expr(["throw;"]) if arg_nodes.empty?
 
+            # `raise(*exc)` — splat-only form. Splat the array at runtime and
+            # dispatch to intrinsic_kernel_raise's class-vs-instance protocol.
+            # Empty array re-raises ($!) — matches MRI semantics.
+            if arg_nodes.length == 1 && arg_nodes[0].is_a?(Ast::SplatArg)
+              arr_expr = from_expr(arg_nodes[0].value_node, locals)
+              return Cpp.throw_expr([
+                "Array* _arr = splat_to_array(#{arr_expr});",
+                "if (_arr->data.empty()) throw;",
+                "auto _sz = _arr->data.size();",
+                "intrinsic_kernel_raise(nullptr, _arr->data[0], _sz > 1 ? _arr->data[1] : nil_instance(), _sz > 2 ? _arr->data[2] : nil_instance(), _sz > 3 ? _arr->data[3] : nil_instance());",
+              ])
+            end
+
             first = arg_nodes[0]
             if first.is_a?(Ast::ConstantRead) || first.is_a?(Ast::ConstantPath)
               parts = first.is_a?(Ast::ConstantRead) ? [first.name.to_s] : collect_path(first)
