@@ -555,6 +555,14 @@ module Frozone
             when Ast::GlobalVariableWrite then from_global_variable_write(node, locals)
             when Ast::Super then from_super(node, locals)
             when Ast::DefinedExpr then from_defined_expr(node, locals)
+            when Ast::Return
+              # `a or return v` / `cond ? return v : x` — Return in
+              # expression position. Always throws (frame-targeted): the
+              # statement-form `return v;` isn't legal as a sub-expression.
+              # The enclosing method's catch-ReturnException wrap unwinds.
+              v = node.value_node ? from_expr(node.value_node, locals) : "nil_instance()"
+              @frame_id_used = true
+              Cpp.throw_expr(["throw ReturnException{#{v}, __frame_id__};"])
             else
               raise EmissionError, "from_expr: unhandled AST node #{node.class.name}"
             end
