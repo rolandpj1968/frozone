@@ -343,30 +343,51 @@ module Frozone
 
       def init_globals
         gem_paths = Gem::Specification.flat_map(&:full_require_paths).select { |p| File.directory?(p) }
-        # bin/frozone_box doesn't initialize RubyGems → Gem::Specification is empty.
-        # Fall back to walking GEM_HOME/gems/*/lib so installed gems (mspec, etc.) load.
-        if gem_paths.empty? && (gem_home = ENV['GEM_HOME'])
-          gem_paths = Dir["#{gem_home}/gems/*/lib"].select { |p| File.directory?(p) }
+        # Env-driven fallbacks for bin/frozone_box ONLY (Gem::Specification is
+        # empty there). Under MRI host (gen / dev), RUBYLIB may point at
+        # bundler's vendored stdlib copies (e.g. bundler/vendor/fileutils/lib),
+        # which would shadow the canonical /usr/.../<ver>/fileutils.rb and
+        # cause the AOT gen to parse a different FileUtils class — class table
+        # mismatch, build fails. So we only consult env vars when no gems are
+        # otherwise visible.
+        env_extra_paths = []
+        if gem_paths.empty?
+          if (gem_home = ENV['GEM_HOME'])
+            gem_paths = Dir["#{gem_home}/gems/*/lib"].select { |p| File.directory?(p) }
+          end
+          env_extra_paths.concat((ENV['RUBYLIB'] || '').split(File::PATH_SEPARATOR).reject(&:empty?))
+          # FROZONE_LOAD_PATHS — explicit colon-separated list for cases where
+          # neither GEM_HOME nor RUBYLIB carries what we need (e.g. `bundle
+          # exec` where Bundler stages paths via in-process setup).
+          env_extra_paths.concat((ENV['FROZONE_LOAD_PATHS'] || '').split(File::PATH_SEPARATOR).reject(&:empty?))
         end
-        # Honor RUBYLIB (standard MRI env hook for $LOAD_PATH).
-        rubylib_paths = (ENV['RUBYLIB'] || '').split(File::PATH_SEPARATOR).reject(&:empty?)
-        # FROZONE_LOAD_PATHS — explicit colon-separated list for cases where neither
-        # GEM_HOME nor RUBYLIB carries what we need (e.g. running under `bundle exec`
-        # where Bundler stages paths via in-process setup, not env vars).
-        explicit_paths = (ENV['FROZONE_LOAD_PATHS'] || '').split(File::PATH_SEPARATOR).reject(&:empty?)
         core_path = File.expand_path("../../core/#{FROZONE_CORE_VERSION}", __dir__)
-        all_load_paths = ([core_path] + $LOAD_PATH + rubylib_paths + explicit_paths + gem_paths).uniq.reject { |p| p == '.' || p == '' }
+        all_load_paths = ([core_path] + $LOAD_PATH + env_extra_paths + gem_paths).uniq.reject { |p| p == '.' || p == '' }
         sitelibdir = RbConfig::CONFIG['sitelibdir']
         site_idx = sitelibdir ? all_load_paths.index(sitelibdir) : nil
         load_path_objs = all_load_paths.each_with_index.map do |p, i|
           StringObject.new(p).tap { |s| s.set_ivar(:@gem_prelude_index, TrueObject::TRUE) if site_idx && i >= site_idx }
         end
         GLOBALS[:"$LOAD_PATH"] = ArrayObject.new(load_path_objs)
-        # Pre-stub pp.rb: Frozone provides pretty_inspect/pp directly in core,
-        # so pp.rb must not be loaded (it uses default-param tricks Frozone can't handle).
-        pp_path = $LOAD_PATH.map { |d| File.join(d, 'pp.rb') }.find { |f| File.exist?(f) } || 'pp.rb'
-        stringio_path = $LOAD_PATH.map { |d| File.join(d, 'stringio') }.find { |f| File.exist?("#{f}.so") || File.exist?("#{f}.rb") } || 'stringio'
-        GLOBALS[:"$LOADED_FEATURES"] = ArrayObject.new([StringObject.new(pp_path), StringObject.new(stringio_path)])
+        # Pre-stub stdlib files that Frozone already provides natively. The MRI
+        # source files use idioms (default-param tricks, dynamic class
+        # construction) Frozone's parser/evaluator doesn't handle — they'd raise
+        # at load time even though their public API is fully covered. Marking
+        # them in $LOADED_FEATURES makes subsequent `require` a no-op.
+        prestubbed = {}
+        [
+          ['pp',        'pp.rb'],
+          ['stringio',  ['stringio.so', 'stringio.rb']],
+          # FileUtils baked into the runtime — frozone.rb's gen produces a real
+          # FileUtils class with mkdir_p/rm/etc. Without this stub, mspec's
+          # `require 'fileutils'` parses the MRI source and faults.
+          ['fileutils', 'fileutils.rb'],
+        ].each do |feat, candidates|
+          cs = Array(candidates)
+          path = $LOAD_PATH.map { |d| cs.map { |c| File.join(d, c) } }.flatten.find { |f| File.exist?(f) }
+          prestubbed[feat] = path || cs.first
+        end
+        GLOBALS[:"$LOADED_FEATURES"] = ArrayObject.new(prestubbed.values.map { |p| StringObject.new(p) })
         GLOBALS[:"$\""] = GLOBALS[:"$LOADED_FEATURES"]  # $" is alias for $LOADED_FEATURES
         GLOBALS[:"$/"] = StringObject.new("\n")
         GLOBALS[:"$\\"] = NilObject::NIL

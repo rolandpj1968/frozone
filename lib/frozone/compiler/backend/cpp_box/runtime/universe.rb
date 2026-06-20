@@ -2150,11 +2150,6 @@ module Frozone
               if (!pat) return self;
               if (pat->typeid_eq_q<String>()) {
                 auto* spat = static_cast<String*>(pat);
-                if (!repl || repl == nil_instance() || block != nullptr) {
-                  std::fprintf(stderr, "[box-first] String#gsub block-form not supported yet\\n");
-                  std::abort();
-                }
-                auto* srepl = static_cast<String*>(repl);
                 if (spat->bytes.empty()) return self;
                 String* out = new String();
                 out->bytes.reserve(self->bytes.size());
@@ -2163,9 +2158,28 @@ module Frozone
                 const std::uint8_t* nee = spat->bytes.data();
                 std::size_t hay_n = self->bytes.size();
                 std::size_t nee_n = spat->bytes.size();
+                auto* blk = block ? static_cast<Proc*>(block) : nullptr;
+                auto* srepl = (!blk && repl && repl != nil_instance()) ? static_cast<String*>(repl) : nullptr;
+                if (!blk && !srepl) {
+                  std::fprintf(stderr, "[box-first] String#gsub: missing replacement and block\\n");
+                  std::abort();
+                }
                 while (i + nee_n <= hay_n) {
                   if (std::memcmp(hay + i, nee, nee_n) == 0) {
-                    out->bytes.insert(out->bytes.end(), srepl->bytes.begin(), srepl->bytes.end());
+                    if (blk) {
+                      String* match = new String();
+                      match->bytes.assign(hay + i, hay + i + nee_n);
+                      auto* rval = blk->m_call(univ, new Array({static_cast<BO*>(match)}));
+                      auto* rstr = BO::try_cast<String>(rval);
+                      if (!rstr) {
+                        std::fprintf(stderr, "[box-first] String#gsub block returned non-String (%s)\\n",
+                                     rval ? rval->ruby_class_name() : "(null)");
+                        std::abort();
+                      }
+                      out->bytes.insert(out->bytes.end(), rstr->bytes.begin(), rstr->bytes.end());
+                    } else {
+                      out->bytes.insert(out->bytes.end(), srepl->bytes.begin(), srepl->bytes.end());
+                    }
                     i += nee_n;
                   } else {
                     out->bytes.push_back(hay[i]);
@@ -2180,11 +2194,12 @@ module Frozone
               // and \\<n> escapes deferred until a caller exercises them.
               if (pat->typeid_eq_q<Regexp>()) {
                 auto* re = static_cast<Regexp*>(pat);
-                if (!repl || repl == nil_instance() || block != nullptr) {
-                  std::fprintf(stderr, "[box-first] String#gsub Regexp block-form not supported yet\\n");
+                auto* blk = block ? static_cast<Proc*>(block) : nullptr;
+                auto* srepl = (!blk && repl && repl != nil_instance()) ? static_cast<String*>(repl) : nullptr;
+                if (!blk && !srepl) {
+                  std::fprintf(stderr, "[box-first] String#gsub: missing replacement and block\\n");
                   std::abort();
                 }
-                auto* srepl = static_cast<String*>(repl);
                 if (!re->compiled_) return self;
                 String* out = new String();
                 out->bytes.reserve(self->bytes.size());
@@ -2201,8 +2216,21 @@ module Frozone
                   int64_t me = region->end[0];
                   // Pre-match: bytes from `pos` to `mb`.
                   out->bytes.insert(out->bytes.end(), s + pos, s + mb);
-                  // Replacement (literal, no \\<n> expansion).
-                  out->bytes.insert(out->bytes.end(), srepl->bytes.begin(), srepl->bytes.end());
+                  if (blk) {
+                    String* match = new String();
+                    match->bytes.assign(s + mb, s + me);
+                    auto* rval = blk->m_call(univ, new Array({static_cast<BO*>(match)}));
+                    auto* rstr = BO::try_cast<String>(rval);
+                    if (!rstr) {
+                      std::fprintf(stderr, "[box-first] String#gsub block returned non-String (%s)\\n",
+                                   rval ? rval->ruby_class_name() : "(null)");
+                      std::abort();
+                    }
+                    out->bytes.insert(out->bytes.end(), rstr->bytes.begin(), rstr->bytes.end());
+                  } else {
+                    // Replacement (literal, no \\<n> expansion).
+                    out->bytes.insert(out->bytes.end(), srepl->bytes.begin(), srepl->bytes.end());
+                  }
                   // Zero-length match: step 1 byte to avoid infinite loop.
                   pos = (me == mb) ? me + 1 : me;
                 }
