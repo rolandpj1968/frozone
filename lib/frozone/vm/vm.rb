@@ -382,6 +382,10 @@ module Frozone
           # FileUtils class with mkdir_p/rm/etc. Without this stub, mspec's
           # `require 'fileutils'` parses the MRI source and faults.
           ['fileutils', 'fileutils.rb'],
+          # rbconfig already exists as a baked-in module; the MRI source at
+          # archdir/rbconfig.rb sets RbConfig::CONFIG dynamically and trips a
+          # nil-receiver `[]` during evaluation.
+          ['rbconfig',  'rbconfig.rb'],
         ].each do |feat, candidates|
           cs = Array(candidates)
           path = $LOAD_PATH.map { |d| cs.map { |c| File.join(d, c) } }.flatten.find { |f| File.exist?(f) }
