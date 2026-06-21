@@ -22,6 +22,15 @@ BasicObject* intrinsic_io_raw_write_stdout(BasicObject* /*self_*/, BasicObject* 
 
 BasicObject* intrinsic_io_raw_write_stderr(BasicObject* /*self_*/, BasicObject* s);
 
+// `IO.popen(cmd, mode='r', opts=nil)` — fork+exec+pipe, return an IO
+// bound to the child's stdout via @fd. Mode 'r' only (mspec/ruby_exe
+// reads the child output). cmd may be a String (shell exec via sh -c) or
+// an Array of Strings (direct execvp). opts is ignored — env/chdir/etc.
+// not modelled. Throws SystemCallError on syscall failure, ArgumentError
+// on bad cmd shape. Klass arg ignored; the result is always plain IO.
+BasicObject* intrinsic_io_popen(BasicObject* /*klass*/, BasicObject* cmd,
+                                BasicObject* mode, BasicObject* opts);
+
 }  // namespace Ruby
 
 #endif  // FROZONE_IO_INTRINSICS_HPP

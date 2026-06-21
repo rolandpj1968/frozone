@@ -82,7 +82,7 @@ module Frozone
             float_ceil float_floor float_truncate float_round
             float_frexp float_lgamma float_gamma
             float_to_ieee_be float_from_ieee_be
-            io_raw_write_stdout io_raw_write_stderr
+            io_raw_write_stdout io_raw_write_stderr io_popen
             string_index string_slice string_split string_chars
             string_inspect string_hash string_to_sym string_to_i_base
             string_format string_replace string_store string_initialize string_tr_raw
