@@ -428,7 +428,12 @@ module Kernel
 
   def `(cmd)
     cmd = __coerce_to_str__(cmd)
-    Intrinsics.kernel_backtick(self, cmd)
+    # IO.popen handles the fork+exec+pipe; read drains the child's stdout
+    # and close reaps the process (waitpid via the @fd close path).
+    io = IO.popen(cmd, 'r')
+    out = io.read
+    io.close
+    out
   end
 
   module_function :puts, :print, :warn, :p, :raise, :fail, :require, :require_relative, :load, :__dir__,
