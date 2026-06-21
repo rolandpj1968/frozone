@@ -25,7 +25,7 @@ RUBY_STDLIB=$(ruby -e 'puts RbConfig::CONFIG["rubylibdir"]')
 RUBY_ARCH=$(ruby -e 'puts RbConfig::CONFIG["archdir"]')
 export FROZONE_LOAD_PATHS="$MSPEC_LIB:$RUBY_STDLIB:$RUBY_ARCH"
 
-JOBS=${JOBS:-$(ruby -rEtc -e 'puts Etc.nprocessors')}
+JOBS=${JOBS:-$(ruby -retc -e 'puts Etc.nprocessors')}
 
 run_one() {
   local spec="$1"

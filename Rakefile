@@ -603,8 +603,11 @@ end
 #   rake frozone:clean              wipe .o + binary
 #
 # Env knobs (all optional):
-#   OPT=O0|O1|O2|O3    optimisation level (default O2)
-#   JOBS=N             parallel compile workers (default nprocessors)
+#   OPT=O0|O1|O2|O3    optimisation level (default O0 for fast dev rebuilds;
+#                      O2 ships ~2.4× faster startup at ~50min build cost,
+#                      LTO auto-enabled at O2+)
+#   LTO=0              force LTO off at O2+ (otherwise auto-on per #164)
+#   JOBS=N             parallel compile workers (default nprocessors/2)
 #   FROZONE_BOX_BIN    binary output path (default bin/frozone_box)
 #   CCACHE=0           disable ccache even if installed (default: auto-use)
 
