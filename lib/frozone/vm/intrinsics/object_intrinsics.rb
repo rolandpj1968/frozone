@@ -132,14 +132,21 @@ module Frozone
           end
         end
 
-        def object_dup(context, v)
-          # Only works for plain ObjectObject instances — specialized types (String, Array, etc.)
-          # define their own dup methods in core Ruby.
-          return v unless v.class == ObjectObject
-          copy = ObjectObject.allocate
-          copy.class_object = v.class_object
+        def object_dup(_context, v)
+          # Memberwise shallow copy. Mirrors box-first's
+          # `intrinsic_object_dup → m_shallow_dup → new T(*this)`.
+          # `v.class.allocate` produces a fresh instance of the runtime
+          # type (HashObject, ArrayObject, plain ObjectObject, …) with
+          # ivars defaulted; copy_fields_from then memberwise-copies
+          # @instance_variables_hash (dup'd to break sharing) and any
+          # type-specific host-MRI ivars overridden per-class
+          # (HashObject's @raw, StringObject's @raw + @encoding, etc).
+          # Container Ruby `def dup` bodies then layer
+          # `Intrinsics.X_clone_storage(r)` on top to give the dup
+          # independent storage where the memberwise copy leaves it
+          # shared.
+          copy = v.class.allocate
           copy.copy_fields_from(v, eigenclass: nil, frozen: false)
-          copy.dispatch(context, :initialize_copy, [v], {}, nil, private_ok: true)
           copy
         end
 

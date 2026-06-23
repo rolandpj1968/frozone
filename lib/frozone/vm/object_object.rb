@@ -48,6 +48,7 @@ module Frozone
       # Copy base ObjectObject fields from source into self (used by dup/clone).
       # Sets eigenclass and frozen state directly — this is intentionally internal.
       def copy_fields_from(source, eigenclass: nil, frozen: false)
+        @class_object = source.class_object
         @instance_variables_hash = source.instance_variables_hash.dup
         @eigenclass = eigenclass
         @frozen_object = frozen

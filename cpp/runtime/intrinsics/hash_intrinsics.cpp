@@ -16,6 +16,30 @@ namespace Ruby {
 
 // ---- Hash ----------------------------------------------------------
 
+// `Hash#dup` step 2 — rebuild the internal unordered_map functors on a
+// freshly shallow-dup'd Hash so they point at the dup's own
+// compare_by_identity_ flag rather than the source's. The default C++
+// copy ctor (m_shallow_dup → `new Hash(*this)`) memberwise-copies
+// `data` and `order_idx`, but the Hasher/KeyEq inside each map holds a
+// `bool* by_identity` back-pointer into the source instance; without
+// this step, flipping the dup's compare_by_identity flag would have no
+// effect on its own lookups (or worse, would silently track the
+// source's flag).
+BasicObject* intrinsic_hash_clone_storage(BasicObject* self_) {
+  auto* h = static_cast<Hash*>(self_);
+  Hash::map_t fresh_data(0, Hash::Hasher{&h->compare_by_identity_},
+                            Hash::KeyEq{&h->compare_by_identity_});
+  for (auto& kv : h->data) fresh_data.emplace(kv.first, kv.second);
+  h->data = std::move(fresh_data);
+  Hash::idx_map_t fresh_idx(0, Hash::Hasher{&h->compare_by_identity_},
+                                Hash::KeyEq{&h->compare_by_identity_});
+  for (auto& kv : h->order_idx) fresh_idx.emplace(kv.first, kv.second);
+  h->order_idx = std::move(fresh_idx);
+  // insertion_order (plain std::vector<BO*>) and `live` are POD-ish —
+  // the memberwise copy already gave the dup its own copies.
+  return h;
+}
+
 // `Hash#each { |k, v| ... }` — iterate, calling block with [k, v]
 // Array. Returns self. The 2-element Array argument enables `|k, v|`
 // destructuring at the block-arg unpacking site. Walks the side

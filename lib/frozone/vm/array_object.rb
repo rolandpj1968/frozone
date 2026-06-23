@@ -20,6 +20,16 @@ module Frozone
       end
 
       def raw = @elements
+
+      # Memberwise copy of @elements (pointer-shared with source per MRI
+      # shallow-dup semantics). Array#dup chains
+      # Intrinsics.array_clone_storage on top to give the dup an
+      # independent backing array.
+      def copy_fields_from(source, eigenclass: nil, frozen: false)
+        super
+        @elements = source.raw
+        self
+      end
     end
   end
 end

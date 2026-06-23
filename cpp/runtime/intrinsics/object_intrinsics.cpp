@@ -16,30 +16,19 @@ namespace Ruby {
 
 // ---- Object / BasicObject ------------------------------------------
 
-// `Object#dup` — shallow copy. Picks the runtime type by typeid so the
-// new instance has the right vtable; ivars not copied (rare to depend
-// on for non-Ruby-defined classes). Real impl would call
-// m_initialize_copy.
+// `Object#dup` — shallow memberwise copy via the runtime-dispatched
+// m_shallow_dup hook. Each class auto-generates m_shallow_dup as
+// `return new ThisType(*this);` (in class_emitter's auto-overrides),
+// so the C++ copy ctor for the receiver's exact runtime type runs.
+// std::vector / std::string fields are deep-copied automatically;
+// BO* ivars are pointer-shared (correct MRI shallow-dup semantics).
+//
+// Container classes that need independent storage on top of this
+// (Hash with its functor back-pointers; Set with its @hash BO*) chain
+// their Ruby `def dup` as `r = super; Intrinsics.X_clone_storage(r); r`
+// — super reaches here, the clone_storage step deep-copies storage.
 BasicObject* intrinsic_object_dup(BasicObject* self_) {
-  if (self_->typeid_eq_q<String>()) {
-    auto* _s = static_cast<String*>(self_);
-    auto* _r = new String();
-    _r->bytes = _s->bytes;
-    return _r;
-  }
-  if (self_->typeid_eq_q<Array>()) {
-    auto* _a = static_cast<Array*>(self_);
-    auto* _r = new Array();
-    _r->data = _a->data;
-    return _r;
-  }
-  if (self_->typeid_eq_q<Hash>()) {
-    auto* _h = static_cast<Hash*>(self_);
-    auto* _r = new Hash();
-    _r->data = _h->data;
-    return _r;
-  }
-  return self_;
+  return self_->m_shallow_dup(univ);
 }
 
 // `Object#public_send(name, *args, **kwargs, &block)` — dispatches via

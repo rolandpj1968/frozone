@@ -296,10 +296,16 @@ class Set
   alias to_s inspect
 
   def dup
-    s = self.class.new(self)
-    s.compare_by_identity if compare_by_identity?
+    s = super
+    s.__rehash_for_dup__
     s
   end
+
+  # Internal: deep-copy the backing @hash after a shallow super; called
+  # from Set#dup. Public name (per project convention) so the AOT
+  # compiler can see it as a method on Set, but it's a "don't call this
+  # yourself" hook.
+  def __rehash_for_dup__ = (@hash = @hash.dup)
 
   protected
 

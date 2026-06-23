@@ -888,34 +888,28 @@ module Frozone
               params: [],
               body: respond_to_body(klass.name, responder_ruby_names, method_ids),
             }
-            # Auto-generate m_dup for non-eigenclass classes: shallow copy
-            # via the C++ default copy constructor (memberwise copy of
-            # all ivars + state). Force-override (no `||=`) because
-            # module-flattening propagates Object#dup's
-            # `intrinsic_object_dup(this)` body into every class's
-            # overrides — that intrinsic only handles String/Array/Hash
-            # and returns self_ for unknown classes, making
-            # `@context.dup; @context.in_def = true` mutate both copies
-            # and break Parser scope tracking. The typed copy here
-            # always produces a fresh instance.
+            # Auto-generate m_shallow_dup — a building block that does
+            # a C++ memberwise copy of `*this`. Used by Object#dup via
+            # `intrinsic_object_dup`, which virtual-dispatches to this
+            # slot so the right `new T(*this)` runs for the receiver's
+            # exact runtime type. std::vector / std::string fields are
+            # deep-copied automatically by their copy ctors; BO* ivars
+            # are pointer-shared (correct MRI shallow-dup semantics).
             #
-            # Set gets a tweak: the memberwise copy leaves iv_hash as
-            # a shared pointer between source and dup, so mutating one
-            # Set's @hash (via add/delete) mutates the other. Deep-copy
-            # iv_hash explicitly to give the dup independent storage.
-            # Without this the whitequark Parser::StaticEnvironment
-            # mis-classifies out-of-scope identifiers as local reads
-            # (every block scope ends up sharing the surrounding scope's
-            # variable set).
+            # m_dup itself is left alone — Ruby-defined `def dup` bodies
+            # (including user code) compile authentically. Container
+            # classes that need independent storage on top of the
+            # shallow copy implement `def dup` as `r = super;
+            # Intrinsics.X_clone_storage(r); r`, where super reaches
+            # Object#dup → m_shallow_dup, and the clone_storage step
+            # deep-copies the C++-side data.
+            #
             # Eigenclasses don't get this — they're singletons.
             unless klass.name.end_with?("_eigenclass")
-              body =
-                if klass.name == "Set"
-                  "auto* r = new Set(*this); r->iv_hash = r->iv_hash->m_dup(); return r;"
-                else
-                  "return new #{klass.name}(*this);"
-                end
-              overrides["m_dup"] = { params: [], body: body }
+              overrides["m_shallow_dup"] = {
+                params: [],
+                body: "return new #{klass.name}(*this);",
+              }
             end
             klass.dup.tap { |k| k.overrides = overrides }
           end

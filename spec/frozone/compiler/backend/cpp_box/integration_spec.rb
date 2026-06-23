@@ -55,7 +55,7 @@ EXEC_MODES =
 UNIFIED_STUBS = %w[
   arity_test array_test attrw_test block_kw_test block_opt_test
   block_specialization_test block_test box_test case_test
-  class_method_test fib float_test getivar hash_test iow_test
+  class_method_test dup_test fib float_test getivar hash_test iow_test
   kw_test kw_unset_test leaf_dispatch_test math_test multi_arity_test
   nqueens_small random_test return_in_rescue_test splat_test
   string_test super_test ternary_test visibility_test
@@ -351,6 +351,19 @@ RSpec.describe 'box-first end-to-end' do
     expect(unified_stub_out('class_method_test', env_extras: env_extras).strip.split("\n")).to eq(
       %w[42 0 99]
     )
+  end
+
+  it 'preserves user-defined def dup and shallow-copies user classes under AOT (#198)' do
+    expect(unified_stub_out('dup_test', env_extras: env_extras).strip.split("\n")).to eq([
+      'hash_independent=true',
+      'array_independent=true',
+      'string_independent=true',
+      'set_independent=true',
+      'user_def_dup_honored=true',
+      'user_shallow_dup_fresh_instance=true',
+      'user_shallow_dup_ivars_copied=true',
+      'user_shallow_dup_shares_inner=true',
+    ])
   end
 
   it 'yields to a block and closes over enclosing locals' do

@@ -13,6 +13,11 @@ namespace Ruby {
 
 // ---- Hash ----------------------------------------------------------
 
+// `Hash#dup` step 2 — rebuild unordered_map functors on a freshly
+// shallow-dup'd Hash so they point at the dup's own
+// compare_by_identity_ flag. See implementation for details.
+BasicObject* intrinsic_hash_clone_storage(BasicObject* self_);
+
 // `Hash#each { |k, v| ... }` — iterate, calling block with [k, v]
 // Array. Returns self. The 2-element Array argument enables `|k, v|`
 // destructuring at the block-arg unpacking site. Walks the side

@@ -208,15 +208,8 @@ class Hash
   alias inspect to_s
 
   def dup
-    r = self.class.allocate
-    r.compare_by_identity if compare_by_identity?
-    each { |k, v| r[k] = v }
-    if default_proc
-      r.default_proc = default_proc
-    elsif default
-      r.default = default
-    end
-    instance_variables.each { |iv| r.instance_variable_set(iv, instance_variable_get(iv)) }
+    r = super
+    Intrinsics.hash_clone_storage(r)
     r
   end
 

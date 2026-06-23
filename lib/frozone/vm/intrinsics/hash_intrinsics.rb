@@ -13,6 +13,16 @@ module Frozone
         def hash_index_write(_, h, key, value, by_id) = (h.send(:[]=, key, value, by_identity: by_id.truthy?); value)
         def hash_each(context, h, block) = (h.raw_each { |k, v| block.invoke(context, [n2f_arr([k, v])]) }; h)
         def hash_set_identity_mode(_, h, by_id) = (h.set_identity_mode!(by_id.truthy?) if fhash?(h); h)
+
+        # Hash#dup step 2 — give a freshly shallow-dup'd HashObject an
+        # independent internal store. HashObject#copy_fields_from
+        # pointer-shares @elements per MRI shallow-dup semantics; this
+        # in-place dups it so the two HashObjects no longer share kv
+        # storage. Mirrors box-first's intrinsic_hash_clone_storage.
+        def hash_clone_storage(_, h)
+          h.send(:replace_elements_for_copy!, h.send(:elements_for_copy).dup)
+          h
+        end
         def hash_ruby2_keywords_hash(_, h) = (h.ruby2_keywords = true if fhash?(h); h)
 
         def hash_index(context, h, key, by_id)

@@ -40,6 +40,26 @@ module Frozone
         @ruby2_keywords = false
       end
 
+      # Memberwise copy of the host-MRI ivars this class adds on top of
+      # ObjectObject's base. Pointer-shared per MRI shallow-dup semantics
+      # — Hash#dup layers Intrinsics.hash_clone_storage on top to give
+      # the dup independent @elements storage.
+      def copy_fields_from(source, eigenclass: nil, frozen: false)
+        super
+        @elements = source.elements_for_copy
+        @default_value = source.default_value
+        @default_block = source.default_block
+        @ruby2_keywords = source.ruby2_keywords
+        self
+      end
+
+      # Internal: the raw KeyWrapper-keyed Hash used by copy_fields_from
+      # and by Intrinsics.hash_clone_storage. `raw` is the public reader
+      # which unwraps keys; this returns the storage as-is.
+      def elements_for_copy = @elements
+      def replace_elements_for_copy!(new_elements) = (@elements = new_elements)
+      protected :elements_for_copy, :replace_elements_for_copy!
+
       # Iterate (key, value) pairs with keys logically unwrapped.
       # With no block, returns an Enumerator so callers can chain
       # `.to_a` / `.map` / etc.
