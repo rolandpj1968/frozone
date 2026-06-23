@@ -81,7 +81,7 @@ module Frozone
             if m.is_a?(Vm::Method)
               fwd_args = m.required_params.map { |p| mf.get_local(p) }
               m.optional_params.each { |p, _| fwd_args << mf.get_local(p) }
-              if m.rest_param
+              if m.rest_param && m.rest_param != :__no_rest__
                 rest_val = mf.get_local(m.rest_param)
                 fwd_args += rest_val.is_a?(Vm::ArrayObject) ? rest_val.raw : [rest_val]
               end
@@ -114,7 +114,7 @@ module Frozone
               fwd_kw = r2k_kwargs || {}
               m.required_kw_params.each { |k| fwd_kw[k] = mf.get_local(k) }
               m.optional_kw_params.each { |k, _| fwd_kw[k] = mf.get_local(k) }
-              if m.kw_rest_param
+              if m.kw_rest_param && m.kw_rest_param != :__no_kwargs__
                 rest_hash = mf.get_local(m.kw_rest_param)
                 if rest_hash.is_a?(Vm::HashObject)
                   rest_hash.raw.each { |k, v| fwd_kw[k.is_a?(Vm::SymbolObject) ? k.raw : k] = v }

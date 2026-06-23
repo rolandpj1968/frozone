@@ -294,7 +294,7 @@ module Frozone
       def with_temp_bindings(bindings, context)
         saved = bindings.map do |(name, depth), val|
           frame = context.frame.frame_at_depth(depth)
-          old = frame.get_local(name)  # nil if not set — acceptable since locals default to nil
+          old = frame.local_names.include?(name) ? frame.get_local(name) : Vm::NilObject::NIL
           frame.set_local(name, val)
           [[name, depth], old]
         end.to_h
