@@ -898,12 +898,24 @@ module Frozone
             # `@context.dup; @context.in_def = true` mutate both copies
             # and break Parser scope tracking. The typed copy here
             # always produces a fresh instance.
+            #
+            # Set gets a tweak: the memberwise copy leaves iv_hash as
+            # a shared pointer between source and dup, so mutating one
+            # Set's @hash (via add/delete) mutates the other. Deep-copy
+            # iv_hash explicitly to give the dup independent storage.
+            # Without this the whitequark Parser::StaticEnvironment
+            # mis-classifies out-of-scope identifiers as local reads
+            # (every block scope ends up sharing the surrounding scope's
+            # variable set).
             # Eigenclasses don't get this — they're singletons.
             unless klass.name.end_with?("_eigenclass")
-              overrides["m_dup"] = {
-                params: [],
-                body: "return new #{klass.name}(*this);",
-              }
+              body =
+                if klass.name == "Set"
+                  "auto* r = new Set(*this); r->iv_hash = r->iv_hash->m_dup(); return r;"
+                else
+                  "return new #{klass.name}(*this);"
+                end
+              overrides["m_dup"] = { params: [], body: body }
             end
             klass.dup.tap { |k| k.overrides = overrides }
           end
