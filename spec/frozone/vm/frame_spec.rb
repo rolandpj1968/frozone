@@ -11,9 +11,9 @@ RSpec.describe Frozone::Vm::Frame do
       expect(frame.get_local(:y)).to equal(Frozone::Vm::NilObject::NIL)
     end
 
-    it 'returns nil for undeclared locals' do
+    it 'raises NameError for undeclared locals' do
       frame = described_class.new(top_level_object, [], [scope])
-      expect(frame.get_local(:z)).to be_nil
+      expect { frame.get_local(:z) }.to raise_error(NameError, /undefined local variable or method 'z'/)
     end
   end
 

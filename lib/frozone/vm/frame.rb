@@ -17,7 +17,7 @@ module Frozone
 
       def alive? = @alive != false
       def local_names = @locals.keys
-      def get_local(local) = @locals[local]
+      def get_local(local) = @locals.fetch(local) { raise NameError, "undefined local variable or method '#{local}'" }
 
       def initialize(the_self, locals, scopes, parent_frame = nil)
         # TODO - map locals to slot number
