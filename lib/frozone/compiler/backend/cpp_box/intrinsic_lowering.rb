@@ -104,7 +104,7 @@ module Frozone
             array_unshift array_index_write array_slice_write
             array_sample array_sample_n array_initialize
             integer_bit_length
-            object_dup object_public_send
+            object_shallow_copy object_public_send
             basic_object___send__ basic_object_method_missing
             kernel_catch kernel_throw kernel_puts kernel_print
             kernel_rand kernel_integer kernel_float kernel_raise kernel_exit
@@ -559,7 +559,12 @@ module Frozone
             # need per-class metadata or runtime reflection that
             # box-first doesn't track.
             object_freeze:    ->(self_) { "(#{self_})" },             # stub: no-op (we don't track frozen state)
+            object_unfreeze:  ->(self_) { "(#{self_})" },             # stub: matches object_freeze
             object_frozen:    ->(_self_) { "false_instance()" },        # stub: nothing is frozen
+            # Used by Object#dup to drop the singleton class on the dup.
+            # iv_eigenclass lives on Object (BasicObject is metadata-free),
+            # so cast to Object before the field write.
+            object_clear_singleton: ->(self_) { "(static_cast<Object*>(#{self_})->iv_eigenclass = nil_instance(), #{self_})" },
             object_methods:   ->(_self_, _all) { "(new Array())" },     # stub: empty list
             # `obj.method(:name)` — box-first has no Method class, but
             # the only thing optparse / most call sites do with the

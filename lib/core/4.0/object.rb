@@ -7,7 +7,12 @@ class Object < BasicObject
   def ===(other) = Intrinsics.basic_object__equal_equal_(self, other) || self == other
   def extend(*mods) = Intrinsics.object_extend_multi(self, mods)
   def instance_exec(*args, &block) = Intrinsics.object_instance_exec(self, args, block)
-  def dup = Intrinsics.object_dup(self)
+  def dup
+    r = Intrinsics.object_shallow_copy(self)
+    Intrinsics.object_clear_singleton(r)
+    Intrinsics.object_unfreeze(r)
+    r
+  end
   def itself = self
   def singleton_class = Intrinsics.object_singleton_class(self)
   def to_s = "#<#{self.class}:0x#{__id__.to_s(16)}>"
@@ -23,11 +28,18 @@ class Object < BasicObject
   end
 
   def clone(freeze: nil)
-    r = Intrinsics.object_dup(self)
-    if freeze.nil?
-      r.freeze if frozen?
-    elsif freeze
-      r.freeze
+    unless freeze.nil? || freeze == true || freeze == false
+      raise ArgumentError, "unexpected value for freeze: #{freeze.class}"
+    end
+    r = Intrinsics.object_shallow_copy(self)
+    # eigenclass: preserved (shared with source) by shallow_copy; proper
+    # singleton-clone is a follow-up to #199 — see task notes.
+    # Frozen state: shallow_copy preserves source's. Override per
+    # freeze: kwarg.
+    case freeze
+    when true  then Intrinsics.object_freeze(r)
+    when false then Intrinsics.object_unfreeze(r)
+      # nil: keep what shallow_copy preserved (source's frozen state)
     end
     r
   end

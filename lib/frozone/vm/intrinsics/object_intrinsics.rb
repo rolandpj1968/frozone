@@ -10,6 +10,13 @@ module Frozone
         def object_ivar_defined(_, v, name) = n2f_bool(v.ivar_defined?(validated_ivar(name, v)))
         def object_ivar_names(_, v) = n2f_arr((v.instance_variables_hash&.keys || []).map { |k| n2f_sym(k) })
         def object_freeze(_, v) = (v.freeze_object!; v)
+        # Object#dup state-reset hooks — Object#dup in core/4.0/object.rb
+        # is `shallow_copy + clear_singleton + unfreeze`, mirroring MRI's
+        # "fresh state on dup". Object#clone uses object_freeze /
+        # object_unfreeze to apply the freeze: keyword policy (nil =
+        # preserve source's frozen state, carried by shallow_copy).
+        def object_unfreeze(_, v) = (v.send(:unfreeze_object!); v)
+        def object_clear_singleton(_, v) = (v.send(:__set_eigenclass__, nil); v)
         def object_methods(_, v, include_super_obj = FTRUE) =
           collect_method_names(v, include_super_obj.truthy?, singleton_only_when_false: true) { |vis| vis != :private }
         def object_public_methods(_, v, include_super_obj = FTRUE) =
@@ -132,21 +139,20 @@ module Frozone
           end
         end
 
-        def object_dup(_context, v)
-          # Memberwise shallow copy. Mirrors box-first's
-          # `intrinsic_object_dup → m_shallow_dup → new T(*this)`.
-          # `v.class.allocate` produces a fresh instance of the runtime
-          # type (HashObject, ArrayObject, plain ObjectObject, …) with
-          # ivars defaulted; copy_fields_from then memberwise-copies
-          # @instance_variables_hash (dup'd to break sharing) and any
-          # type-specific host-MRI ivars overridden per-class
-          # (HashObject's @raw, StringObject's @raw + @encoding, etc).
-          # Container Ruby `def dup` bodies then layer
-          # `Intrinsics.X_clone_storage(r)` on top to give the dup
-          # independent storage where the memberwise copy leaves it
-          # shared.
+        def object_shallow_copy(_context, v)
+          # Pure memberwise shallow copy — same semantics as box-first's
+          # `intrinsic_object_shallow_copy → m_shallow_dup → new T(*this)`.
+          # Preserves @eigenclass and @frozen_object; Object#dup and
+          # Object#clone in core/4.0/object.rb layer state policy on top
+          # (dup clears both; clone clones the eigenclass and applies
+          # the freeze: keyword). `v.class.allocate` produces a fresh
+          # instance of the runtime type; copy_fields_from memberwise-
+          # copies @instance_variables_hash (dup'd to break ivar
+          # sharing) plus any type-specific host-MRI ivars overridden
+          # per-class (HashObject's @elements + default_*, ArrayObject's
+          # @elements, …).
           copy = v.class.allocate
-          copy.copy_fields_from(v, eigenclass: nil, frozen: false)
+          copy.copy_fields_from(v, eigenclass: v.eigenclass, frozen: v.frozen_object?)
           copy
         end
 
@@ -185,25 +191,13 @@ module Frozone
           copy
         end
 
-        def object_clone(context, v, freeze_opt = FNIL)
-          # Only works for plain ObjectObject instances — specialized types define their own clone.
-          return v unless v.class == ObjectObject
-          # Validate freeze: argument — only nil, true, false allowed
-          unless fnil?(freeze_opt) || ftrue?(freeze_opt) || ffalse?(freeze_opt)
-            type_name = freeze_opt.is_a?(ObjectObject) ? (freeze_opt.class_object&.name || 'Object') : freeze_opt.class.name
-            raise FrozoneException.make(:ArgumentError, "unexpected value for freeze: #{type_name}")
-          end
-          copy = ObjectObject.allocate
-          copy.class_object = v.class_object
-          sc_copy = v.eigenclass ? ClassObject.clone_singleton(v.eigenclass, copy) : nil
-          freeze_val = fnil?(freeze_opt) ? nil : freeze_opt.truthy?
-          frozen = freeze_val == false ? false : freeze_val.nil? ? v.frozen_object? : true
-          copy.copy_fields_from(v, eigenclass: sc_copy, frozen: false)
-          # Call initialize_clone(original, freeze: freeze_opt) — may call initialize_copy
-          copy.dispatch(context, :initialize_clone, [v], { freeze: freeze_opt }, nil, private_ok: true)
-          copy.freeze_object! if frozen
-          copy
-        end
+        # NB: Intrinsics.object_clone was the host-MRI body for an
+        # Object#clone path that core/4.0/object.rb never actually
+        # called (Object#clone went through object_dup + Ruby freeze
+        # handling, never reaching here). Deleted as part of #199 —
+        # Object#clone is now pure Ruby on top of object_shallow_copy +
+        # object_freeze / object_unfreeze. Proper eigenclass-clone on
+        # clone is a follow-up.
 
         def string_initialize(context, receiver, str_arg, _encoding = FNIL)
           str_val = if fstr?(str_arg)

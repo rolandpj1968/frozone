@@ -45,6 +45,11 @@ module Frozone
         self
       end
 
+      # Internal — used by Object#dup and Object#clone(freeze: false) in
+      # core/4.0/object.rb via Intrinsics.object_unfreeze. MRI has no
+      # public unfreeze; this is the only path to clear the flag.
+      def unfreeze_object! = (@frozen_object = false; self)
+
       # Copy base ObjectObject fields from source into self (used by dup/clone).
       # Sets eigenclass and frozen state directly — this is intentionally internal.
       def copy_fields_from(source, eigenclass: nil, frozen: false)

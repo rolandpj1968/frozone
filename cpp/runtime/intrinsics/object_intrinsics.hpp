@@ -13,11 +13,11 @@ namespace Ruby {
 
 // ---- Object / BasicObject ------------------------------------------
 
-// `Object#dup` — shallow copy. Picks the runtime type by typeid so the
-// new instance has the right vtable; ivars not copied (rare to depend
-// on for non-Ruby-defined classes). Real impl would call
-// m_initialize_copy.
-BasicObject* intrinsic_object_dup(BasicObject* self_);
+// Pure memberwise shallow copy via m_shallow_dup virtual. Preserves
+// frozen state and eigenclass. Object#dup and Object#clone in
+// core/4.0/object.rb layer their respective state-reset / state-init
+// policies on top.
+BasicObject* intrinsic_object_shallow_copy(BasicObject* self_);
 
 // `Object#public_send(name, *args, **kwargs, &block)` — dispatches via
 // m_send + sets the PUBLIC_SEND_SENTINEL marker so non-public method

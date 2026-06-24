@@ -353,7 +353,7 @@ RSpec.describe 'box-first end-to-end' do
     )
   end
 
-  it 'preserves user-defined def dup and shallow-copies user classes under AOT (#198)' do
+  it 'preserves user-defined def dup, shallow-copies user classes, and applies MRI dup/clone state semantics under AOT (#198, #199)' do
     expect(unified_stub_out('dup_test', env_extras: env_extras).strip.split("\n")).to eq([
       'hash_independent=true',
       'array_independent=true',
@@ -363,6 +363,9 @@ RSpec.describe 'box-first end-to-end' do
       'user_shallow_dup_fresh_instance=true',
       'user_shallow_dup_ivars_copied=true',
       'user_shallow_dup_shares_inner=true',
+      'dup_unfrozen=true',
+      'clone_freeze_false_unfrozen=true',
+      'user_dup_ivar_slots_independent=true',
     ])
   end
 

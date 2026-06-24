@@ -890,7 +890,7 @@ module Frozone
             }
             # Auto-generate m_shallow_dup — a building block that does
             # a C++ memberwise copy of `*this`. Used by Object#dup via
-            # `intrinsic_object_dup`, which virtual-dispatches to this
+            # `intrinsic_object_shallow_copy`, which virtual-dispatches to this
             # slot so the right `new T(*this)` runs for the receiver's
             # exact runtime type. std::vector / std::string fields are
             # deep-copied automatically by their copy ctors; BO* ivars

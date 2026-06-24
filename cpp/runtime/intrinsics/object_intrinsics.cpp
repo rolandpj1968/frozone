@@ -16,18 +16,24 @@ namespace Ruby {
 
 // ---- Object / BasicObject ------------------------------------------
 
-// `Object#dup` — shallow memberwise copy via the runtime-dispatched
-// m_shallow_dup hook. Each class auto-generates m_shallow_dup as
+// Pure memberwise shallow copy via the runtime-dispatched m_shallow_dup
+// hook. Each class auto-generates m_shallow_dup as
 // `return new ThisType(*this);` (in class_emitter's auto-overrides),
 // so the C++ copy ctor for the receiver's exact runtime type runs.
-// std::vector / std::string fields are deep-copied automatically;
-// BO* ivars are pointer-shared (correct MRI shallow-dup semantics).
+// Per-ivar BO* fields are pointer-shared (correct MRI shallow-copy
+// semantics — individual ivar slots are independent, but the values
+// they point to are shared); std::vector / std::string fields deep-
+// copy automatically.
+//
+// This intrinsic preserves frozen state and eigenclass — it is the
+// primitive that Object#dup and Object#clone in core/4.0/object.rb
+// layer their post-processing on top of (dup clears both; clone clones
+// the eigenclass and applies the freeze: keyword policy).
 //
 // Container classes that need independent storage on top of this
 // (Hash with its functor back-pointers; Set with its @hash BO*) chain
-// their Ruby `def dup` as `r = super; Intrinsics.X_clone_storage(r); r`
-// — super reaches here, the clone_storage step deep-copies storage.
-BasicObject* intrinsic_object_dup(BasicObject* self_) {
+// their Ruby `def dup` as `r = super; Intrinsics.X_clone_storage(r); r`.
+BasicObject* intrinsic_object_shallow_copy(BasicObject* self_) {
   return self_->m_shallow_dup(univ);
 }
 

@@ -99,7 +99,7 @@ module Frozone
               "// Each non-eigenclass class auto-overrides with",
               "// `return new ThisType(*this);` (see class_emitter); the",
               "// universal signature here matches that auto-override so",
-              "// the vtable slot lines up. intrinsic_object_dup calls",
+              "// the vtable slot lines up. intrinsic_object_shallow_copy calls",
               "// `self_->m_shallow_dup(univ)` to get the right exact-type",
               "// copy ctor invoked. Container Ruby `def dup` bodies layer",
               "// Intrinsics.X_clone_storage(super) on top to give the dup",

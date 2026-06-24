@@ -63,3 +63,19 @@ p2 = p1.dup
 puts "user_shallow_dup_fresh_instance=#{!p2.equal?(p1)}"
 puts "user_shallow_dup_ivars_copied=#{p2.items == [1, 2, 3] && p2.name == 'src'}"
 puts "user_shallow_dup_shares_inner=#{p1.items.equal?(p2.items)}"
+
+# #199: dup is always-unfrozen; clone(freeze: false) is always-unfrozen.
+# clone_preserves_frozen and clone(freeze: true) aren't asserted here
+# because object_freeze / object_frozen lower to no-ops in box-first
+# compiled mode (frozen state isn't tracked), so they would trivially
+# pass for the wrong reason. The interpreted-mode rspec covers them.
+fz_src = PlainContainer.new
+fz_src.freeze
+puts "dup_unfrozen=#{!fz_src.dup.frozen?}"
+puts "clone_freeze_false_unfrozen=#{!fz_src.clone(freeze: false).frozen?}"
+
+# Ivar slots are independent on plain dup (mutating dup doesn't affect src).
+mut_src = PlainContainer.new
+mut_dup = mut_src.dup
+mut_dup.name = "mutated"
+puts "user_dup_ivar_slots_independent=#{mut_src.name == 'src' && mut_dup.name == 'mutated'}"
