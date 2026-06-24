@@ -3244,6 +3244,19 @@ module Frozone
                 line "std::fflush(stdout);"
                 line "return static_cast<int>(se.status);"
               end
+              # Defensive safety net for a ThrownTag escaping all
+              # `intrinsic_kernel_catch` frames. Shouldn't happen now
+              # that kernel_catch converts uncaught throws to
+              # UncaughtThrowError on the outermost mismatch — but if
+              # one slips through (raw `throw` from a path that never
+              # entered kernel_catch), terminate would be the next
+              # stop. Report and exit non-zero instead.
+              line "} catch (Ruby::ThrownTag* t) {"
+              indented do
+                line %|std::fprintf(stderr, "uncaught throw\\n");|
+                line "(void)t;"
+                line "return 1;"
+              end
               line "} catch (Ruby::BO* e) {"
               indented do
                 # Print the exception class + iv_message (if any) to

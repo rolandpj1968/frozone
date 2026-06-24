@@ -324,7 +324,12 @@ class StopIteration < IndexError
 end
 class ClosedQueueError < StopIteration; end
 class UncaughtThrowError < ArgumentError
-  def tag = @tag
+  attr_reader :tag, :value
+  def initialize(tag = nil, value = nil, message = nil)
+    super(message || "uncaught throw #{tag.inspect}")
+    @tag = tag
+    @value = value
+  end
 end
 class LocalJumpError < StandardError
   def exit_value = @exit_value

@@ -16,20 +16,75 @@
 // declares eigenclass structs; m_new requires the full definition.
 #include "class/RegexpError.hpp"
 #include "class/RegexpError_eigenclass.hpp"
+// Needed for the uncaught-throw conversion path in intrinsic_kernel_catch.
+// We construct a Vm::FrozoneException wrapping the UncaughtThrowError so
+// the Vm interpreter's rescue layer (which matches on FrozoneException
+// + vm_object, not raw C++ Exception subclasses) can catch and dispatch
+// it correctly. AOT-compiled user code would match either form — but the
+// interpreter is what's reachable from here.
+#include "class/UncaughtThrowError.hpp"
+#include "class/UncaughtThrowError_eigenclass.hpp"
+#include "class/Frozone_Vm_FrozoneException.hpp"
+#include "class/Frozone_Vm_FrozoneException_eigenclass.hpp"
 
 namespace Ruby {
 
 // ---- Kernel --------------------------------------------------------
 
+// CatchFrame — stack-allocated linked-list node, one per live `catch`
+// frame on the C++ stack. Each `intrinsic_kernel_catch` pushes a frame
+// on entry and pops it on exit (RAII), so the chain at any point
+// reflects exactly the set of outer Ruby `catch` blocks visible to a
+// throw. Lets us answer "could any outer catch match this tag?" via
+// a tiny pointer walk — without that knowledge we couldn't tell
+// "matched higher up" from "no catcher anywhere", and we'd have to
+// either let ThrownTag escape user code (terminate) or convert too
+// eagerly (breaking nested catch). thread_local so future Fiber/Thread
+// support gets per-fiber chains for free.
+struct CatchFrame {
+  BasicObject* tag_;
+  CatchFrame* prev_;
+  explicit CatchFrame(BasicObject* tag) : tag_(tag), prev_(top_) { top_ = this; }
+  ~CatchFrame() { top_ = prev_; }
+  CatchFrame(const CatchFrame&) = delete;
+  CatchFrame& operator=(const CatchFrame&) = delete;
+  static thread_local CatchFrame* top_;
+};
+thread_local CatchFrame* CatchFrame::top_ = nullptr;
+
+// Convert an uncaught throw to UncaughtThrowError, wrapped in a
+// FrozoneException so the Vm interpreter's rescue dispatch can match
+// it. The UncaughtThrowError carries @tag and @value (set by its Ruby
+// initializer); the FrozoneException carries the inner instance as
+// @vm_object + the message for `e.message` introspection. Same
+// include-set pattern as intrinsic_raise_regexp_error.
+[[noreturn]] static void raise_uncaught_throw_(BasicObject* tag, BasicObject* value) {
+  auto* _uct = (&UncaughtThrowError_CLASS)->m_new(univ, new Array({tag, value}));
+  auto* _msg = static_cast<Exception*>(_uct)->iv_message;
+  throw static_cast<Exception*>((&Frozone_Vm_FrozoneException_CLASS)->m_new(univ, new Array({_uct, _msg})));
+}
+
 // `catch(tag) { |t| ... }` — wraps the block in try/catch matching on
 // ThrownTag's identity tag (Symbols intern, so == is correct). Block
 // receives the tag as its sole argument.
+//
+// On mismatch, walk the outer CatchFrame chain: if any outer catch
+// would match the thrown tag, rethrow ThrownTag so that catch sees
+// it. If no outer match exists, convert to UncaughtThrowError — a
+// real Ruby Exception subclass that `rescue` clauses (compiled to
+// `catch (Exception*)`) and matchers like `raise_error(ArgumentError)`
+// can intercept. Mirrors MRI's `throw → UncaughtThrowError when no
+// catcher` semantics, in one place rather than per-rescue codegen.
 BasicObject* intrinsic_kernel_catch(BasicObject* /*self_*/, BasicObject* tag, BasicObject* block) {
+  CatchFrame _frame(tag);
   try {
     return static_cast<Proc*>(block)->m_call(univ, new Array({tag}));
   } catch (ThrownTag* _t) {
     if (_t->tag_ == tag) return _t->value_;
-    throw;
+    for (auto* _outer = _frame.prev_; _outer; _outer = _outer->prev_) {
+      if (_outer->tag_ == _t->tag_) throw;
+    }
+    raise_uncaught_throw_(_t->tag_, _t->value_);
   }
 }
 
