@@ -67,8 +67,8 @@ class Integer
   def +(v) = v.is_a?(Integer) ? Intrinsics.integer__plus_(self, v) : __with_coercion__(v, :+)
   def -(v) = v.is_a?(Integer) ? Intrinsics.integer__minus_(self, v) : __with_coercion__(v, :-)
   def *(v) = v.is_a?(Integer) ? Intrinsics.integer__mul_(self, v) : __with_coercion__(v, :*)
-  def /(v) = v.is_a?(Integer) ? Intrinsics.integer__div_(self, v) : __with_coercion__(v, :/)
-  def %(v) = v.is_a?(Integer) ? Intrinsics.integer__mod_(self, v) : __with_coercion__(v, :%)
+  def /(v) = v.is_a?(Integer) ? (v == 0 ? __raise_zero_division__ : Intrinsics.integer__div_(self, v)) : __with_coercion__(v, :/)
+  def %(v) = v.is_a?(Integer) ? (v == 0 ? __raise_zero_division__ : Intrinsics.integer__mod_(self, v)) : __with_coercion__(v, :%)
   alias modulo %
   def <(v) = v.is_a?(Integer) ? Intrinsics.integer__lt_(self, v) : __compare__(v, :<)
   def <=(v) = v.is_a?(Integer) ? Intrinsics.integer__le_(self, v) : __compare__(v, :<=)

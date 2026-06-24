@@ -59,22 +59,14 @@ BasicObject* intrinsic_integer_bitxor(BasicObject* s, BasicObject* o) {
   return boxed_int(static_cast<Integer*>(s)->raw_ ^ static_cast<Integer*>(o)->raw_);
 }
 
+// Integer#/ and #% guard for v == 0 in core/4.0/integer.rb before
+// dispatching here, so the divisor is known non-zero at this point.
 BasicObject* intrinsic_integer__div_(BasicObject* s, BasicObject* o) {
-  int64_t b = static_cast<Integer*>(o)->raw_;
-  if (b == 0) {
-    std::fprintf(stderr, "[box-first] divided by 0\n");
-    std::abort();  // ZeroDivisionError - integer.rb's __raise_zero_division__ is supposed to fire upstream
-  }
-  return boxed_int(integer_detail::ruby_div(static_cast<Integer*>(s)->raw_, b));
+  return boxed_int(integer_detail::ruby_div(static_cast<Integer*>(s)->raw_, static_cast<Integer*>(o)->raw_));
 }
 
 BasicObject* intrinsic_integer__mod_(BasicObject* s, BasicObject* o) {
-  int64_t b = static_cast<Integer*>(o)->raw_;
-  if (b == 0) {
-    std::fprintf(stderr, "[box-first] divided by 0\n");
-    std::abort();
-  }
-  return boxed_int(integer_detail::ruby_mod(static_cast<Integer*>(s)->raw_, b));
+  return boxed_int(integer_detail::ruby_mod(static_cast<Integer*>(s)->raw_, static_cast<Integer*>(o)->raw_));
 }
 
 BasicObject* intrinsic_integer_fdiv(BasicObject* s, BasicObject* o) {
