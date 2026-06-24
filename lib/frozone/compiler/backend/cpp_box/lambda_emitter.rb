@@ -76,11 +76,19 @@ module Frozone
           # begin/rescue/else/ensure → self-invoking lambda. Body, each
           # rescue arm, and else_node each render as a NESTED lambda
           # using emit.capture + write_body(last_is_return: true), so
-          # multi-statement non-expression blocks are supported. The
-          # ensure_node becomes an EnsureGuard (RAII) at the top of the
-          # outer lambda — runs on any exit (return, exception, rethrow).
-          # No clause matched → re-throw, which propagates through the
-          # ensure guard.
+          # multi-statement non-expression blocks are supported.
+          #
+          # When `ensure` is present, we cannot use EnsureGuard (RAII):
+          # an ensure body that raises while another exception is already
+          # unwinding hits the destructor-during-unwinding UB and calls
+          # std::terminate. Instead we capture any in-flight exception
+          # via std::exception_ptr, run the ensure body OUTSIDE the
+          # unwinding state, and either rethrow the pending exception
+          # (when ensure returns normally) or let the ensure body's new
+          # exception propagate (Ruby semantics: ensure raise WINS).
+          # catch (...) covers Exception* AND non-Exception throws
+          # (ReturnException, ThrownTag, …) — std::current_exception
+          # preserves the original type so frame/main catches resolve.
           def from_rescue(node, locals)
             check_no_break_next!(node, "rescue")
             return from_rescue_stmt_expr(node, locals) if Cpp.block_expr_form == :stmt_expr
@@ -92,41 +100,71 @@ module Frozone
             # `throw ReturnException{...}` for Ast::Return, which the
             # enclosing method's frame-id try/catch unwraps.
             emit.cpp.with_in_block do
-              buf = +"([&]() -> BO* { "
               if node.ensure_node
-                buf << "EnsureGuard _eg([&]() #{body_as_block(node.ensure_node, locals, last_is_return: false)}); "
-              end
-              buf << "try { "
-              if node.else_node
-                # Body's value discarded; else_node provides the value.
-                buf << "#{body_as_lambda_call(node.body, locals)}; "
-                buf << "return #{body_as_lambda_call(node.else_node, locals)}; "
-              else
-                buf << "return #{body_as_lambda_call(node.body, locals)}; "
-              end
-              buf << "} catch (Exception* e_) { "
-              (node.rescue_clauses || []).each do |clause|
-                cond = rescue_clause_condition(clause, locals)
-                bind_locals = locals.dup
-                bind_str = ""
-                if clause.var_name
-                  bind_locals << clause.var_name.to_s
-                  cpp_name = MethodEmitter.local_cpp_name(clause.var_name)
-                  # If captured by an inner block / lambda, the closure-env
-                  # convention reads/writes via `(*l_e)`; the binding has
-                  # to be a heap cell. Otherwise a bare local is fine.
-                  bind_str =
-                    if captured?(clause.var_name)
-                      "BO** #{cpp_name} = gc_box<BO*>(e_); "
-                    else
-                      "BO* #{cpp_name} = e_; "
-                    end
+                buf = +"([&]() -> BO* { "
+                buf << "BO* _r = nil_instance(); std::exception_ptr _pending; "
+                buf << "try { try { "
+                if node.else_node
+                  buf << "#{body_as_lambda_call(node.body, locals)}; "
+                  buf << "_r = #{body_as_lambda_call(node.else_node, locals)}; "
+                else
+                  buf << "_r = #{body_as_lambda_call(node.body, locals)}; "
                 end
-                arm_call = body_as_lambda_call(clause.body, bind_locals)
-                buf << "if (#{cond}) { #{bind_str}return #{arm_call}; } "
+                buf << "} catch (Exception* e_) { "
+                (node.rescue_clauses || []).each do |clause|
+                  cond = rescue_clause_condition(clause, locals)
+                  bind_locals = locals.dup
+                  bind_str = ""
+                  if clause.var_name
+                    bind_locals << clause.var_name.to_s
+                    cpp_name = MethodEmitter.local_cpp_name(clause.var_name)
+                    bind_str =
+                      if captured?(clause.var_name)
+                        "BO** #{cpp_name} = gc_box<BO*>(e_); "
+                      else
+                        "BO* #{cpp_name} = e_; "
+                      end
+                  end
+                  arm_call = body_as_lambda_call(clause.body, bind_locals)
+                  buf << "if (#{cond}) { #{bind_str}_r = #{arm_call}; } else "
+                end
+                buf << "{ throw; } "
+                buf << "} } catch (...) { _pending = std::current_exception(); } "
+                buf << "#{body_as_lambda_call(node.ensure_node, locals)}; "
+                buf << "if (_pending) std::rethrow_exception(_pending); "
+                buf << "return _r; "
+                buf << "}())"
+                buf
+              else
+                buf = +"([&]() -> BO* { "
+                buf << "try { "
+                if node.else_node
+                  buf << "#{body_as_lambda_call(node.body, locals)}; "
+                  buf << "return #{body_as_lambda_call(node.else_node, locals)}; "
+                else
+                  buf << "return #{body_as_lambda_call(node.body, locals)}; "
+                end
+                buf << "} catch (Exception* e_) { "
+                (node.rescue_clauses || []).each do |clause|
+                  cond = rescue_clause_condition(clause, locals)
+                  bind_locals = locals.dup
+                  bind_str = ""
+                  if clause.var_name
+                    bind_locals << clause.var_name.to_s
+                    cpp_name = MethodEmitter.local_cpp_name(clause.var_name)
+                    bind_str =
+                      if captured?(clause.var_name)
+                        "BO** #{cpp_name} = gc_box<BO*>(e_); "
+                      else
+                        "BO* #{cpp_name} = e_; "
+                      end
+                  end
+                  arm_call = body_as_lambda_call(clause.body, bind_locals)
+                  buf << "if (#{cond}) { #{bind_str}return #{arm_call}; } "
+                end
+                buf << "throw; } }())"
+                buf
               end
-              buf << "throw; } }())"
-              buf
             end
           end
 
@@ -139,45 +177,86 @@ module Frozone
           # A result temp `_r` collects the value from the success path
           # OR the matching rescue arm; the stmt-expr yields it.
           def from_rescue_stmt_expr(node, locals)
-            buf = +"({ "
             if node.ensure_node
-              buf << "EnsureGuard _eg([&]() #{body_as_block(node.ensure_node, locals, last_is_return: false)}); "
-            end
-            buf << "BO* _r; try { "
-            if node.else_node
-              # Body's value discarded; else_node provides the value.
-              buf << "#{body_as_lambda_call(node.body, locals)}; "
-              buf << "_r = #{body_as_lambda_call(node.else_node, locals)}; "
-            else
-              buf << "_r = #{body_as_lambda_call(node.body, locals)}; "
-            end
-            buf << "} catch (Exception* e_) { "
-            first = true
-            (node.rescue_clauses || []).each do |clause|
-              cond = rescue_clause_condition(clause, locals)
-              bind_locals = locals.dup
-              bind_str = ""
-              if clause.var_name
-                bind_locals << clause.var_name.to_s
-                cpp_name = MethodEmitter.local_cpp_name(clause.var_name)
-                bind_str =
-                  if captured?(clause.var_name)
-                    "BO** #{cpp_name} = gc_box<BO*>(e_); "
-                  else
-                    "BO* #{cpp_name} = e_; "
-                  end
+              # Ensure-bearing form: capture any escaping exception via
+              # std::exception_ptr, run the ensure body OUTSIDE the
+              # unwinding stack, then either rethrow it (when ensure
+              # returns normally) or let ensure's new exception win
+              # (Ruby semantics). catch (...) covers Exception* AND
+              # non-Exception throws (ReturnException, ThrownTag, …);
+              # std::current_exception preserves the original C++ type
+              # so the enclosing frame catch still resolves.
+              buf = +"({ "
+              buf << "BO* _r = nil_instance(); std::exception_ptr _pending; "
+              buf << "try { try { "
+              if node.else_node
+                buf << "#{body_as_lambda_call(node.body, locals)}; "
+                buf << "_r = #{body_as_lambda_call(node.else_node, locals)}; "
+              else
+                buf << "_r = #{body_as_lambda_call(node.body, locals)}; "
               end
-              arm_call = body_as_lambda_call(clause.body, bind_locals)
-              keyword = first ? "if" : "else if"
-              buf << "#{keyword} (#{cond}) { #{bind_str}_r = #{arm_call}; } "
-              first = false
+              buf << "} catch (Exception* e_) { "
+              first = true
+              (node.rescue_clauses || []).each do |clause|
+                cond = rescue_clause_condition(clause, locals)
+                bind_locals = locals.dup
+                bind_str = ""
+                if clause.var_name
+                  bind_locals << clause.var_name.to_s
+                  cpp_name = MethodEmitter.local_cpp_name(clause.var_name)
+                  bind_str =
+                    if captured?(clause.var_name)
+                      "BO** #{cpp_name} = gc_box<BO*>(e_); "
+                    else
+                      "BO* #{cpp_name} = e_; "
+                    end
+                end
+                arm_call = body_as_lambda_call(clause.body, bind_locals)
+                keyword = first ? "if" : "else if"
+                buf << "#{keyword} (#{cond}) { #{bind_str}_r = #{arm_call}; } "
+                first = false
+              end
+              buf << (first ? "throw;" : "else { throw; }")
+              buf << " } } catch (...) { _pending = std::current_exception(); } "
+              buf << "#{body_as_lambda_call(node.ensure_node, locals)}; "
+              buf << "if (_pending) std::rethrow_exception(_pending); "
+              buf << "_r; })"
+              buf
+            else
+              # No ensure — original simpler form.
+              buf = +"({ "
+              buf << "BO* _r; try { "
+              if node.else_node
+                buf << "#{body_as_lambda_call(node.body, locals)}; "
+                buf << "_r = #{body_as_lambda_call(node.else_node, locals)}; "
+              else
+                buf << "_r = #{body_as_lambda_call(node.body, locals)}; "
+              end
+              buf << "} catch (Exception* e_) { "
+              first = true
+              (node.rescue_clauses || []).each do |clause|
+                cond = rescue_clause_condition(clause, locals)
+                bind_locals = locals.dup
+                bind_str = ""
+                if clause.var_name
+                  bind_locals << clause.var_name.to_s
+                  cpp_name = MethodEmitter.local_cpp_name(clause.var_name)
+                  bind_str =
+                    if captured?(clause.var_name)
+                      "BO** #{cpp_name} = gc_box<BO*>(e_); "
+                    else
+                      "BO* #{cpp_name} = e_; "
+                    end
+                end
+                arm_call = body_as_lambda_call(clause.body, bind_locals)
+                keyword = first ? "if" : "else if"
+                buf << "#{keyword} (#{cond}) { #{bind_str}_r = #{arm_call}; } "
+                first = false
+              end
+              buf << (first ? "throw;" : "else { throw; }")
+              buf << " } _r; })"
+              buf
             end
-            # No arm matched → rethrow (propagates through ensure guard).
-            # When there are no clauses (bare `begin/end/ensure`),
-            # the catch block just rethrows.
-            buf << (first ? "throw;" : "else { throw; }")
-            buf << " } _r; })"
-            buf
           end
 
           # Build the LUT-based condition for one rescue clause. Bare

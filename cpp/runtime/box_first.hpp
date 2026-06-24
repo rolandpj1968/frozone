@@ -140,7 +140,14 @@ template<typename F>
 struct EnsureGuard {
   F f_;
   explicit EnsureGuard(F f) : f_(std::move(f)) {}
-  ~EnsureGuard() { f_(); }
+  // noexcept(false): destructors default to noexcept(true), so a Ruby
+  // `ensure` body that raises would call std::terminate. Ruby semantics
+  // demand the new exception propagate (overriding any in-flight one),
+  // which mirrors the standard "ensure throws → its exception wins"
+  // rule. We accept the C++ caveat that an ensure raising while another
+  // exception is already unwinding is still UB; callers that want exact
+  // Ruby semantics in that corner go through codegen restructuring.
+  ~EnsureGuard() noexcept(false) { f_(); }
   EnsureGuard(const EnsureGuard&) = delete;
   EnsureGuard& operator=(const EnsureGuard&) = delete;
 };
