@@ -17,15 +17,19 @@
 #include "class/RegexpError.hpp"
 #include "class/RegexpError_eigenclass.hpp"
 // Needed for the uncaught-throw conversion path in intrinsic_kernel_catch.
-// We construct a Vm::FrozoneException wrapping the UncaughtThrowError so
-// the Vm interpreter's rescue layer (which matches on FrozoneException
-// + vm_object, not raw C++ Exception subclasses) can catch and dispatch
-// it correctly. AOT-compiled user code would match either form — but the
-// interpreter is what's reachable from here.
+// The Vm interpreter's top-level rescue (Vm.run) and its rescue-clause
+// dispatch (Ast::Rescue) both expect a FrozoneException whose vm_object
+// is a Vm::ObjectObject wrapping the UncaughtThrowError class — NOT the
+// UncaughtThrowError class instance directly. So we construct the same
+// shape Vm::Intrinsics::FrozoneException.make would: ObjectObject ->
+// class_object = UncaughtThrowError, with @message/@tag/@value ivars,
+// wrapped in FrozoneException carrying the message.
 #include "class/UncaughtThrowError.hpp"
 #include "class/UncaughtThrowError_eigenclass.hpp"
 #include "class/Frozone_Vm_FrozoneException.hpp"
 #include "class/Frozone_Vm_FrozoneException_eigenclass.hpp"
+#include "class/Frozone_Vm_ObjectObject.hpp"
+#include "class/Frozone_Vm_ObjectObject_eigenclass.hpp"
 
 namespace Ruby {
 
@@ -58,10 +62,24 @@ thread_local CatchFrame* CatchFrame::top_ = nullptr;
 // initializer); the FrozoneException carries the inner instance as
 // @vm_object + the message for `e.message` introspection. Same
 // include-set pattern as intrinsic_raise_regexp_error.
+// Convert an uncaught Ruby throw to a Vm::FrozoneException-wrapped
+// UncaughtThrowError. The Vm interpreter's rescue layer (both Vm.run
+// and Ast::Rescue) matches on FrozoneException carrying a
+// Vm::ObjectObject wrapper; FrozoneException.make produces exactly
+// that shape with the right constant-lookup + class-graph wiring,
+// so we reuse it rather than re-derive it from C++. We borrow the
+// message format from UncaughtThrowError's Ruby initialize ("uncaught
+// throw <tag.inspect>") by spinning up one instance just for its
+// iv_message — cheaper than reimplementing inspect() here.
 [[noreturn]] static void raise_uncaught_throw_(BasicObject* tag, BasicObject* value) {
-  auto* _uct = (&UncaughtThrowError_CLASS)->m_new(univ, new Array({tag, value}));
-  auto* _msg = static_cast<Exception*>(_uct)->iv_message;
-  throw static_cast<Exception*>((&Frozone_Vm_FrozoneException_CLASS)->m_new(univ, new Array({_uct, _msg})));
+  auto* _uct_for_msg = (&UncaughtThrowError_CLASS)->m_new(univ, new Array({tag, value}));
+  auto* _msg = static_cast<Exception*>(_uct_for_msg)->iv_message;
+  auto* _fe = (&Frozone_Vm_FrozoneException_CLASS)->m_make(
+      intern("UncaughtThrowError"), _msg, nil_instance(), nil_instance());
+  auto* _vm_obj = static_cast<Frozone_Vm_FrozoneException*>(_fe)->iv_vm_object;
+  _vm_obj->m_set_ivar(intern("@tag"), tag);
+  _vm_obj->m_set_ivar(intern("@value"), value);
+  throw static_cast<Exception*>(_fe);
 }
 
 // `catch(tag) { |t| ... }` — wraps the block in try/catch matching on
@@ -86,6 +104,20 @@ BasicObject* intrinsic_kernel_catch(BasicObject* /*self_*/, BasicObject* tag, Ba
     }
     raise_uncaught_throw_(_t->tag_, _t->value_);
   }
+}
+
+// `throw tag, value` — check the CatchFrame chain. If any frame
+// matches, throw ThrownTag (will be caught up the stack). Otherwise
+// convert directly to UncaughtThrowError so `rescue ArgumentError`
+// at any enclosing scope picks it up — same logical outcome as
+// intrinsic_kernel_catch's no-outer-match path, just short-circuited
+// at the throw site so we don't bother creating + unwinding a
+// ThrownTag that nobody will catch.
+BasicObject* intrinsic_kernel_throw(BasicObject* /*self_*/, BasicObject* tag, BasicObject* value) {
+  for (auto* _f = CatchFrame::top_; _f; _f = _f->prev_) {
+    if (_f->tag_ == tag) throw new ThrownTag(tag, value);
+  }
+  raise_uncaught_throw_(tag, value);
 }
 
 // RegexpError raiser used by gen'd Regexp::m_initialize. Built here

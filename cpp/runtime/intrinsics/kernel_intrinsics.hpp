@@ -18,11 +18,12 @@ namespace Ruby {
 // receives the tag as its sole argument.
 BasicObject* intrinsic_kernel_catch(BasicObject* /*self_*/, BasicObject* tag, BasicObject* block);
 
-// `throw tag, value` — raises a ThrownTag carrying both. Caller
-// nil-defaults the value at the Ruby level.
-[[noreturn]] inline BasicObject* intrinsic_kernel_throw(BasicObject* /*self_*/, BasicObject* tag, BasicObject* value) {
-  throw new ThrownTag(tag, value);
-}
+// `throw tag, value` — looks at the CatchFrame stack maintained by
+// intrinsic_kernel_catch: if any frame matches, raises a ThrownTag
+// (caught by that frame). If no frame at all is on the stack, or
+// none matches, converts directly to UncaughtThrowError so user
+// rescues can catch it without ever leaving Ruby semantics.
+[[noreturn]] BasicObject* intrinsic_kernel_throw(BasicObject* /*self_*/, BasicObject* tag, BasicObject* value);
 
 // `Intrinsics.dbg_write(str)` — bespoke raw-write to stderr for AOT-mode
 // debugging. Bypasses ALL Ruby dispatch (no Symbol#to_s, no IO#puts, no
