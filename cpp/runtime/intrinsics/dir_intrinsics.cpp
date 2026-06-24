@@ -30,12 +30,9 @@ BasicObject* intrinsic_dir_pwd() {
 }
 
 BasicObject* intrinsic_dir_chdir(BasicObject* path, BasicObject* block) {
-  // path == nil → Dir.chdir restores HOME; block form chdirs in,
-  // yields, then restores. We only support path-only no-block here.
-  if (block != nil_instance()) {
-    std::fprintf(stderr, "[box-first] dir_chdir with block not yet supported\n");
-    std::abort();
-  }
+  // path == nil → restores HOME. Block form: save cwd, chdir to target,
+  // yield the new directory string to the block, ensure-restore cwd
+  // (whether the block returns normally or raises).
   std::string target;
   if (path == nil_instance()) {
     const char* h = std::getenv("HOME");
@@ -44,8 +41,22 @@ BasicObject* intrinsic_dir_chdir(BasicObject* path, BasicObject* block) {
   } else {
     target = fs_detail::str_of(path);
   }
+  if (block == nil_instance()) {
+    (void)::chdir(target.c_str());
+    return boxed_int(0);
+  }
+  char saved[4096];
+  const char* prev = ::getcwd(saved, sizeof(saved));
   (void)::chdir(target.c_str());
-  return boxed_int(0);
+  BasicObject* result;
+  try {
+    result = static_cast<Proc*>(block)->m_call(univ, new Array({fs_detail::string_of(target)}));
+  } catch (...) {
+    if (prev) (void)::chdir(prev);
+    throw;
+  }
+  if (prev) (void)::chdir(prev);
+  return result;
 }
 
 BasicObject* intrinsic_dir_home(BasicObject* user) {
