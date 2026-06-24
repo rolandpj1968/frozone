@@ -70,6 +70,12 @@ BasicObject* intrinsic_kernel_float(BasicObject* /*self_*/, BasicObject* val);
   throw static_cast<Exception*>(_exc);
 }
 
+// Specialized raisers for runtime code that needs to construct error
+// classes outside the include set of its TU (e.g. Regexp::m_initialize
+// raising RegexpError on Onigmo compile failure). Defined in
+// kernel_intrinsics.cpp where the full class graph is visible.
+[[noreturn]] void intrinsic_raise_regexp_error(const char* msg, std::size_t len);
+
 // `Kernel#exit(code)` — code is true (status 0), false (status 1), or an
 // Integer status (the Ruby wrapper __kernel_exit__ coerces other types).
 // Throws SystemExitException; ensures unwind via EnsureGuard and

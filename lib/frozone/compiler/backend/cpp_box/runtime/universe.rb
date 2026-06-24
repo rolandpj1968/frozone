@@ -1332,9 +1332,8 @@ module Frozone
             overrides: {
               # Compile from args[0] (String pattern) + optional args[1]
               # (Integer options bitmask). Sets initialized_ on success;
-              # aborts with a stderr message on compile failure (would
-              # be a RegexpError in MRI — TODO when exception infra
-              # composes cleanly with universe-emitted classes).
+              # raises RegexpError carrying the Onigmo error message on
+              # compile failure (matching MRI semantics).
               "m_initialize" => {
                 params: [],
                 body: <<~CPP.chomp,
@@ -1359,10 +1358,9 @@ module Frozone
                   if (r != ONIG_NORMAL) {
                     UChar buf[ONIG_MAX_ERROR_MESSAGE_LEN];
                     onig_error_code_to_str(buf, r, &einfo);
-                    std::fprintf(stderr, "[box-first] Regexp compile failed: %s (pattern: %.*s)\\n",
-                                 reinterpret_cast<const char*>(buf),
-                                 static_cast<int>(pat->bytes.size()), pat->bytes.data());
-                    std::abort();
+                    std::string _msg_str = std::string(reinterpret_cast<const char*>(buf)) + ": /" +
+                                           std::string(reinterpret_cast<const char*>(pat->bytes.data()), pat->bytes.size()) + "/";
+                    intrinsic_raise_regexp_error(_msg_str.c_str(), _msg_str.size());
                   }
                   initialized_ = true;
                   return this;

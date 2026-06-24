@@ -12,6 +12,11 @@
 #include "kernel_intrinsics.hpp"
 #include "../intrinsics_helpers.hpp"
 
+// Needed for intrinsic_raise_regexp_error — frozone_all.hpp only forward-
+// declares eigenclass structs; m_new requires the full definition.
+#include "class/RegexpError.hpp"
+#include "class/RegexpError_eigenclass.hpp"
+
 namespace Ruby {
 
 // ---- Kernel --------------------------------------------------------
@@ -26,6 +31,14 @@ BasicObject* intrinsic_kernel_catch(BasicObject* /*self_*/, BasicObject* tag, Ba
     if (_t->tag_ == tag) return _t->value_;
     throw;
   }
+}
+
+// RegexpError raiser used by gen'd Regexp::m_initialize. Built here
+// (not at the call-site) so the calling TU doesn't need RegexpError's
+// full class graph in its include set.
+void intrinsic_raise_regexp_error(const char* msg, std::size_t len) {
+  auto* _msg = new String(msg, len);
+  throw static_cast<Exception*>((&RegexpError_CLASS)->m_new(univ, new Array({_msg})));
 }
 
 // `Intrinsics.dbg_write(str)` — bespoke raw-write to stderr for AOT-mode
