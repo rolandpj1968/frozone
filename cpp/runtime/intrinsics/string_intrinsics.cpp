@@ -301,6 +301,43 @@ BasicObject* intrinsic_string_split(BasicObject* self_, BasicObject* sep, BasicO
     }
     return _r;
   }
+  if (sep->m_class(univ) == reinterpret_cast<BasicObject*>(&Regexp_CLASS)) {
+    auto* _re = static_cast<Regexp*>(sep);
+    const UChar* _p = _s->bytes.data();
+    std::int64_t _start = 0;
+    OnigRegion* _region = onig_region_new();
+    while (_start <= _hsize) {
+      int _rv = onig_search(_re->compiled_, _p, _p + _hsize,
+                            _p + _start, _p + _hsize, _region, ONIG_OPTION_NONE);
+      if (_rv < 0) break;
+      std::int64_t _mbeg = _region->beg[0];
+      std::int64_t _mend = _region->end[0];
+      auto* _part = new String();
+      _part->bytes.assign(_s->bytes.begin() + _start, _s->bytes.begin() + _mbeg);
+      _r->data.push_back(_part);
+      // Captures, if any, are pushed verbatim after each piece (MRI parity).
+      for (int _i = 1; _i < _region->num_regs; _i++) {
+        auto* _cap = new String();
+        if (_region->beg[_i] >= 0) {
+          _cap->bytes.assign(_s->bytes.begin() + _region->beg[_i], _s->bytes.begin() + _region->end[_i]);
+        }
+        _r->data.push_back(_cap);
+      }
+      _start = (_mend == _mbeg) ? _mend + 1 : _mend;
+      if (_max > 0 && static_cast<std::int64_t>(_r->data.size()) >= _max - 1) {
+        onig_region_free(_region, 1);
+        auto* _rest = new String();
+        _rest->bytes.assign(_s->bytes.begin() + _start, _s->bytes.end());
+        _r->data.push_back(_rest);
+        return _r;
+      }
+    }
+    onig_region_free(_region, 1);
+    auto* _tail = new String();
+    _tail->bytes.assign(_s->bytes.begin() + _start, _s->bytes.end());
+    _r->data.push_back(_tail);
+    return _r;
+  }
   if (sep->m_class(univ) != reinterpret_cast<BasicObject*>(&String_CLASS)) {
     std::fprintf(stderr, "[frozone-box-first] string_split: non-String/nil sep not yet supported\n");
     std::abort();
