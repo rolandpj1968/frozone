@@ -573,6 +573,15 @@ BasicObject* intrinsic_string_format(BasicObject* self_, BasicObject* args) {
                     ? static_cast<Hash*>(args) : nullptr;
   auto* _arr  = (args->m_class(univ) == reinterpret_cast<BasicObject*>(&Array_CLASS))
                     ? static_cast<Array*>(args) : nullptr;
+  // Kernel#format takes `*args`, so calls like `format("%{k}", k: "v")` arrive
+  // here as a one-element Array wrapping a Hash. MRI's String#% transparently
+  // unwraps that for named-format substitution — match the behavior so
+  // `%{name}` resolves rather than silently dropping out of the output.
+  if (_arr && _arr->data.size() == 1 && !_hash &&
+      _arr->data[0]->m_class(univ) == reinterpret_cast<BasicObject*>(&Hash_CLASS)) {
+    _hash = static_cast<Hash*>(_arr->data[0]);
+    _arr = nullptr;
+  }
   std::string _out;
   _out.reserve(_tmpl->bytes.size());
   std::size_t _pos_idx = 0;
