@@ -48,7 +48,7 @@ module Frozone
                    else
                      ::IO.popen(actual_cmd.to_s, 'r', **mri_opts, &:read) rescue ""
                    end
-          GLOBALS[:"$?"] = ProcessStatusObject.new($?) if $?
+          GLOBALS[:"$?"] = ProcessStatusObject.from_native($?) if $?
           n2f_str(output || "")
         end
 
@@ -130,7 +130,7 @@ module Frozone
           else
             reraise(::ArgumentError) { ::IO.popen(actual_cmd.to_s, mode, **mri_opts) }
           end
-          GLOBALS[:"$?"] = ProcessStatusObject.new($?) if $?
+          GLOBALS[:"$?"] = ProcessStatusObject.from_native($?) if $?
           IOObject.new(native_io, io_klass)
         end
 
@@ -315,7 +315,7 @@ module Frozone
         def io_close(_, receiver)
           return FNIL unless fio?(receiver)
           receiver.native_io.close rescue nil
-          GLOBALS[:"$?"] = ProcessStatusObject.new($?) if $?
+          GLOBALS[:"$?"] = ProcessStatusObject.from_native($?) if $?
           FNIL
         end
 

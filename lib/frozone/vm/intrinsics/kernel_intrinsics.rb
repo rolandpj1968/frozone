@@ -4,10 +4,6 @@ module Frozone
   module Vm
     module Intrinsics
       class << self
-        # Kernel (on Object for now)
-        def process_status_exitstatus(_, obj) = n2f_int(obj.native_status.exitstatus || 0)
-        def process_status_pid(_, obj) = n2f_int(obj.native_status.pid || 0)
-        def process_status_termsig(_, obj) = (sig = obj.native_status.termsig; sig ? n2f_int(sig) : FNIL)
         def emit_vm_warning(context, msg) = Frozone::Vm.emit_warning(context, msg)
         def kernel_rand(context, _receiver, n) = random_rand(context, nil, n)
         def signal_trap(_, _signal, _block_arg = FNIL) = FNIL
@@ -392,7 +388,7 @@ module Frozone
           # Force binary to avoid ArgumentError on invalid UTF-8 bytes in command
           cmd_binary = cmd.b
           result = `#{cmd_binary}`
-          GLOBALS[:"$?"] = ProcessStatusObject.new($?)
+          GLOBALS[:"$?"] = ProcessStatusObject.from_native($?)
           enc = result.encoding
           filtered = result.lines.reject { |l|
             begin; BUNDLER_NOISE_RE.match?(l); rescue ::ArgumentError; false; end
@@ -425,7 +421,7 @@ module Frozone
           }
           reraise(::Errno::ENOENT, ::RuntimeError) do
             result = ::Kernel.system(*argv)
-            GLOBALS[:"$?"] = ProcessStatusObject.new($?) if $?
+            GLOBALS[:"$?"] = ProcessStatusObject.from_native($?) if $?
             result ? FTRUE : (result.nil? ? FNIL : FFALSE)
           end
         end
@@ -478,7 +474,7 @@ module Frozone
           flags = fint?(flags_obj) ? flags_obj.raw :  0
           reraise(::Errno::ECHILD) do
             result_pid = ::Process.wait(pid, flags)
-            GLOBALS[:"$?"] = ProcessStatusObject.new($?) if $?
+            GLOBALS[:"$?"] = ProcessStatusObject.from_native($?) if $?
             n2f_int(result_pid)
           end
         end
@@ -488,16 +484,16 @@ module Frozone
           flags = fint?(flags_obj) ? flags_obj.raw :  0
           reraise(::Errno::ECHILD) do
             result_pid, status = ::Process.wait2(pid, flags)
-            GLOBALS[:"$?"] = ProcessStatusObject.new(status) if status
-            n2f_arr([n2f_int(result_pid), ProcessStatusObject.new(status)])
+            GLOBALS[:"$?"] = ProcessStatusObject.from_native(status) if status
+            n2f_arr([n2f_int(result_pid), ProcessStatusObject.from_native(status)])
           end
         end
 
         def process_waitall(_, _receiver = FNIL)
           results = ::Process.waitall
           n2f_arr(results.map { |pid, st|
-            GLOBALS[:"$?"] = ProcessStatusObject.new(st) if st
-            n2f_arr([n2f_int(pid), ProcessStatusObject.new(st)])
+            GLOBALS[:"$?"] = ProcessStatusObject.from_native(st) if st
+            n2f_arr([n2f_int(pid), ProcessStatusObject.from_native(st)])
           })
         end
 
