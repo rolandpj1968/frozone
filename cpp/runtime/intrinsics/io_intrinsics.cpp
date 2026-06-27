@@ -75,7 +75,20 @@ BasicObject* intrinsic_io_popen(BasicObject* /*klass*/, BasicObject* cmd,
       throw static_cast<Exception*>((&ArgumentError_CLASS)->m_new(
         univ, new Array({static_cast<BO*>(new String("io_popen: empty argv array", 26))})));
     }
-    for (BO* e : a->data) {
+    // MRI accepts `IO.popen([env_hash, *argv], …)` — a leading Hash is
+    // the env (key=>value pairs to set in the subprocess). Skip it so
+    // exec sees the argv we actually want. We don't propagate the env
+    // into the child here — that's already covered by the `env:` opt
+    // path that lib/core/4.0/io.rb threads through opts_arg. This is
+    // purely about not treating the env Hash as a bogus argv element.
+    std::size_t _start = 0;
+    if (a->data[0]->m_class(univ) == reinterpret_cast<BasicObject*>(&Hash_CLASS)) _start = 1;
+    if (_start >= a->data.size()) {
+      throw static_cast<Exception*>((&ArgumentError_CLASS)->m_new(
+        univ, new Array({static_cast<BO*>(new String("io_popen: empty argv array", 26))})));
+    }
+    for (std::size_t _i = _start; _i < a->data.size(); _i++) {
+      auto* e = a->data[_i];
       auto* es = BO::try_cast<String>(e);
       if (!es) {
         throw static_cast<Exception*>((&ArgumentError_CLASS)->m_new(
