@@ -126,11 +126,15 @@ BasicObject* intrinsic_io_popen(BasicObject* /*klass*/, BasicObject* cmd,
     // Exec failed — exit with errno so parent sees nonzero status.
     ::_exit(127);
   }
-  // Parent: close write end, return IO bound to read end.
+  // Parent: close write end, return IO bound to read end. Stash the
+  // child pid on the IO so IO#close can waitpid it and publish $? into
+  // both the compiled tier (g_globals_storage via Process._do_waitpid)
+  // and the interpreter tier (Vm::GLOBALS, bridged in the same helper).
   ::close(pipefd[1]);
   auto* io = new IO();
   io->iv_fd = new Integer(pipefd[0]);
   io->iv_closed = false_instance();
+  io->iv_popen_pid = new Integer(pid);
   return io;
 }
 

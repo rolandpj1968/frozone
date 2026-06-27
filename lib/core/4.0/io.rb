@@ -126,6 +126,9 @@ class IO
       return nil if @closed
       Intrinsics.os_close(@fd)
       @closed = true
+      # popen-spawned IOs carry the child pid; reap it here so $? gets
+      # set (Process._do_waitpid bridges into the interpreter's Vm::GLOBALS).
+      Process.waitpid(@popen_pid) if @popen_pid
       nil
     else
       Intrinsics.io_close(self)
