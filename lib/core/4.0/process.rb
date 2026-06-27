@@ -201,11 +201,9 @@ class Process
   #   bit 7       = WCOREDUMP (set if dumped core)
   #   bits 8..15  = exit status (when exited normally)
   class Status
-    def self.new(pid, raw_status)
-      s = allocate
-      s.instance_variable_set(:@pid, pid)
-      s.instance_variable_set(:@raw, raw_status)
-      s
+    def initialize(pid, raw_status)
+      @pid = pid
+      @raw = raw_status
     end
 
     def pid = @pid
