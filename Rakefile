@@ -52,8 +52,18 @@ def run_language_specs(spec_files, mode: :frozone_rb)
   # Force --parser=wq for that mode; other modes honor PARSER_FLAVOR.
   parser = mode == :frozone_cpp ? "wq" : PARSER_FLAVOR
   parser_flags = mode == :mri ? "" : "--parser=#{parser}#{FLATTEN_FLAG} "
-  sh({ "RUBY_EXE" => ruby_exe },
-     "#{runner} #{parser_flags}#{MSPEC_RUNNER} #{args}")
+  env = { "RUBY_EXE" => ruby_exe }
+  # frozone-cpp has no gem_prelude (closed-world). FROZONE_LOAD_PATHS
+  # gets read by vm.rb's init_globals when Gem::Specification is empty,
+  # which is exactly the frozone-cpp case. Inject the mspec gem +
+  # ruby stdlib + ruby arch dir so `require 'mspec'` resolves.
+  if mode == :frozone_cpp
+    mspec_lib    = `bundle show mspec`.strip + '/lib'
+    ruby_stdlib  = `ruby -e 'puts RbConfig::CONFIG["rubylibdir"]'`.strip
+    ruby_archdir = `ruby -e 'puts RbConfig::CONFIG["archdir"]'`.strip
+    env["FROZONE_LOAD_PATHS"] = [mspec_lib, ruby_stdlib, ruby_archdir].join(':')
+  end
+  sh(env, "#{runner} #{parser_flags}#{MSPEC_RUNNER} #{args}")
 end
 
 # Build per-mode tasks. Each mode gets `language:MODE` (all specs)
