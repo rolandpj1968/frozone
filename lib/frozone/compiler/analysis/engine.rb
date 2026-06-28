@@ -76,6 +76,7 @@
 
 require_relative 'lattice'
 require_relative 'pass'
+require_relative 'transfer_result'
 
 module Frozone
   module Compiler
@@ -136,9 +137,8 @@ module Frozone
             node = pop_worklist
             value = @values[node]
             @transfer_calls += 1
-            @pass.transfer(node, value, eager_lookup).each do |target, contrib|
-              apply_update(target, contrib, into: @values)
-            end
+            result = @pass.transfer(node, value, eager_lookup)
+            apply_transfer_result(node, result, into: @values)
           end
         end
 
@@ -165,11 +165,22 @@ module Frozone
             this_round.each do |node|
               value = @values[node]
               @transfer_calls += 1
-              @pass.transfer(node, value, prev_lookup).each do |target, contrib|
-                apply_update(target, contrib, into: new_values)
-              end
+              result = @pass.transfer(node, value, prev_lookup)
+              apply_transfer_result(node, result, into: new_values)
             end
             @values = new_values
+          end
+        end
+
+        # Apply a TransferResult: the self-update (pull side) lands on
+        # the visited node; each push lands on its target. Both routes
+        # go through apply_update for the monotone-join clamp.
+        def apply_transfer_result(node, result, into:)
+          if result.self_value
+            apply_update(node, result.self_value, into: into)
+          end
+          result.pushes.each do |target, contrib|
+            apply_update(target, contrib, into: into)
           end
         end
 

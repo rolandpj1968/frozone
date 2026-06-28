@@ -18,9 +18,38 @@ class TestReachabilityPass < Frozone::Compiler::Analysis::Pass
   def seed = @seeds.each_with_object({}) { |s, h| h[s] = :reachable }
 
   def transfer(node, value, _lookup)
-    return {} unless value == :reachable
+    return Frozone::Compiler::Analysis::TransferResult::EMPTY unless value == :reachable
     targets = @edges[node] || []
-    targets.each_with_object({}) { |t, h| h[t] = :reachable }
+    pushes = targets.each_with_object({}) { |t, h| h[t] = :reachable }
+    Frozone::Compiler::Analysis::TransferResult.push(pushes)
+  end
+end
+
+# Pure-pull pass exercising the self_value side of TransferResult.
+# The pass seeds each node with a partial value and the pull transfer
+# refines it. NOTE: without read-dep tracking, multi-level pull chains
+# don't fully propagate — that's a known limitation we'll address when
+# TI lands. This test exercises the single-level pull-update mechanism.
+class TestPullRefinementPass < Frozone::Compiler::Analysis::Pass
+  class SetLattice
+    include Frozone::Compiler::Analysis::Lattice
+    def bottom = Set.new
+    def top = nil  # unbounded; we never hit it in finite tests
+    def join(a, b) = a | b
+    def subsumes?(a, b) = a.subset?(b)
+  end
+
+  def initialize(seeds:, refined:)
+    @seeds = seeds      # Hash[Node → Set] initial values (enqueues node)
+    @refined = refined  # Hash[Node → Set] value the pull transfer returns
+    @lattice = SetLattice.new
+  end
+
+  def lattice = @lattice
+  def seed = @seeds
+
+  def transfer(node, _value, _lookup)
+    Frozone::Compiler::Analysis::TransferResult.pull(@refined[node] || Set.new)
   end
 end
 
@@ -126,6 +155,60 @@ RSpec.describe Frozone::Compiler::Analysis::Engine do
 
       expect(snapshot_engine.rounds).to eq(3)            # depth of each chain
       expect(snapshot_engine.transfer_calls).to eq(6)    # same total work
+    end
+  end
+
+  describe 'pull-style transfers (TransferResult.pull)' do
+    # Three nodes, each seeded with a partial value that gets refined
+    # by the pull transfer. Verifies the engine routes self_value
+    # through apply_update correctly and that the monotone-join clamp
+    # works on the pull side.
+    let(:pull_pass) do
+      TestPullRefinementPass.new(
+        seeds:   { a: Set[1],    b: Set[10],    c: Set[100]    },
+        refined: { a: Set[1, 2], b: Set[10, 20], c: Set[100, 200] },
+      )
+    end
+
+    it 'eager refines each node via its pull-transfer self_value' do
+      values = described_class.new(pull_pass, mode: :eager).run
+      expect(values[:a]).to eq(Set[1, 2])
+      expect(values[:b]).to eq(Set[10, 20])
+      expect(values[:c]).to eq(Set[100, 200])
+    end
+
+    it 'eager and snapshot agree on the LFP (monotonicity check)' do
+      eager_vals    = described_class.new(pull_pass, mode: :eager).run
+      snapshot_vals = described_class.new(pull_pass, mode: :snapshot).run
+      expect(snapshot_vals.to_h).to eq(eager_vals.to_h)
+    end
+  end
+
+  describe 'TransferResult convenience constructors' do
+    let(:tr) { Frozone::Compiler::Analysis::TransferResult }
+
+    it 'TransferResult.push produces a push-only result' do
+      r = tr.push({ a: :reachable })
+      expect(r.self_value).to be_nil
+      expect(r.pushes).to eq({ a: :reachable })
+    end
+
+    it 'TransferResult.pull produces a pull-only result' do
+      r = tr.pull(:reachable)
+      expect(r.self_value).to eq(:reachable)
+      expect(r.pushes).to eq({})
+    end
+
+    it 'TransferResult.both produces a bipolar result' do
+      r = tr.both(self_value: :reachable, pushes: { a: :reachable })
+      expect(r.self_value).to eq(:reachable)
+      expect(r.pushes).to eq({ a: :reachable })
+    end
+
+    it 'TransferResult::EMPTY is a no-op' do
+      r = tr::EMPTY
+      expect(r.self_value).to be_nil
+      expect(r.pushes).to eq({})
     end
   end
 end
