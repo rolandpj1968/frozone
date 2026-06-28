@@ -27,6 +27,7 @@ GEM
     prime (0.1.4)
       forwardable
       singleton
+    prism (1.9.0)
     profile (0.4.0)
     psych (5.3.1)
       date
@@ -88,6 +89,7 @@ DEPENDENCIES
   observer
   parser!
   prime
+  prism (~> 1.9)
   profile
   psych-pure
   rake

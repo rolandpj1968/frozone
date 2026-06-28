@@ -1,6 +1,9 @@
 source "https://rubygems.org"
 
 gem 'parser', path: 'vendor/parser'
+# Pin Prism to latest published — Ruby 4.0.1 stdlib has 1.8.0 and
+# the parser-side of pattern_matching has had upstream fixes since.
+gem 'prism', '~> 1.9'
 gem 'profile'
 gem 'rake'
 
