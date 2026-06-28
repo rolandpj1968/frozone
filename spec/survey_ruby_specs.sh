@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Survey: run every spec in a directory through bin/frozone_box's mspec
+# Survey: run every spec in a directory through bin/frozone-cpp's mspec
 # driver, in parallel. Each spec is a separate process so parallelism is
 # trivial. Defaults to JOBS=Etc.nprocessors (matches the build harness).
 #
@@ -33,7 +33,7 @@ run_one() {
   local abs=$(realpath "$spec")
   local t0=$(date +%s.%N)
   local out
-  out=$(timeout 180 bin/frozone_box spec/mspec_runner.rb "$abs" 2>&1)
+  out=$(timeout 180 bin/frozone-cpp spec/mspec_runner.rb "$abs" 2>&1)
   local rc=$?
   local t1=$(date +%s.%N)
   local elapsed=$(awk -v t0="$t0" -v t1="$t1" 'BEGIN{printf "%.0f", t1-t0}')

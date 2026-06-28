@@ -608,11 +608,14 @@ end
 #                      LTO auto-enabled at O2+)
 #   LTO=0              force LTO off at O2+ (otherwise auto-on per #164)
 #   JOBS=N             parallel compile workers (default nprocessors/2)
-#   FROZONE_BOX_BIN    binary output path (default bin/frozone_box)
+#   FROZONE_CPP_BIN    binary output path (default bin/frozone-cpp)
+#                      (also accepts the legacy FROZONE_BOX_BIN name)
 #   CCACHE=0           disable ccache even if installed (default: auto-use)
 
 FROZONE_BOX_GEN_DIR   = File.expand_path('cpp/gen/box/frozone', __dir__)
-FROZONE_BOX_BIN       = ENV.fetch('FROZONE_BOX_BIN', File.expand_path('bin/frozone_box', __dir__))
+FROZONE_BOX_BIN       = ENV.fetch('FROZONE_CPP_BIN',
+                                  ENV.fetch('FROZONE_BOX_BIN',
+                                            File.expand_path('bin/frozone-cpp', __dir__)))
 FROZONE_HEADER_STAMP  = File.join(FROZONE_BOX_GEN_DIR, '.headers.fingerprint')
 FROZONE_OPT_STAMP     = File.join(FROZONE_BOX_GEN_DIR, '.opt')
 

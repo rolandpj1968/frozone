@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run multiple ruby-spec files through mspec under bin/frozone_box in ONE
+# Run multiple ruby-spec files through mspec under bin/frozone-cpp in ONE
 # invocation, amortizing the ~40s startup across the batch. Same driver MRI
 # uses (spec/mspec_runner.rb + real mspec gem), so results mean the same
 # thing MRI's `bundle exec rake language` would mean.
@@ -10,7 +10,7 @@
 # Knows which gems/stdlibs to inject into $LOAD_PATH so the mspec gem and
 # its `require 'fileutils'`/`require 'rbconfig'` chain resolve (see vm.rb
 # init_globals — RUBYLIB/GEM_HOME/FROZONE_LOAD_PATHS are honored only when
-# Gem::Specification is empty, i.e. when running bin/frozone_box).
+# Gem::Specification is empty, i.e. when running bin/frozone-cpp).
 
 set -u
 MSPEC_LIB=$(bundle show mspec)/lib
@@ -27,7 +27,7 @@ ABS=()
 for s in "$@"; do ABS+=("$(realpath "$s")"); done
 
 t0=$(date +%s.%N)
-bin/frozone_box spec/mspec_runner.rb "${ABS[@]}"
+bin/frozone-cpp spec/mspec_runner.rb "${ABS[@]}"
 rc=$?
 t1=$(date +%s.%N)
 awk -v t0="$t0" -v t1="$t1" -v rc="$rc" -v n="${#ABS[@]}" 'BEGIN{

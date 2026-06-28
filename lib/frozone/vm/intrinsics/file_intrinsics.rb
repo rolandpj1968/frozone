@@ -34,7 +34,7 @@ module Frozone
         def os_umask(_, m) = fnil?(m) ? n2f_int(File.umask) : n2f_int(File.umask(m.raw))
         def os_fnmatch(_, pat, p, flags) = n2f_bool(File.fnmatch(pat.raw, p.raw, flags.raw))
 
-        # fd-level POSIX primitives. MRI bridges only — under bin/frozone_box
+        # fd-level POSIX primitives. MRI bridges only — under bin/frozone-cpp
         # compiled mode the cpp_box codegen synthesizes the Vm::Intrinsics
         # eigenclass slot to call intrinsic_os_X(...) directly, skipping
         # these Ruby bodies entirely (see method_emitter HPP_INTRINSICS

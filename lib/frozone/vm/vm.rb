@@ -343,7 +343,7 @@ module Frozone
 
       def init_globals
         gem_paths = Gem::Specification.flat_map(&:full_require_paths).select { |p| File.directory?(p) }
-        # Env-driven fallbacks for bin/frozone_box ONLY (Gem::Specification is
+        # Env-driven fallbacks for bin/frozone-cpp ONLY (Gem::Specification is
         # empty there). Under MRI host (gen / dev), RUBYLIB may point at
         # bundler's vendored stdlib copies (e.g. bundler/vendor/fileutils/lib),
         # which would shadow the canonical /usr/.../<ver>/fileutils.rb and
