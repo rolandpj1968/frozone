@@ -3,11 +3,11 @@ require_relative '../../../../lib/frozone/compiler/analysis/engine'
 
 # Synthetic pass used to exercise the engine without depending on
 # any real compiler analysis. The graph is a tiny digraph; the
-# pass propagates "is this point reachable from the seed?" facts.
+# pass propagates "is this node reachable from the seed?" facts.
 class TestReachabilityPass < Frozone::Compiler::Analysis::Pass
   def initialize(edges:, seeds:)
-    @edges = edges  # Hash[Point → Array[Point]]
-    @seeds = seeds  # Array[Point]
+    @edges = edges  # Hash[Node → Array[Node]]
+    @seeds = seeds  # Array[Node]
     @lattice = Frozone::Compiler::Analysis::TwoValueLattice.new(
       bottom_value: :unreachable,
       top_value:    :reachable,
@@ -17,9 +17,9 @@ class TestReachabilityPass < Frozone::Compiler::Analysis::Pass
   def lattice = @lattice
   def seed = @seeds.each_with_object({}) { |s, h| h[s] = :reachable }
 
-  def transfer(point, value, _lookup)
+  def transfer(node, value, _lookup)
     return {} unless value == :reachable
-    targets = @edges[point] || []
+    targets = @edges[node] || []
     targets.each_with_object({}) { |t, h| h[t] = :reachable }
   end
 end
@@ -37,7 +37,7 @@ RSpec.describe Frozone::Compiler::Analysis::Engine do
   let(:pass) { TestReachabilityPass.new(edges: edges, seeds: [:a]) }
 
   describe 'eager mode' do
-    it 'reaches all forward-transitive points and ignores unreachable subgraph' do
+    it 'reaches all forward-transitive nodes and ignores unreachable subgraph' do
       values = described_class.new(pass, mode: :eager).run
       reachable = values.select { |_, v| v == :reachable }.keys.to_set
       expect(reachable).to eq(Set[:a, :b, :c, :d, :e, :f])
@@ -47,7 +47,7 @@ RSpec.describe Frozone::Compiler::Analysis::Engine do
 
     it 'terminates on cycles' do
       # The cycle a → c → e → a must be detected via the subsumes? check
-      # in enqueue_update (no progress → skip re-enqueue).
+      # in apply_update (no progress → skip re-enqueue).
       expect { described_class.new(pass, mode: :eager).run }.not_to raise_error
     end
   end
@@ -74,7 +74,7 @@ RSpec.describe Frozone::Compiler::Analysis::Engine do
       engine = described_class.new(empty_pass)
       values = engine.run
       expect(values.to_h).to eq({})
-      # Lookups still return bottom for unseen points.
+      # Lookups still return bottom for unseen nodes.
       expect(values[:a]).to eq(:unreachable)
       expect(engine.rounds).to eq(0)
       expect(engine.transfer_calls).to eq(0)
@@ -85,7 +85,7 @@ RSpec.describe Frozone::Compiler::Analysis::Engine do
     # A single chain a → b → c → d → e exposes the fundamental
     # distinction: eager drains the whole chain in one round;
     # snapshot needs one round per propagation step. transfer_calls
-    # is identical (every reachable point gets transferred exactly
+    # is identical (every reachable node gets transferred exactly
     # once in both modes — the work is the same).
     let(:chain_pass) do
       TestReachabilityPass.new(

@@ -83,7 +83,7 @@ module Frozone
       class Engine
         VALID_MODES = %i[eager snapshot].freeze
 
-        # values         — Hash[Point → LatticeValue], final result
+        # values         — Hash[Node → LatticeValue], final result
         # rounds         — outer-loop iterations executed
         #                  :eager    — 1 (or 0 if seed was empty); the
         #                              worklist drains in a single sweep
@@ -104,7 +104,7 @@ module Frozone
           @pass = pass
           @lattice = pass.lattice
           @mode = mode
-          # Default to lattice bottom for any point we haven't reached yet.
+          # Default to lattice bottom for any node we haven't reached yet.
           @values = Hash.new { @lattice.bottom }
           @worklist = []
           @on_worklist = {}
@@ -116,7 +116,7 @@ module Frozone
         def run
           # Seed lands directly into @values — there's no "previous round"
           # yet, so the functional/eager distinction is moot for the seed.
-          @pass.seed.each { |point, value| apply_update(point, value, into: @values) }
+          @pass.seed.each { |node, value| apply_update(node, value, into: @values) }
           case @mode
           when :eager    then run_eager
           when :snapshot then run_snapshot
@@ -133,10 +133,10 @@ module Frozone
           # are visible to subsequent calls in the same drain.
           eager_lookup = ->(p) { @values[p] }
           until @worklist.empty?
-            point = pop_worklist
-            value = @values[point]
+            node = pop_worklist
+            value = @values[node]
             @transfer_calls += 1
-            @pass.transfer(point, value, eager_lookup).each do |target, contrib|
+            @pass.transfer(node, value, eager_lookup).each do |target, contrib|
               apply_update(target, contrib, into: @values)
             end
           end
@@ -162,10 +162,10 @@ module Frozone
             new_values = @values.dup
             new_values.default_proc = ->(_, _) { @lattice.bottom }
             prev_lookup = ->(p) { @values[p] }
-            this_round.each do |point|
-              value = @values[point]
+            this_round.each do |node|
+              value = @values[node]
               @transfer_calls += 1
-              @pass.transfer(point, value, prev_lookup).each do |target, contrib|
+              @pass.transfer(node, value, prev_lookup).each do |target, contrib|
                 apply_update(target, contrib, into: new_values)
               end
             end
@@ -182,22 +182,22 @@ module Frozone
         # The framework enforces monotonicity at the storage level via
         # the `join(old, new_value)` clamp here: stored values can only
         # ascend, regardless of what the pass returns.
-        def apply_update(point, new_value, into:)
-          old = into[point]
+        def apply_update(node, new_value, into:)
+          old = into[node]
           joined = @lattice.join(old, new_value)
           # Monotone join → joined ⊒ old. The only way subsumes?(joined, old)
           # is true is joined == old (no progress). Skip the enqueue.
           return if @lattice.subsumes?(joined, old)
-          into[point] = joined
-          return if @on_worklist[point]
-          @on_worklist[point] = true
-          @worklist << point
+          into[node] = joined
+          return if @on_worklist[node]
+          @on_worklist[node] = true
+          @worklist << node
         end
 
         def pop_worklist
-          point = @worklist.shift
-          @on_worklist.delete(point)
-          point
+          node = @worklist.shift
+          @on_worklist.delete(node)
+          node
         end
       end
     end
