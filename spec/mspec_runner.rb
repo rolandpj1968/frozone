@@ -6,6 +6,13 @@ module MSpec
   class SkipExampleError < StandardError; end
 end
 
+# Frozone-Ruby defines `Thread::Blocked` as the cooperative-scheduler
+# signal raised when a thread tries to wait on a condition no other
+# thread can satisfy. Bare MRI has no such class, so the rescue clauses
+# below (and any spec that names it) would NameError at load time. Stub
+# it as a never-raised dummy so the harness loads under MRI too.
+Thread.const_set(:Blocked, Class.new(StandardError)) unless defined?(Thread::Blocked)
+
 module MSpec
   class << self
     alias_method :protect_orig, :protect
