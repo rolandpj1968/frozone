@@ -71,10 +71,61 @@ RSpec.describe Frozone::Compiler::Analysis::Engine do
   describe 'empty seed' do
     it 'returns an empty value map' do
       empty_pass = TestReachabilityPass.new(edges: edges, seeds: [])
-      values = described_class.new(empty_pass).run
+      engine = described_class.new(empty_pass)
+      values = engine.run
       expect(values.to_h).to eq({})
       # Lookups still return bottom for unseen points.
       expect(values[:a]).to eq(:unreachable)
+      expect(engine.rounds).to eq(0)
+      expect(engine.transfer_calls).to eq(0)
+    end
+  end
+
+  describe 'convergence speed (rounds vs transfer_calls)' do
+    # A single chain a → b → c → d → e exposes the fundamental
+    # distinction: eager drains the whole chain in one round;
+    # snapshot needs one round per propagation step. transfer_calls
+    # is identical (every reachable point gets transferred exactly
+    # once in both modes — the work is the same).
+    let(:chain_pass) do
+      TestReachabilityPass.new(
+        edges: { a: [:b], b: [:c], c: [:d], d: [:e] },
+        seeds: [:a],
+      )
+    end
+
+    it 'eager converges in 1 round, regardless of chain depth' do
+      engine = described_class.new(chain_pass, mode: :eager)
+      engine.run
+      expect(engine.rounds).to eq(1)
+      expect(engine.transfer_calls).to eq(5)  # a, b, c, d, e
+    end
+
+    it 'snapshot needs one round per propagation step' do
+      engine = described_class.new(chain_pass, mode: :snapshot)
+      engine.run
+      expect(engine.rounds).to eq(5)           # one round drains one chain step
+      expect(engine.transfer_calls).to eq(5)   # same total work as eager
+    end
+
+    # Two parallel chains a→b→c and d→e→f with seeds [a, d] make
+    # the parallelism visible: snapshot processes a and d in round 1
+    # (so round 2 has b and e together), totaling 3 rounds for 6
+    # transfer calls — average 2 transfers per round. Eager still
+    # 1 round, 6 calls.
+    it 'snapshot exposes parallelism on independent chains' do
+      parallel_pass = TestReachabilityPass.new(
+        edges: { a: [:b], b: [:c], d: [:e], e: [:f] },
+        seeds: %i[a d],
+      )
+      eager_engine    = described_class.new(parallel_pass, mode: :eager).tap(&:run)
+      snapshot_engine = described_class.new(parallel_pass, mode: :snapshot).tap(&:run)
+
+      expect(eager_engine.rounds).to eq(1)
+      expect(eager_engine.transfer_calls).to eq(6)
+
+      expect(snapshot_engine.rounds).to eq(3)            # depth of each chain
+      expect(snapshot_engine.transfer_calls).to eq(6)    # same total work
     end
   end
 end

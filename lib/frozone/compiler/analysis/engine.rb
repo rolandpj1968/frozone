@@ -83,7 +83,18 @@ module Frozone
       class Engine
         VALID_MODES = %i[eager snapshot].freeze
 
-        attr_reader :values
+        # values         — Hash[Point → LatticeValue], final result
+        # rounds         — outer-loop iterations executed
+        #                  :eager    — 1 (or 0 if seed was empty); the
+        #                              worklist drains in a single sweep
+        #                              that's the whole point of eager
+        #                  :snapshot — propagation depth (one round per
+        #                              "layer" of the call graph)
+        # transfer_calls — total #pass.transfer invocations. Same for
+        #                  both modes on the same input. The ratio
+        #                  (transfer_calls / rounds) is the average
+        #                  per-round work, a useful diagnostic.
+        attr_reader :values, :rounds, :transfer_calls
 
         def initialize(pass, mode: :eager)
           unless VALID_MODES.include?(mode)
@@ -97,6 +108,8 @@ module Frozone
           @values = Hash.new { @lattice.bottom }
           @worklist = []
           @on_worklist = {}
+          @rounds = 0
+          @transfer_calls = 0
         end
 
         # Run to fixed point. Returns the final value map.
@@ -112,10 +125,13 @@ module Frozone
         private
 
         def run_eager
+          return if @worklist.empty?
+          @rounds = 1
           eager_lookup = ->(p) { @values[p] }
           until @worklist.empty?
             point = pop_worklist
             value = @values[point]
+            @transfer_calls += 1
             @pass.transfer(point, value, eager_lookup).each do |target, contrib|
               enqueue_update(target, contrib)
             end
@@ -124,6 +140,7 @@ module Frozone
 
         def run_snapshot
           until @worklist.empty?
+            @rounds += 1
             this_round = @worklist
             @worklist = []
             @on_worklist = {}
@@ -132,6 +149,7 @@ module Frozone
             snapshot_lookup = ->(p) { snapshot[p] }
             this_round.each do |point|
               value = snapshot[point]
+              @transfer_calls += 1
               @pass.transfer(point, value, snapshot_lookup).each do |target, contrib|
                 enqueue_update(target, contrib)
               end
