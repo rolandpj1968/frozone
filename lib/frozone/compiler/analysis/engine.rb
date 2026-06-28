@@ -114,7 +114,9 @@ module Frozone
 
         # Run to fixed point. Returns the final value map.
         def run
-          @pass.seed.each { |point, value| enqueue_update(point, value) }
+          # Seed lands directly into @values — there's no "previous round"
+          # yet, so the functional/eager distinction is moot for the seed.
+          @pass.seed.each { |point, value| apply_update(point, value, into: @values) }
           case @mode
           when :eager    then run_eager
           when :snapshot then run_snapshot
@@ -127,43 +129,66 @@ module Frozone
         def run_eager
           return if @worklist.empty?
           @rounds = 1
+          # Reads see the LIVE value map. Updates from one transfer call
+          # are visible to subsequent calls in the same drain.
           eager_lookup = ->(p) { @values[p] }
           until @worklist.empty?
             point = pop_worklist
             value = @values[point]
             @transfer_calls += 1
             @pass.transfer(point, value, eager_lookup).each do |target, contrib|
-              enqueue_update(target, contrib)
+              apply_update(target, contrib, into: @values)
             end
           end
         end
 
+        # Functional Jacobi:
+        #   - `@values` is the previous round's state. It STAYS UNTOUCHED
+        #     for the whole round — every transfer call in the round
+        #     reads from it via `prev_lookup`.
+        #   - `new_values` starts as a copy of `@values` and accumulates
+        #     this round's contributions.
+        #   - At round end, `@values` is replaced by `new_values` — a
+        #     single atomic flip. Previous-round map is discarded (GC'd).
+        # This means within a round the state seen by every transfer is
+        # identical; the round is a pure function from previous values
+        # to next values. Easier to reason about, easier to parallelize.
         def run_snapshot
           until @worklist.empty?
             @rounds += 1
             this_round = @worklist
             @worklist = []
             @on_worklist = {}
-            snapshot = @values.dup
-            snapshot.default_proc = ->(_, _) { @lattice.bottom }
-            snapshot_lookup = ->(p) { snapshot[p] }
+            new_values = @values.dup
+            new_values.default_proc = ->(_, _) { @lattice.bottom }
+            prev_lookup = ->(p) { @values[p] }
             this_round.each do |point|
-              value = snapshot[point]
+              value = @values[point]
               @transfer_calls += 1
-              @pass.transfer(point, value, snapshot_lookup).each do |target, contrib|
-                enqueue_update(target, contrib)
+              @pass.transfer(point, value, prev_lookup).each do |target, contrib|
+                apply_update(target, contrib, into: new_values)
               end
             end
+            @values = new_values
           end
         end
 
-        def enqueue_update(point, new_value)
-          old = @values[point]
+        # Monotone update + enqueue. The same logic applies to both
+        # modes; only the `into:` target differs:
+        #   :eager    — write into @values (live map, updates visible
+        #               immediately to subsequent reads).
+        #   :snapshot — write into `new_values` (the next round's map,
+        #               flipped to @values only at round end).
+        # The framework enforces monotonicity at the storage level via
+        # the `join(old, new_value)` clamp here: stored values can only
+        # ascend, regardless of what the pass returns.
+        def apply_update(point, new_value, into:)
+          old = into[point]
           joined = @lattice.join(old, new_value)
           # Monotone join → joined ⊒ old. The only way subsumes?(joined, old)
           # is true is joined == old (no progress). Skip the enqueue.
           return if @lattice.subsumes?(joined, old)
-          @values[point] = joined
+          into[point] = joined
           return if @on_worklist[point]
           @on_worklist[point] = true
           @worklist << point
