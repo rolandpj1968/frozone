@@ -12,15 +12,27 @@
 
 namespace Ruby {
 
+// Forward decl — body lives in the gen's universe.cpp. Constructs a
+// NotImplementedError exception and throws it. Available in every TU
+// that includes this header because every TU also pulls in the gen's
+// base.hpp where it's also declared (and ultimately defined).
+[[noreturn]] void throw_not_implemented(const char* msg);
+
 // Loud stub for a reachable-but-deliberately-unimplemented intrinsic.
 // IntrinsicLowering emits a call to this for names in STUB_INTRINSICS,
 // so the method compiles (and is reached/dispatched normally) but a hit
-// aborts loudly with the name instead of silently falling through to
-// method_missing. [[noreturn]] keeps the enclosing method's control-flow
-// analysis clean (no -Wreturn-type) despite the BasicObject* return type.
+// throws NotImplementedError(name). The exception propagates through
+// the standard Ruby exception machinery, so if the caller has rescue
+// Exception (or rescue NotImplementedError) the call site recovers;
+// otherwise it bubbles to the top-level handler which prints + exits
+// nonzero — same loud-fail behaviour as before, just routed through
+// exceptions instead of std::abort. The fprintf stays so the
+// stub-hit location is identifiable even when caught.
+// [[noreturn]] keeps the enclosing method's control-flow analysis clean
+// (no -Wreturn-type) despite the BasicObject* return type.
 [[noreturn]] inline BasicObject* intrinsic_not_implemented(const char* name) {
   std::fprintf(stderr, "[box-first] intrinsic %s not implemented (reachable stub)\n", name);
-  std::abort();
+  throw_not_implemented(name);
 }
 
 // Kernel#exit / exit! raise this; it propagates through method try/catch

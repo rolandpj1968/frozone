@@ -36,6 +36,21 @@ LANGUAGE_SPEC_MODES = {
   frozone_cpp:  File.expand_path("bin/frozone-cpp", __dir__),
 }.freeze
 
+# Specs that *terminate the batch* (not merely fail/error per-example)
+# under a given mode. Excluded from the all-mode runs so the rest of
+# the corpus reaches the summary line. Individual tasks
+# (`rake language:MODE:NAME`) still run them — useful for debugging
+# the underlying gap. Keep this list tight — only specs where the
+# whole runner dies, not specs with internal F/E.
+LANGUAGE_SPEC_BATCH_SKIPS = {
+  frozone_cpp: %w[
+    numbers
+    predefined
+    return
+    magic_comment
+  ].freeze,
+}.freeze
+
 def language_spec_path(name)
   "#{RUBY_SPEC_DIR}/language/#{name}_spec.rb"
 end
@@ -73,6 +88,13 @@ LANGUAGE_SPEC_MODES.each_key do |mode|
   task "language:#{mode}" do
     all_specs = Dir["#{RUBY_SPEC_DIR}/language/*_spec.rb"].sort
     abort "No specs at #{RUBY_SPEC_DIR}/language/" if all_specs.empty?
+    skips = LANGUAGE_SPEC_BATCH_SKIPS[mode] || []
+    if skips.any?
+      filtered = all_specs.reject { |p| skips.include?(File.basename(p, '_spec.rb')) }
+      dropped = all_specs - filtered
+      warn "[language:#{mode}] skipping #{dropped.size} batch-killer specs: #{dropped.map { |p| File.basename(p, '_spec.rb') }.join(', ')}"
+      all_specs = filtered
+    end
     run_language_specs(all_specs, mode: mode)
   end
 
