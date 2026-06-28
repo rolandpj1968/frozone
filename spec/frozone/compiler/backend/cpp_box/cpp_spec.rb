@@ -299,6 +299,27 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
       expect(cpp.from_expr(node, locals))
         .to eq("_block->call1((&_f_i_42))")
     end
+
+    it "yield with a splat arg routes through build_args_array (regression #205)" do
+      # `yield(*sw)` — the splat must be expanded the same way method-call
+      # args are, not passed through from_expr directly (which raises).
+      arr = lvr(:sw)
+      node = A::Yield.new([A::SplatArg.new(arr)])
+      result = cpp.from_expr(node, locals)
+      expect(result).to eq("_block->m_call(univ, splat_to_array(l_sw))")
+    end
+
+    it "yield with mixed positional + splat builds an Array via lambda (regression #205)" do
+      # `yield(key, *sw)` — the form that broke OptionParser#complete.
+      key = lvr(:key)
+      arr = lvr(:sw)
+      node = A::Yield.new([key, A::SplatArg.new(arr)])
+      result = cpp.from_expr(node, locals)
+      expect(result).to include("_block->m_call(univ, ")
+      expect(result).to include("Array* _r = new Array()")
+      expect(result).to include("_r->data.push_back(l_key)")
+      expect(result).to include("for (auto* _e : splat_to_array(l_sw)->data) _r->data.push_back(_e)")
+    end
   end
 
   describe "#from_expr — splat in call args" do

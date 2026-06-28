@@ -1302,15 +1302,21 @@ module Frozone
           #
           # 3+ args or any kwargs → universal m_call(args, kwargs).
           def from_yield(node, locals)
-            args = (node.arg_nodes || []).map { |a| from_expr(a, locals) }
+            arg_nodes = node.arg_nodes || []
+            has_splat = arg_nodes.any? { |a| a.is_a?(Ast::SplatArg) }
             kw_arg_nodes = node.respond_to?(:kw_arg_nodes) ? (node.kw_arg_nodes || {}) : {}
             has_kw = !kw_arg_nodes.empty?
-            unless has_kw
-              return "_block->call0()" if args.empty?
-              return "_block->call1(#{args[0]})" if args.length == 1
-              return "_block->call2(#{args[0]}, #{args[1]})" if args.length == 2
+            if has_splat
+              args_expr = build_args_array(arg_nodes, locals)
+            else
+              args = arg_nodes.map { |a| from_expr(a, locals) }
+              unless has_kw
+                return "_block->call0()" if args.empty?
+                return "_block->call1(#{args[0]})" if args.length == 1
+                return "_block->call2(#{args[0]}, #{args[1]})" if args.length == 2
+              end
+              args_expr = args.empty? ? "&EMPTY_ARGS" : "new Array({#{args.join(", ")}})"
             end
-            args_expr = args.empty? ? "&EMPTY_ARGS" : "new Array({#{args.join(", ")}})"
             return "_block->m_call(univ, #{args_expr})" unless has_kw
             # Use Hash::put rather than raw data[k] = v — keeps insertion-
             # order vector + order_idx in sync. Direct data[] bypasses
