@@ -39,10 +39,6 @@ class Process
     cpid, raw = result[0], result[1]
     s = Process::Status.new(cpid, raw)
     $? = s
-    # Explicit cross-tier publish: the box's $? lives in the compiled
-    # globals store, but interpreted user code reads $? via the Vm
-    # interpreter's GLOBALS hash. Mirror so both tiers see the result.
-    ::Frozone::Vm::GLOBALS[:"$?"] = s
     [cpid, s]
   end
 
