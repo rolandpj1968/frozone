@@ -74,6 +74,7 @@
 # in pathological cases). Until then both modes are equivalent in
 # both result and observable behavior modulo perf.
 
+require 'set'
 require_relative 'lattice'
 require_relative 'pass'
 require_relative 'transfer_result'
@@ -107,68 +108,83 @@ module Frozone
           @mode = mode
           # Default to lattice bottom for any node we haven't reached yet.
           @values = Hash.new { @lattice.bottom }
-          @worklist = []
-          @on_worklist = {}
+          # Insertion-ordered, deduplicating FIFO. Set's `<<` is
+          # idempotent so we get free dedup; insertion order gives
+          # FIFO when we iterate. Replaces an Array + on_worklist
+          # Hash combo with one stdlib structure.
+          @worklist = Set.new
           @rounds = 0
           @transfer_calls = 0
         end
 
         # Run to fixed point. Returns the final value map.
+        #
+        # The two modes are unified around `process_round`: both modes
+        # process the current worklist via `process_round`, parameterized
+        # on the (source, target) value-map pair.
+        #
+        #   :eager    — source == target == @values. Reads and writes the
+        #               LIVE map; updates propagate within the drain.
+        #               One continuous drain = one round.
+        #   :snapshot — source = @values (frozen); target = new_values.
+        #               Reads see previous-round state; writes accumulate
+        #               into a fresh map that becomes @values at round end.
+        #               One round = one process_round call.
         def run
           # Seed lands directly into @values — there's no "previous round"
-          # yet, so the functional/eager distinction is moot for the seed.
+          # yet, so the eager/snapshot distinction is moot for the seed.
           @pass.seed.each { |node, value| apply_update(node, value, into: @values) }
           case @mode
-          when :eager    then run_eager
-          when :snapshot then run_snapshot
+          when :eager    then drain_eager
+          when :snapshot then drain_snapshot
           end
           @values
         end
 
         private
 
-        def run_eager
+        # Eager: one round conceptually (a single continuous drain),
+        # though process_round may be called multiple times as the
+        # worklist grows during processing.
+        def drain_eager
           return if @worklist.empty?
           @rounds = 1
-          # Reads see the LIVE value map. Updates from one transfer call
-          # are visible to subsequent calls in the same drain.
-          eager_lookup = ->(p) { @values[p] }
           until @worklist.empty?
-            node = pop_worklist
-            value = @values[node]
-            @transfer_calls += 1
-            result = @pass.transfer(node, value, eager_lookup)
-            apply_transfer_result(node, result, into: @values)
+            process_round(source: @values, target: @values)
           end
         end
 
-        # Functional Jacobi:
-        #   - `@values` is the previous round's state. It STAYS UNTOUCHED
-        #     for the whole round — every transfer call in the round
-        #     reads from it via `prev_lookup`.
-        #   - `new_values` starts as a copy of `@values` and accumulates
+        # Snapshot (functional Jacobi):
+        #   - @values is the previous round's state — untouched during the
+        #     round, every transfer call reads from it via the lookup.
+        #   - new_values starts as a copy of @values and accumulates
         #     this round's contributions.
-        #   - At round end, `@values` is replaced by `new_values` — a
-        #     single atomic flip. Previous-round map is discarded (GC'd).
-        # This means within a round the state seen by every transfer is
-        # identical; the round is a pure function from previous values
-        # to next values. Easier to reason about, easier to parallelize.
-        def run_snapshot
+        #   - At round end, @values is atomically replaced by new_values.
+        # Each process_round call is one round of propagation depth.
+        def drain_snapshot
           until @worklist.empty?
             @rounds += 1
-            this_round = @worklist
-            @worklist = []
-            @on_worklist = {}
             new_values = @values.dup
             new_values.default_proc = ->(_, _) { @lattice.bottom }
-            prev_lookup = ->(p) { @values[p] }
-            this_round.each do |node|
-              value = @values[node]
-              @transfer_calls += 1
-              result = @pass.transfer(node, value, prev_lookup)
-              apply_transfer_result(node, result, into: new_values)
-            end
+            process_round(source: @values, target: new_values)
             @values = new_values
+          end
+        end
+
+        # Drain the current worklist, calling pass.transfer for each
+        # enqueued node. Reads (lookup + the `value` arg to transfer)
+        # come from `source`; writes (via apply_transfer_result) go to
+        # `target`. The same logic serves both modes; the (source,
+        # target) parameterization is where the modes differ.
+        def process_round(source:, target:)
+          batch = @worklist
+          @worklist = Set.new
+          lookup = ->(n) { source[n] }
+          batch.each do |node|
+            value = source[node]
+            @transfer_calls += 1
+            result = @pass.transfer(node, value, lookup)
+            apply_transfer_result(node, result, into: target)
           end
         end
 
@@ -200,15 +216,8 @@ module Frozone
           # is true is joined == old (no progress). Skip the enqueue.
           return if @lattice.subsumes?(joined, old)
           into[node] = joined
-          return if @on_worklist[node]
-          @on_worklist[node] = true
+          # Set's << is idempotent — no need to check for membership.
           @worklist << node
-        end
-
-        def pop_worklist
-          node = @worklist.shift
-          @on_worklist.delete(node)
-          node
         end
       end
     end
