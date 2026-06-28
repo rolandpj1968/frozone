@@ -15,44 +15,99 @@ task :spec do
   sh "bundle exec rspec"
 end
 
-# Language spec helpers
-def run_language_specs(*spec_files)
-  args = spec_files.map { |f| File.expand_path(f) }.join(' ')
-  sh "bundle exec ruby frozone.rb --parser=#{PARSER_FLAVOR}#{FLATTEN_FLAG} #{MSPEC_RUNNER} #{args}"
-end
+# Language spec helpers.
+#
+# Three modes, distinguished by *which ruby runs the test code*:
+#
+#   :mri          host MRI directly (the spec corpus is run under MRI;
+#                 the rake target IS the "golden truth" baseline)
+#   :frozone_rb   `ruby frozone.rb` — frozone interpreter, hosted on MRI
+#   :frozone_cpp  bin/frozone-cpp  — frozone interpreter, compiled to C++
+#
+# CRITICAL: each mode also sets `RUBY_EXE` so mspec's `ruby_exe(code)`
+# subprocesses (used in spec families like at_exit / END / signal /
+# anything that asserts subprocess behaviour) run under the SAME
+# interpreter as the outer harness. Without this, frozone modes
+# silently test MRI's child-process behaviour while only validating
+# frozone's parent-level execution.
+LANGUAGE_SPEC_MODES = {
+  mri:          "bundle exec ruby",
+  frozone_rb:   File.expand_path("bin/frozone-rb",  __dir__),
+  frozone_cpp:  File.expand_path("bin/frozone-cpp", __dir__),
+}.freeze
 
 def language_spec_path(name)
   "#{RUBY_SPEC_DIR}/language/#{name}_spec.rb"
 end
 
-# Run all language specs
-desc "Run all ruby/spec language specs (RUBY_SPEC_DIR=... PARSER=prism|wq to override)"
-task :language do
-  all_specs = Dir["#{RUBY_SPEC_DIR}/language/*_spec.rb"].sort
-  run_language_specs(*all_specs)
+def run_language_specs(spec_files, mode: :frozone_rb)
+  runner = LANGUAGE_SPEC_MODES.fetch(mode) do
+    abort "unknown spec mode #{mode.inspect}; valid: #{LANGUAGE_SPEC_MODES.keys.inspect}"
+  end
+  # `ruby_exe` mspec helper picks up RUBY_EXE from env when set. Use
+  # the same value as the outer runner so children stay in-mode.
+  ruby_exe = runner.split(" ").first == "bundle" ? `which ruby`.strip : runner
+  args = spec_files.map { |f| File.expand_path(f) }.join(' ')
+  # frozone-cpp is closed-world AOT — it has no Prism (C extension).
+  # Force --parser=wq for that mode; other modes honor PARSER_FLAVOR.
+  parser = mode == :frozone_cpp ? "wq" : PARSER_FLAVOR
+  parser_flags = mode == :mri ? "" : "--parser=#{parser}#{FLATTEN_FLAG} "
+  sh({ "RUBY_EXE" => ruby_exe },
+     "#{runner} #{parser_flags}#{MSPEC_RUNNER} #{args}")
 end
 
-# Individual language spec tasks: rake language:array, rake language:hash, etc.
-namespace :language do
-  spec_files = Dir["#{RUBY_SPEC_DIR}/language/*_spec.rb"]
-
-  if spec_files.empty?
-    task(:_missing) { abort "No ruby-spec found at #{RUBY_SPEC_DIR}. Set RUBY_SPEC_DIR= or add as submodule at spec/ruby-spec" }
-  else
-    spec_files.each do |path|
-      name = File.basename(path, '_spec.rb')
-      desc "Run language/#{name}_spec.rb"
-      task name do
-        run_language_specs(path)
-      end
-    end
+# Build per-mode tasks. Each mode gets `language:MODE` (all specs)
+# plus `language:MODE:NAME` (single spec) plus a rule for arbitrary names.
+LANGUAGE_SPEC_MODES.each_key do |mode|
+  desc "Run ALL ruby/spec language specs under #{mode}"
+  task "language:#{mode}" do
+    all_specs = Dir["#{RUBY_SPEC_DIR}/language/*_spec.rb"].sort
+    abort "No specs at #{RUBY_SPEC_DIR}/language/" if all_specs.empty?
+    run_language_specs(all_specs, mode: mode)
   end
 
-  # Also support arbitrary names for forward compat: rake language:foo
+  namespace "language:#{mode}" do
+    spec_files = Dir["#{RUBY_SPEC_DIR}/language/*_spec.rb"]
+    spec_files.each do |path|
+      name = File.basename(path, '_spec.rb')
+      desc "Run language/#{name}_spec.rb under #{mode}"
+      task(name) { run_language_specs([path], mode: mode) }
+    end
+    rule '' do |t|
+      name = t.name.sub("language:#{mode}:", '')
+      path = language_spec_path(name)
+      abort "No spec file: #{path}" unless File.exist?(path)
+      run_language_specs([path], mode: mode)
+    end
+  end
+end
+
+# Backwards-compat: `rake language` and `rake language:NAME` keep their
+# pre-rename meaning (frozone_rb mode), so existing muscle memory and
+# CI invocations are unaffected. Use `rake language:MODE[:NAME]` for the
+# new explicit modes.
+desc "Run all language specs under frozone_rb (alias for language:frozone_rb)"
+task :language => "language:frozone_rb"
+namespace :language do
+  spec_files = Dir["#{RUBY_SPEC_DIR}/language/*_spec.rb"]
+  if spec_files.empty?
+    task(:_missing) { abort "No ruby-spec found at #{RUBY_SPEC_DIR}. Set RUBY_SPEC_DIR= or add as submodule at spec/ruby-spec" }
+  end
+  # Reserve mode names so the rule below doesn't try to interpret them
+  # as spec names — the named tasks above already handle them.
+  RESERVED_LANGUAGE_NAMES = LANGUAGE_SPEC_MODES.keys.map(&:to_s).freeze
+  spec_files.each do |path|
+    name = File.basename(path, '_spec.rb')
+    next if RESERVED_LANGUAGE_NAMES.include?(name)
+    desc "Run language/#{name}_spec.rb (frozone_rb mode)"
+    task(name) { run_language_specs([path], mode: :frozone_rb) }
+  end
   rule '' do |t|
-    path = language_spec_path(t.name.sub('language:', ''))
+    name = t.name.sub('language:', '')
+    next if RESERVED_LANGUAGE_NAMES.include?(name)  # handled above
+    path = language_spec_path(name)
     abort "No spec file: #{path}" unless File.exist?(path)
-    run_language_specs(path)
+    run_language_specs([path], mode: :frozone_rb)
   end
 end
 

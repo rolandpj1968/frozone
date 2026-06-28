@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Shim: run frozone.rb under host MRI Ruby (interpreter mode), passing
+# through any args. The bin/frozone-rb name complements bin/frozone-cpp:
+#
+#   bin/frozone-rb  → frozone interpreter, hosted on MRI Ruby
+#   bin/frozone-cpp → frozone interpreter, compiled to native via C++
+#
+# Both accept -e SCRIPT, file args, etc. — the same surface mspec's
+# ruby_exe expects, so either can serve as RUBY_EXE in the spec
+# runner's three-way mode matrix (mri / frozone-rb / frozone-cpp).
+DIR="$(cd "$(dirname "$0")/.." && pwd)"
+exec bundle exec ruby "$DIR/frozone.rb" "$@"

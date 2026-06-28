@@ -58,5 +58,7 @@ cpp/gen/box/*
 vendor/Onigmo/_install/
 bench/stubs/_unified.rb
 
-# Built frozone_box binary (rake frozone:build)
+# Built frozone-cpp binary (rake frozone:build) — ignore the dir wholesale,
+# then un-ignore checked-in shim scripts (bin/frozone-rb).
 /bin/
+!/bin/frozone-rb

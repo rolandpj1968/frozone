@@ -81,14 +81,13 @@ OptionParser.new do |opts|
   end
 end.order!
 
-# String comparison sidesteps box-first's Symbol== bug (the compiled
-# code path silently picks the false branch on Symbol-to-Symbol equality).
-# Interpreter-mode also works fine with `.to_s == "wq"`.
-if options[:parser]&.to_s == "wq"
-  require_relative 'lib/frozone/vm/wq_parser'
-  Frozone::Vm.send(:remove_const, :Parser)
-  Frozone::Vm::Parser = Frozone::Vm::WqParser
-end
+# Note: legacy --parser=wq used to rebind `Frozone::Vm::Parser` to
+# `WqParser` here. That dance is dead — `Vm#parse` (vm.rb) already
+# dispatches on `options[:parser]` and routes "wq"/nil/"" → WqParser
+# directly, and `EVAL_PARSER_CLASS` is hardcoded to WqParser at vm.rb
+# load. Removing the rebind avoids the closed-world abort on
+# Module#remove_const that triggered when frozone-cpp processed the
+# old block.
 
 options[:argv] = ARGV
 
