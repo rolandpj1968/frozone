@@ -20,6 +20,28 @@ options = {
   hoist_consts:   false,
 }
 
+# Pre-scan ARGV for `-e SCRIPT` before handing to OptionParser. The
+# compiled bin/frozone_box's stdlib OptionParser has accumulated gaps
+# in closed-world compile (Hash#complete dispatch, Version ConstantPath,
+# etc.) that silently swallow `-e`. The pre-scan keeps `-e` working
+# under frozone_box so it can serve as `RUBY_EXE` for mspec
+# subprocesses, while the rest of the option surface still flows
+# through OptionParser. Mirrors MRI's `ruby -e SCRIPT` semantics:
+# multiple -e args concatenate.
+i = 0
+while i < ARGV.length
+  case ARGV[i]
+  when "-e"
+    options[:scripts] << ARGV[i + 1] if ARGV[i + 1]
+    ARGV.slice!(i, 2)
+  when /\A-e(.+)/m
+    options[:scripts] << ::Regexp.last_match(1)
+    ARGV.slice!(i, 1)
+  else
+    i += 1
+  end
+end
+
 OptionParser.new do |opts|
   opts.banner = "Usage: frozone.rb [options] [file ...]"
 
@@ -27,9 +49,10 @@ OptionParser.new do |opts|
     options[:verbose] = v
   end
 
-  opts.on("-e SCRIPT", "Evaluate SCRIPT") do |v|
-    options[:scripts] << v
-  end
+  # NOTE: `-e SCRIPT` is consumed by the pre-OptionParser scan above
+  # (see comment near `options[:scripts]` init). Don't re-register here
+  # — would conflict with the pre-scan and (more importantly) re-expose
+  # the closed-world OptionParser gap that motivated the pre-scan.
 
   opts.on("-r", "--require=PATH", "Require PATH before evaluating the script") do |v|
     options[:requires] << v
