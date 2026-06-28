@@ -1,26 +1,78 @@
 # Monotone fixed-point worklist engine.
 #
-# Two iteration modes — both converge to the same Least Fixed Point
-# for monotone lattice + monotone transfer functions. If they
-# disagree on a pass, monotonicity is broken — actionable bug.
+# ------------------------------------------------------------------
+# Iteration modes
+# ------------------------------------------------------------------
+#
+# Both modes converge to the same Least Fixed Point for monotone
+# lattices and transfer functions. If they disagree on a pass,
+# monotonicity is broken somewhere — actionable bug, not a config
+# preference. The two-mode dual-check is a primary soundness tool
+# during pass development.
 #
 #   :eager
-#     lookup reads the live value map. Updates from one transfer
-#     call become visible to the next call in the same iteration.
-#     Faster convergence on typical analyses (propagation chains
-#     don't need a full round-trip each). Default.
+#     The `lookup` passed to each transfer call reads the LIVE
+#     value map. An update written by one transfer call is visible
+#     to every subsequent call in the same iteration. Faster
+#     convergence — propagation chains advance multiple steps per
+#     worklist pop rather than needing a full round-trip each.
+#     Default mode.
 #
 #   :snapshot
-#     lookup reads a frozen copy of the value map taken at the
-#     start of each round. Within a round, every transfer call
-#     sees the same state. Slower convergence but parallelizable
-#     (round-internal calls are independent) and easier to debug
-#     (per-round states are determinate).
+#     The `lookup` reads a frozen copy of the value map taken at
+#     the start of each round. Every transfer call within a round
+#     sees identical state. Convergence is slower but the round is
+#     trivially parallelizable (round-internal calls are independent)
+#     and debugging is easier (each round is a clean delta snapshot).
 #
-# Termination relies on the lattice being finite-height OR the
-# pass implementing widening (override `Lattice#widen`). Without
-# either, an unbounded ascending chain will loop forever — sound
-# but useless.
+# ------------------------------------------------------------------
+# Literature mapping
+# ------------------------------------------------------------------
+#
+# These are the well-known dataflow-analysis dichotomies under
+# clearer names. If you're reading textbooks (Cousot, Aho/Sethi/Ullman,
+# Nielson²/Hankin) here's the bridge:
+#
+#   :eager    ≡ Gauss-Seidel iteration   (numerical analysis)
+#             ≡ "chaotic" iteration       (abstract interpretation —
+#                                          Cousot & Cousot 1977)
+#             ≡ asynchronous iteration    (iterative solvers)
+#
+#   :snapshot ≡ Jacobi iteration          (numerical analysis)
+#             ≡ "round-robin" iteration   (dataflow textbooks — but
+#                                          this clashes with the OS
+#                                          scheduling sense of the
+#                                          term)
+#             ≡ synchronous iteration     (iterative solvers)
+#
+# We deliberately avoid those names. "Chaotic" suggests the result
+# is non-deterministic — it isn't, the LFP is unique regardless of
+# schedule for monotone problems. "Round-robin" suggests rotating
+# queue with timeslicing, which is also wrong. "Gauss-Seidel" and
+# "Jacobi" carry the right semantics but require literature exposure.
+#
+# `:eager` and `:snapshot` describe *what the lookup sees* without
+# inviting wrong intuitions. The cost: a reader chasing widening
+# (which we don't have yet) needs this comment block to bridge to
+# the literature. We pay that cost willingly.
+#
+# ------------------------------------------------------------------
+# Termination
+# ------------------------------------------------------------------
+#
+# Termination requires either:
+#   - the lattice being finite-height (every ascending chain
+#     stabilizes after finitely many joins), OR
+#   - the pass implementing widening (override `Lattice#widen` to
+#     accelerate convergence at the cost of precision)
+#
+# Phase 0 / Phase 1 analyses (reachability, NA eligibility, leaf-class,
+# try-frame, visibility) are all finite-height — no widening needed.
+# When TI's parametric lattice lands (Phase 3), widening becomes
+# load-bearing and the literature distinctions above start to matter
+# more (`:eager` + widening can lose precision schedule-dependently
+# in pathological cases). Until then both modes are equivalent in
+# both result and observable behavior modulo perf.
 
 require_relative 'lattice'
 require_relative 'pass'
