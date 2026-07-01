@@ -94,8 +94,6 @@ module Frozone
             symbol_to_s
             regexp_escape regexp_new
             regexp_match_index regexp_match regexp_last_match
-            match_data_to_a match_data_captures match_data_pre_match
-            match_data_post_match match_data_match_length
             hash_clone_storage hash_each hash_delete hash_new hash_transform_keys_bang
             hash_set_identity_mode
             hash_get_default hash_set_default

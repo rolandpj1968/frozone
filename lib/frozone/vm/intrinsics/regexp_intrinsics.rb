@@ -10,12 +10,8 @@ module Frozone
         def regexp_escape(_, str) = n2f_str(Regexp.escape(str.raw.to_s))
         def regexp_names(_, r) = n2f_arr(r.raw.names.map { |n| n2f_str(n) })
         def match_data_size(_, md) = n2f_int(md.raw.size)
-        def match_data_pre_match(_, md) = n2f_str(md.raw.pre_match)
-        def match_data_post_match(_, md) = n2f_str(md.raw.post_match)
         def match_data_regexp(_, md) = md.frozone_regexp || RegexpObject.new(md.raw.regexp.source, md.raw.regexp.options)
-        def match_data_captures(_, md) = n2f_arr(md.raw.captures.map { |c| c ? n2f_str(c) : FNIL })
         def match_data_names(_, md) = n2f_arr(md.raw.regexp.named_captures.keys.map { |k| n2f_str(k) })
-        def match_data_to_a(_, md) = n2f_arr(([md.raw[0]] + md.raw.captures).map { |c| c ? n2f_str(c) : FNIL })
         def match_data_named_captures(_, md) = n2f_hash(md.raw.named_captures.transform_keys { |k| n2f_str(k) }.transform_values { |v| v ? n2f_str(v) : FNIL })
 
         def update_match_globals(m, regexp_obj = nil)
@@ -338,17 +334,6 @@ module Frozone
             v ? n2f_int(v) : FNIL
           end
         end
-
-        def match_data_match_length(context, md, n)
-          reraise(::IndexError, ::NameError, as: :IndexError) do
-            key = match_data_group_key(context, n)
-            b = md.raw.begin(key)
-            e = md.raw.end(key)
-            next FNIL unless b && e
-            n2f_int(e - b)
-          end
-        end
-
 
         private
 

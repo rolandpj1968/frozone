@@ -34,22 +34,6 @@ BasicObject* intrinsic_regexp_match(BasicObject* self_, BasicObject* str, BasicO
 // nil arg → return $~ itself; Integer arg → return capture n.
 BasicObject* intrinsic_regexp_last_match(BasicObject* n);
 
-// `MatchData#to_a` — Array of all captures (including capture 0 = full
-// match). Each capture is a String (or nil if unmatched optional group).
-BasicObject* intrinsic_match_data_to_a(BasicObject* self_);
-
-// `MatchData#captures` — Array of captures EXCLUDING capture 0.
-BasicObject* intrinsic_match_data_captures(BasicObject* self_);
-
-// `MatchData#pre_match` — substring of original string before match.
-BasicObject* intrinsic_match_data_pre_match(BasicObject* self_);
-
-// `MatchData#post_match` — substring of original string after match.
-BasicObject* intrinsic_match_data_post_match(BasicObject* self_);
-
-// `MatchData#match_length(n)` — byte length of capture n.
-BasicObject* intrinsic_match_data_match_length(BasicObject* self_, BasicObject* n);
-
 }  // namespace Ruby
 
 #endif  // FROZONE_REGEXP_INTRINSICS_HPP

@@ -1,17 +1,20 @@
 class MatchData
-  def to_a = Intrinsics.match_data_to_a(self)
   def size = Intrinsics.match_data_size(self)
   def length = size
-  def captures = Intrinsics.match_data_captures(self)
-  def pre_match = Intrinsics.match_data_pre_match(self)
-  def post_match = Intrinsics.match_data_post_match(self)
+  def to_a = (0...size).map { |i| self[i] }
+  def captures = (1...size).map { |i| self[i] }
+  def pre_match = string.byteslice(0, bytebegin(0))
+  def post_match = string.byteslice(byteend(0)..)
   def begin(n) = Intrinsics.match_data_begin(self, n)
   def end(n) = Intrinsics.match_data_end(self, n)
   def offset(n) = [self.begin(n), self.end(n)]
   def bytebegin(n) = Intrinsics.match_data_bytebegin(self, n)
   def byteend(n) = Intrinsics.match_data_byteend(self, n)
   def byteoffset(n) = [bytebegin(n), byteend(n)]
-  def match_length(n) = Intrinsics.match_data_match_length(self, n)
+  def match_length(n)
+    b, e = bytebegin(n), byteend(n)
+    b && e && e - b
+  end
   def names = Intrinsics.match_data_names(self)
   def to_s = self[0].to_s
   def hash = [string, regexp, to_a].hash
