@@ -14,21 +14,22 @@
 #      reachable class.
 # Method bodies of reachable classes are walked transitively.
 #
-# As of the TI v2 framework, the worklist + monotone-grow dataflow
-# runs on the unified `Analysis::Engine`. The migration preserved
-# the public surface (Reachability.compute returns a Set of flat-name
-# Symbols) while expressing the analysis as a `ReachabilityPass`
-# (lib/frozone/compiler/analysis/passes/reachability_pass.rb).
+# As of the TI v2 framework, the analysis runs on the unified
+# `Analysis::Engine`. `Reachability.compute` is a thin wrapper: it
+# constructs a `ReachabilityPass` with the entry-source inputs
+# (execute_block, user_methods, universe overlays, instantiated
+# constants) and runs the engine. The pass models the four entry
+# sources as virtual seed nodes with dedicated transfer functions;
+# no seed-discovery walk happens outside the engine.
 #
-# This module retains three helpers used directly by the emitter:
+# This module retains four helpers used directly by the emitter
+# and by ReachabilityPass:
 #
 #   .compute(...)            — main entry point; returns Set[Symbol]
 #   .resolve_const_to_flat   — Ast::ConstantRead/Path → flat name
 #   .collect_path            — Ast::ConstantPath → component parts
 #   .scope_for_class         — class → lexical scope chain
 #   .each_class_ref_in       — walk AST, yield each referenced class
-#                               (used internally by the seed-discovery
-#                               and the ReachabilityPass transfer)
 #
 # Sound for closed-world AOT as long as no runtime reflection
 # resolves a constant by string name (`Object.const_get("Foo")`)
@@ -54,29 +55,25 @@ module Frozone
       def compute(execute_block:, user_methods:, top_level_scope:,
                   universe_class_names:, all_classes:,
                   instantiated_classes: [])
-        seed_classes = discover_seed_classes(
+        pass = Analysis::Passes::ReachabilityPass.new(
           execute_block:        execute_block,
           user_methods:         user_methods,
           top_level_scope:      top_level_scope,
-          universe_class_names: universe_class_names,
           all_classes:          all_classes,
+          universe_class_names: universe_class_names,
           instantiated_classes: instantiated_classes,
         )
-        pass = Analysis::Passes::ReachabilityPass.new(
-          all_classes:          all_classes,
-          universe_class_names: universe_class_names,
-          seed_classes:         seed_classes,
-        )
         values = Analysis::Engine.new(pass).run
-        values.each_with_object(Set.new) do |(flat, v), reach|
-          reach << flat if v == :reachable
+        # Filter to Symbol keys: virtual seed nodes (Array-tagged tuples)
+        # also live in the value map but they're not reachable classes.
+        values.each_with_object(Set.new) do |(node, v), reach|
+          reach << node if node.is_a?(Symbol) && v == :reachable
         end
       end
 
-      # Walk an AST tree, yielding each referenced class as a
-      # flat-name Symbol, filtered to those in all_classes and not
-      # in universe_class_names. Shared between the seed-discovery
-      # phase here and the ReachabilityPass#transfer.
+      # Walk an AST tree, yielding each referenced class as a flat-name
+      # Symbol, filtered to those in all_classes and not in
+      # universe_class_names. Used by ReachabilityPass's walk_body.
       def each_class_ref_in(node, scope_prefixes, all_classes, universe_class_names, &block)
         return if node.nil?
         return unless node.is_a?(Ast::Node)
@@ -122,68 +119,6 @@ module Frozone
           return flat if all_classes.key?(flat)
         end
         nil
-      end
-
-      # Compute the initial set of reachable classes by walking the four
-      # entry sources (instantiated constants, execute_block,
-      # user_methods, universe overlays). The resulting Set feeds the
-      # engine's seed; from there the engine transitively discovers the
-      # rest via ReachabilityPass#transfer.
-      def discover_seed_classes(execute_block:, user_methods:, top_level_scope:,
-                                 universe_class_names:, all_classes:,
-                                 instantiated_classes:)
-        seed = Set.new
-
-        # 1. Instantiated classes (rooted via user-constant accessors
-        #    that directly `new XClass()` in C++ — no AST trace).
-        instantiated_classes.each do |val|
-          klass = val.respond_to?(:class_object) ? val.class_object : nil
-          next unless klass
-          flat = (klass.full_name || klass.name).to_s.gsub("::", "_").to_sym
-          next if universe_class_names.include?(flat.to_s)
-          seed << flat if all_classes.key?(flat)
-        end
-
-        # 2. The program's execute block.
-        each_class_ref_in(execute_block, [], all_classes, universe_class_names) do |f|
-          seed << f
-        end
-
-        # 3. User-defined top-level methods.
-        (user_methods || {}).each_value do |m|
-          walk_method_for_seed(m, [], all_classes, universe_class_names, seed)
-        end
-
-        # 4. Universe class overlays (core/4.0/ method bodies CAN
-        #    reference user classes via constant lookups — those
-        #    references should transitively root the user classes).
-        top = top_level_scope.constants_table || {}
-        universe_class_names.each do |universe_name|
-          cls = top[universe_name.to_sym]
-          next unless cls.is_a?(Vm::ModuleObject)
-          scope = scope_for_class(cls)
-          (cls.methods_table || {}).each_value do |m|
-            walk_method_for_seed(m, scope, all_classes, universe_class_names, seed)
-          end
-          eigen = cls.eigenclass rescue nil
-          next unless eigen
-          (eigen.methods_table || {}).each_value do |m|
-            walk_method_for_seed(m, scope, all_classes, universe_class_names, seed)
-          end
-        end
-
-        seed
-      end
-
-      def walk_method_for_seed(m, scope, all_classes, universe_class_names, seed)
-        return unless m.is_a?(Vm::Method)
-        each_class_ref_in(m.body, scope, all_classes, universe_class_names) { |f| seed << f }
-        (m.optional_params || []).each do |(_, d)|
-          each_class_ref_in(d, scope, all_classes, universe_class_names) { |f| seed << f } if d.is_a?(Ast::Node)
-        end
-        (m.optional_kw_params || []).each do |(_, d)|
-          each_class_ref_in(d, scope, all_classes, universe_class_names) { |f| seed << f } if d.is_a?(Ast::Node)
-        end
       end
     end
   end
