@@ -14,9 +14,9 @@
 // hpps explicitly so we can `new IO()` and reference the error CLASSes.
 #include "class/IO.hpp"
 #include "class/ArgumentError.hpp"
-#include "class/ArgumentError_eigenclass.hpp"
+#include "class/ArgumentError_eig.hpp"
 #include "class/NotImplementedError.hpp"
-#include "class/NotImplementedError_eigenclass.hpp"
+#include "class/NotImplementedError_eig.hpp"
 
 #include "io_intrinsics.hpp"
 #include "../intrinsics_helpers.hpp"

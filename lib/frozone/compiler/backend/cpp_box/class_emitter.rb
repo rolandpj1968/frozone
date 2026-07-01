@@ -182,15 +182,15 @@ module Frozone
                   emit.line %(#include "#{emit.base_name}_all.hpp")
                   emit.line %(#include "class/#{k.name}.hpp")
                   # Pair with the partner header in the non-self direction:
-                  #  - Foo.cpp also includes Foo_eigenclass.hpp (for
+                  #  - Foo.cpp also includes Foo_eig.hpp (for
                   #    `&Foo_CLASS` references in instance method bodies)
-                  #  - Foo_eigenclass.cpp also includes Foo.hpp (for
+                  #  - Foo_eig.cpp also includes Foo.hpp (for
                   #    `m_new()` returning Foo* etc. in class method bodies)
-                  if k.name.to_s.end_with?("_eigenclass")
-                    partner = k.name.to_s.sub(/_eigenclass\z/, "")
+                  if k.name.to_s.end_with?(Frozone::Compiler::Reachability::EIG_SUFFIX)
+                    partner = k.name.to_s.sub(/#{Regexp.escape(Frozone::Compiler::Reachability::EIG_SUFFIX)}\z/, "")
                     emit.line %(#include "class/#{partner}.hpp")
                   else
-                    emit.line %(#include "class/#{k.name}_eigenclass.hpp")
+                    emit.line %(#include "class/#{k.name}#{Frozone::Compiler::Reachability::EIG_SUFFIX}.hpp")
                   end
                   # host_class_refs is keyed by flat-name Symbol;
                   # k.name from RubyClass may be String or Symbol —
@@ -222,10 +222,10 @@ module Frozone
                   # For each referenced class also include its
                   # eigenclass hpp — `Foo.new(...)` compiles to
                   # `(&Foo_CLASS)->m_new(...)`, where Foo_CLASS is of
-                  # type Foo_eigenclass.
+                  # type Foo_eig.
                   refs.to_a.sort.each do |r|
                     emit.line %(#include "class/#{r}.hpp")
-                    emit.line %(#include "class/#{r}_eigenclass.hpp")
+                    emit.line %(#include "class/#{r}#{Frozone::Compiler::Reachability::EIG_SUFFIX}.hpp")
                   end
                   # intrinsics_helpers.hpp is needed unconditionally:
                   # bodies that call STUB intrinsics lower to
@@ -755,12 +755,12 @@ module Frozone
               # Eigenclass entries: skip the Vm-side walk. The Vm-side
               # only knows about the host class, and pulling its
               # ancestors here (e.g. `[Foo, Object, BasicObject]` into
-              # Foo_eigenclass's row) would falsely set the
-              # `Foo_eigenclass.is_a?(Foo)` bit. The C++ inheritance
-              # chain (Foo_eigenclass : Class : Module : Object :
+              # Foo_eig's row) would falsely set the
+              # `Foo_eig.is_a?(Foo)` bit. The C++ inheritance
+              # chain (Foo_eig : Class : Module : Object :
               # BasicObject) gives the correct ancestry — picked up
               # below via the parent-string walk.
-              unless klass.name.end_with?("_eigenclass")
+              unless klass.name.end_with?(Frozone::Compiler::Reachability::EIG_SUFFIX)
                 vm = vm_class[klass.name.to_sym]
                 if vm
                   (vm.ancestors_list rescue []).each do |a|
@@ -774,7 +774,7 @@ module Frozone
               # (Class : Module : Object : BasicObject — Frozone's
               # Vm-level `Class.ancestors_list` is just `[Class]`).
               # For eigenclass entries it's the sole source of
-              # ancestry — `Foo_eigenclass : Class` etc.
+              # ancestry — `Foo_eig : Class` etc.
               p = klass.parent
               while p
                 pid = class_ids[p]
@@ -815,7 +815,7 @@ module Frozone
                 # Only the host classes (not eigenclasses) have a singleton
                 # named "<Name>_CLASS" — for an eigenclass we'd want
                 # &Class_CLASS, but Class is itself entry 3.
-                if name && !name.to_s.end_with?("_eigenclass")
+                if name && !name.to_s.end_with?(Frozone::Compiler::Reachability::EIG_SUFFIX)
                   emit.line "&#{name}_CLASS,  // #{i}: #{name}"
                 else
                   emit.line "nullptr,        // #{i}: #{name} (no singleton; use Class_CLASS)"
@@ -831,7 +831,7 @@ module Frozone
               emit.line "BO* target = args->data[0];"
               # m_class is auto-emitted on every class; eigenclass instances
               # all return &Class_CLASS (with_auto_overrides targets
-              # Class_CLASS for any *_eigenclass class). One virtual call +
+              # Class_CLASS for any *_eig class). One virtual call +
               # pointer compare beats walking RTTI via dynamic_cast<Class*>.
               emit.line "if (target->m_class(univ) != (&Class_CLASS)) return false_instance();"
               emit.line "auto* tc = static_cast<Class*>(target);"
@@ -874,7 +874,7 @@ module Frozone
             # genuinely lacks them, matching MRI semantics.
             return klass if klass.name == "BasicObject"
             target =
-              if klass.name.end_with?("_eigenclass")
+              if klass.name.end_with?(Frozone::Compiler::Reachability::EIG_SUFFIX)
                 # The eigenclass's parent tells us if its instance is a
                 # module or a class — `Module` parent → instance.class
                 # is Module; otherwise Class.
@@ -905,7 +905,7 @@ module Frozone
             # deep-copies the C++-side data.
             #
             # Eigenclasses don't get this — they're singletons.
-            unless klass.name.end_with?("_eigenclass")
+            unless klass.name.end_with?(Frozone::Compiler::Reachability::EIG_SUFFIX)
               overrides["m_shallow_dup"] = {
                 params: [],
                 body: "return new #{klass.name}(*this);",

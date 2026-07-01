@@ -969,7 +969,7 @@ module Frozone
                 if resolved
                   # Compute the host's flat name for indexing.
                   # Eigenclasses (`is_singleton_class`) get a synthetic
-                  # `<OwnerFlat>_eigenclass` form that matches the
+                  # `<OwnerFlat>_eig` form that matches the
                   # RubyClass naming convention used by ClassEmitter
                   # (k.name on the consumption side).
                   host_flat =
@@ -1346,7 +1346,7 @@ module Frozone
             top = @top_level_scope.constants_table || {}
             host_by_eigen = {}
             eigenclasses.each do |eigen|
-              host_name = eigen.name.sub(/_eigenclass\z/, '')
+              host_name = eigen.name.sub(/#{Regexp.escape(Reachability::EIG_SUFFIX)}\z/, '')
               host_by_eigen[eigen] = top[host_name.to_sym] || @user_classes[host_name.to_sym]
             end
             eigenclasses.each do |eigen|
@@ -1371,7 +1371,7 @@ module Frozone
                 # body is `return (&Foo_CLASS);` (or similar) when
                 # val is a class. Record the class ref against the
                 # eigenclass's flat name so the per-class .cpp emit
-                # picks up the corresponding `#include "class/Foo_eigenclass.hpp"`.
+                # picks up the corresponding `#include "class/Foo_eig.hpp"`.
                 if val.is_a?(Vm::ModuleObject) && val.full_name
                   ref_flat = Reachability.flat_name(val)
                   @host_class_refs[eigen.name.to_sym] << ref_flat
@@ -2960,7 +2960,7 @@ module Frozone
             line %(#include "#{@base_name}_base.hpp")
             POST_HPP_VALUE_TYPES.each do |t|
               line %(#include "class/#{t}.hpp")
-              line %(#include "class/#{t}_eigenclass.hpp")
+              line %(#include "class/#{t}#{Reachability::EIG_SUFFIX}.hpp")
             end
             blank
             line "namespace Ruby {"
@@ -3361,7 +3361,7 @@ module Frozone
                 # (eigenclass_for is called for every entry). Skip
                 # plain instance classes — their ids end up on the
                 # eigenclass via instance_class_id_.
-                next if flat_name.end_with?("_eigenclass")
+                next if flat_name.end_with?(Reachability::EIG_SUFFIX)
                 line "#{flat_name}_CLASS.instance_class_id_ = #{cid};"
               end
               @user_classes.each do |flat, cls|

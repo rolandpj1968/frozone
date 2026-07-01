@@ -15,7 +15,7 @@
 // Needed for intrinsic_raise_regexp_error — frozone_all.hpp only forward-
 // declares eigenclass structs; m_new requires the full definition.
 #include "class/RegexpError.hpp"
-#include "class/RegexpError_eigenclass.hpp"
+#include "class/RegexpError_eig.hpp"
 // Needed for the uncaught-throw conversion path in intrinsic_kernel_catch.
 // The Vm interpreter's top-level rescue (Vm.run) and its rescue-clause
 // dispatch (Ast::Rescue) both expect a FrozoneException whose vm_object
@@ -25,11 +25,11 @@
 // class_object = UncaughtThrowError, with @message/@tag/@value ivars,
 // wrapped in FrozoneException carrying the message.
 #include "class/UncaughtThrowError.hpp"
-#include "class/UncaughtThrowError_eigenclass.hpp"
+#include "class/UncaughtThrowError_eig.hpp"
 #include "class/Frozone_Vm_FrozoneException.hpp"
-#include "class/Frozone_Vm_FrozoneException_eigenclass.hpp"
+#include "class/Frozone_Vm_FrozoneException_eig.hpp"
 #include "class/Frozone_Vm_ObjectObject.hpp"
-#include "class/Frozone_Vm_ObjectObject_eigenclass.hpp"
+#include "class/Frozone_Vm_ObjectObject_eig.hpp"
 
 namespace Ruby {
 

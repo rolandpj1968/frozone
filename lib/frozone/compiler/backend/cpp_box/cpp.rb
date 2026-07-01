@@ -1591,7 +1591,7 @@ module Frozone
             # Cast both arms to BO*. C++ ternary requires the
             # two arms to share a common type, which doesn't always
             # follow from Ruby semantics — e.g. `cond ? FooClass :
-            # BarClass` produces &Foo_eigenclass* and &Bar_eigenclass*,
+            # BarClass` produces &Foo_eig* and &Bar_eig*,
             # distinct C++ types with no implicit conversion. Both ARE
             # BO*-convertible (every emitted class derives from
             # BasicObject), so the explicit cast unifies them. Cheap.

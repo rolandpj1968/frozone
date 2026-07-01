@@ -246,13 +246,13 @@ module Frozone
           )
 
           # Class — the metaclass type. Every emitted class Foo has a
-          # paired eigenclass `Foo_eigenclass : Class` that holds Foo's
+          # paired eigenclass `Foo_eig : Class` that holds Foo's
           # class methods (def self.X) as virtuals. The Foo *constant*
-          # in user code is a singleton instance of Foo_eigenclass.
+          # in user code is a singleton instance of Foo_eig.
           # Class itself is currently empty — class-method defaults
           # (allocate, new, name) will land here when needed.
           # Module is the parent of Class — matches MRI's
-          # `Class < Module < Object`. Bar_eigenclass for a Vm::ModuleObject
+          # `Class < Module < Object`. Bar_eig for a Vm::ModuleObject
           # `Bar` has parent: "Module" (instead of "Class"), so
           # `bar.is_a?(Module)` is true and `bar.is_a?(Class)` is false.
           # Module also overrides `c_X` to raise NameError (constant_missing)
@@ -1468,7 +1468,7 @@ module Frozone
           #
           # Class itself gets an eigenclass too (its eigenclass IS Class
           # itself in a strict Ruby sense, but we mirror the universal
-          # pattern — `Class_eigenclass : Class` — so user code that
+          # pattern — `Class_eig : Class` — so user code that
           # writes `Class` as a value resolves to `&Class_CLASS`).
           def self.eigenclass_for(klass)
             user_overrides = klass.eigenclass_overrides || {}
@@ -1523,12 +1523,12 @@ module Frozone
             # still resolves m_new / m_class.
             eigen_parent =
               if klass.parent && !klass.parent.empty?
-                "#{klass.parent}_eigenclass"
+                "#{klass.parent}#{Frozone::Compiler::Reachability::EIG_SUFFIX}"
               else
                 klass.is_module ? "Module" : "Class"
               end
             RubyClass.new(
-              name: "#{klass.name}_eigenclass",
+              name: "#{klass.name}#{Frozone::Compiler::Reachability::EIG_SUFFIX}",
               parent: eigen_parent,
               ivars: (klass.eigenclass_ivars || []).map { |iv| "BO* iv_#{iv} = nil_instance();" },
               members: [%(const char* ruby_class_name() const override { return "#{klass.name}"; })],

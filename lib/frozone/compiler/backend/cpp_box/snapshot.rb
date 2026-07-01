@@ -250,7 +250,7 @@ module Frozone
           # adds nothing while a `(&X_CLASS)` ref pulls X's eigenclass).
           #   static_cast<T*>  → T          (cast target; BasicObject is base)
           #   new T(           → T          (constructed type)
-          #   &X_CLASS         → X_eigenclass (the singleton's static type)
+          #   &X_CLASS         → X_eig (the singleton's static type)
           #   (&_f_i_N)        → Integer    (interned int literal)
           # Floats / Regexps / Procs surface as `new Float(` / `new Regexp(`
           # / `new Proc(` and are caught by the `new T(` scan.
@@ -259,7 +259,7 @@ module Frozone
             s = Set.new
             line.scan(/static_cast<(\w+)\*>/) { |(t)| s << t unless t == "BasicObject" || t == "BO" }
             line.scan(/\bnew\s+(\w+)\(/)      { |(t)| s << t }
-            line.scan(/&(\w+)_CLASS\b/)       { |(t)| s << "#{t}_eigenclass" }
+            line.scan(/&(\w+)_CLASS\b/)       { |(t)| s << "#{t}#{Frozone::Compiler::Reachability::EIG_SUFFIX}" }
             s << "Integer" if line.include?("_f_i_")
             s
           end

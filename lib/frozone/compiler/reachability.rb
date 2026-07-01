@@ -132,13 +132,13 @@ module Frozone
         prefix ? :"#{prefix}_#{escaped}" : escaped.to_sym
       end
 
-      # Eigenclass name convention. Currently `_eigenclass`; centralised
-      # here so the shorter `_eig` rename is a single-line follow-up.
-      # Under the `_` → `__` escape in `flatten`, a single `_eig` suffix
-      # would already be collision-safe against user class `Foo_eig`
-      # (which becomes `Foo__eig`) — but the rename touches ~54 usages
-      # across the codebase, deferred to its own commit.
-      EIG_SUFFIX = "_eigenclass"
+      # Eigenclass name convention. Short `_eig` suffix — collision-safe
+      # against user class `Foo_eig` (source `_` escapes to `__`, so it
+      # becomes `Foo__eig`, distinct from eigenclass-of-Foo's `Foo_eig`).
+      # A nod to the Eigerwand while we're mangling names. Lowercase
+      # matters: Ruby class names start uppercase, so no valid Ruby
+      # class can collapse to a `_eig`-suffixed form.
+      EIG_SUFFIX = "_eig"
       def eigenclass_name(cls) = "#{flatten(cls.full_name)}#{EIG_SUFFIX}"
       def eigenclass_flat(cls) = eigenclass_name(cls).to_sym
 
