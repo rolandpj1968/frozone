@@ -2236,7 +2236,6 @@ module Frozone
 
         # Symbol
         def symbol_to_s(_, v) = n2f_str(v.raw.to_s, chilled_source: v.raw)
-        def symbol_inspect(_, v) = n2f_str(v.raw.inspect)
         def symbol_hash(_, v) = n2f_int(v.raw.hash)
         def symbol_all_symbols(_) = n2f_arr(SymbolObject::SymbolObjects.values)
       end

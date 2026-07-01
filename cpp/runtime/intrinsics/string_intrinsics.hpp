@@ -191,11 +191,6 @@ BasicObject* intrinsic_string_match_pos(BasicObject* self_, BasicObject* pat, Ba
 // wrap into a fresh String.
 BasicObject* intrinsic_symbol_to_s(BasicObject* self_);
 
-// `Symbol#inspect` — `:foo`. Prepends a colon, builds a String.
-// Doesn't quote names with special characters yet (`:"foo bar"`);
-// good enough for normal identifiers.
-BasicObject* intrinsic_symbol_inspect(BasicObject* self_);
-
 // ---- String (cont.) ------------------------------------------------
 
 // `String#to_sym` — interns the byte-buffer as a Symbol. intern()

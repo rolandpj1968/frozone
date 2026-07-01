@@ -91,7 +91,7 @@ module Frozone
             string_append_as_bytes string_append_bytes string_bytesplice
             string_upcase_opts string_downcase_opts
             string_swapcase_opts string_capitalize_opts
-            symbol_to_s symbol_inspect
+            symbol_to_s
             regexp_escape regexp_new
             regexp_match_index regexp_match regexp_last_match
             match_data_to_a match_data_captures match_data_pre_match

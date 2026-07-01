@@ -6,7 +6,7 @@ class Symbol
   def name = to_s.freeze
   def to_sym = self
   alias intern to_sym
-  def inspect = Intrinsics.symbol_inspect(self)
+  def inspect = ":#{to_s}"
   def hash = Intrinsics.symbol_hash(self)
   def eql?(v) = self == v
   # Symbols are interned (Intrinsics.symbol -> unique pointer per name),

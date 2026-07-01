@@ -714,21 +714,6 @@ BasicObject* intrinsic_symbol_to_s(BasicObject* self_) {
   return new String(_n, std::strlen(_n));
 }
 
-// `Symbol#inspect` — `:foo`. Prepends a colon, builds a String.
-// Doesn't quote names with special characters yet (`:"foo bar"`);
-// good enough for normal identifiers.
-BasicObject* intrinsic_symbol_inspect(BasicObject* self_) {
-  const char* _n = static_cast<Symbol*>(self_)->name_;
-  std::size_t _len = std::strlen(_n);
-  auto* _r = new String();
-  _r->bytes.reserve(_len + 1);
-  _r->bytes.push_back(':');
-  for (std::size_t _i = 0; _i < _len; ++_i) {
-    _r->bytes.push_back(static_cast<std::uint8_t>(_n[_i]));
-  }
-  return _r;
-}
-
 // ---- String (cont.) ------------------------------------------------
 
 // `String#to_sym` — interns the byte-buffer as a Symbol. intern()
