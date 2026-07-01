@@ -162,9 +162,11 @@ BasicObject* intrinsic_time_utc_q(BasicObject* self_) {
   return boxed_bool(static_cast<Time*>(self_)->is_utc_);
 }
 
+// Returns the raw utc_offset_ field unconditionally; the Ruby wrapper
+// short-circuits to 0 when utc? is true, so the C++ side is a pure
+// field read.
 BasicObject* intrinsic_time_utc_offset(BasicObject* self_) {
-  auto* t = static_cast<Time*>(self_);
-  return boxed_int(t->is_utc_ ? 0 : t->utc_offset_);
+  return boxed_int(static_cast<Time*>(self_)->utc_offset_);
 }
 
 // MRI Time#utc mutates self in place and returns self (the bang-like

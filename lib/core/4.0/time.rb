@@ -513,7 +513,7 @@ class Time
   def usec = nsec / 1000
   def utc? = Intrinsics.time_utc_q(self)
   def gmt? = utc?
-  def utc_offset = Intrinsics.time_utc_offset(self)
+  def utc_offset = utc? ? 0 : Intrinsics.time_utc_offset(self)
   def gmt_offset = utc_offset
   def gmtoff = utc_offset
   def dup
