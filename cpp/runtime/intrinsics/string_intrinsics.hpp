@@ -204,22 +204,12 @@ BasicObject* intrinsic_string_to_i_base(BasicObject* self_, BasicObject* base);
 
 // ---- String (Tier-B continuation) ----------------------------------
 //
-// Box-first carries no `frozen_` bit on String yet, so freeze/frozen
-// preserve method-chaining shape but don't actually track freezing —
-// matches the behaviour of `chilled?` (always false). Real freeze
-// tracking is a follow-up; the gap is captured in
-// project_string_encoding_specialization.md / object_id_parity.md
-// neighbourhood as another mutability nuance.
-//
 // All intrinsics here cast via static_cast<String*> on String args
 // — the Ruby wrappers in lib/core/4.0/string.rb run __coerce_to_str__
 // upstream (or the call site is `v.is_a?(String) ? Intrinsics.X(self, v)`
 // guarded), so by the intrinsic boundary the args are guaranteed
 // String. Where Integer args are accepted (offsets, codepoints), the
 // same guarantee holds via __coerce_to_int__.
-
-BasicObject* intrinsic_string_freeze(BasicObject* self_);
-BasicObject* intrinsic_string_frozen(BasicObject* /*self_*/);
 
 BasicObject* intrinsic_string_dup(BasicObject* self_);
 BasicObject* intrinsic_string_clone(BasicObject* self_, BasicObject* /*freeze*/);

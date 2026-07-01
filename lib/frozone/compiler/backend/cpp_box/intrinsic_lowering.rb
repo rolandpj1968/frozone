@@ -133,7 +133,7 @@ module Frozone
             integer__div_ integer__mod_ integer_fdiv
             integer_lshift integer_rshift integer__pow_
             integer_to_f integer_to_s integer_to_c
-            string_freeze string_frozen string_dup string_clone
+            string_dup string_clone
             string_eql string_concat string_concat_codepoint string_dedup
             string_byteindex string_byterindex string_byteslice
             string_ord string_oct string_rindex string_each_line

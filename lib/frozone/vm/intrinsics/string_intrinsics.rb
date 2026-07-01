@@ -1246,7 +1246,6 @@ module Frozone
         public
 
         def string_chilled_q(_, v) = n2f_bool(v.chilled?)
-        def string_frozen(_, v) = n2f_bool(v.frozen_object?)
         def string_to_sym(_, v) = n2f_sym(v.raw.to_sym)
         def string_to_f(_, v) = n2f_float(v.raw.to_f)
         def string_to_r(_, v) = make_rational(v.raw.to_r)
@@ -1327,11 +1326,6 @@ module Frozone
           return n2f_str(enc_name) unless enc_class
           const_name = enc_name.tr('-', '_').to_sym
           enc_class.get_constant(const_name) || n2f_str(enc_name)
-        end
-
-        def string_freeze(_, v)
-          v.freeze_object!
-          v
         end
 
         def string_dup(context, v)

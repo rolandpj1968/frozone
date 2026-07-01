@@ -39,8 +39,6 @@ class String
   def inspect = Intrinsics.string_inspect(self)
   def dup = Intrinsics.string_dup(self)
   def clone(freeze: nil) = Intrinsics.string_clone(self, freeze)
-  def freeze = Intrinsics.string_freeze(self)
-  def frozen? = Intrinsics.string_frozen(self)
   def encoding = Intrinsics.string_encoding(self)
   def encode(enc = nil, src_enc = nil, **opts) = Intrinsics.string_encode(self, enc, src_enc, opts)
   def encode!(enc = nil, src_enc = nil, **opts) = Intrinsics.string_encode_bang(self, enc, src_enc, opts)
