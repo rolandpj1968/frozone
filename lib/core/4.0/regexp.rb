@@ -12,8 +12,8 @@ class Regexp
   alias eql? ==
   def source = Intrinsics.regexp_source(self)
   def options = Intrinsics.regexp_options(self)
-  def inspect = Intrinsics.regexp_inspect(self)
-  def to_s = Intrinsics.regexp_to_s(self)
+  def inspect = "/#{source}/"
+  alias to_s inspect
   def casefold? = (options & IGNORECASE) != 0
   def fixed_encoding? = (options & FIXEDENCODING) != 0
   def encoding = Intrinsics.regexp_encoding(self)

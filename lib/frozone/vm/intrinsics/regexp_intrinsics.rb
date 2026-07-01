@@ -7,8 +7,6 @@ module Frozone
         # Regexp
         def regexp_newly_created_q(_, r) = r.is_a?(RegexpObject) ? n2f_bool(r.newly_created_for_subclass) : FFALSE
         def regexp_source(_, r) = n2f_str(r.raw.source)
-        def regexp_inspect(_, r) = n2f_str(r.raw.inspect)
-        def regexp_to_s(_, r) = n2f_str(r.raw.to_s)
         def regexp_escape(_, str) = n2f_str(Regexp.escape(str.raw.to_s))
         def regexp_names(_, r) = n2f_arr(r.raw.names.map { |n| n2f_str(n) })
         def match_data_size(_, md) = n2f_int(md.raw.size)

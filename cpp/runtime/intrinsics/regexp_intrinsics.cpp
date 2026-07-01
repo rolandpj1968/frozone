@@ -44,24 +44,6 @@ BasicObject* intrinsic_regexp_escape(BasicObject* str) {
 
 // ---- Regexp / MatchData --------------------------------------------
 
-// `re.inspect` — `/source/`. Options stripped; full MRI form
-// `(?-mix:...)` not implemented.
-BasicObject* intrinsic_regexp_inspect(BasicObject* self_) {
-  auto* _r = static_cast<Regexp*>(self_);
-  auto* _s = static_cast<String*>(_r->source_);
-  std::string _buf;
-  _buf.reserve(_s->bytes.size() + 2);
-  _buf.push_back('/');
-  _buf.append(reinterpret_cast<const char*>(_s->bytes.data()), _s->bytes.size());
-  _buf.push_back('/');
-  return new String(_buf.data(), _buf.size());
-}
-
-// `re.to_s` — same surface as inspect.
-BasicObject* intrinsic_regexp_to_s(BasicObject* self_) {
-  return intrinsic_regexp_inspect(self_);
-}
-
 // `Regexp.new(pattern, options, kw_opts)` — class arg comes first
 // (eigenclass-side intrinsic), pattern is String, options is Integer
 // or nil, kw_opts ignored.

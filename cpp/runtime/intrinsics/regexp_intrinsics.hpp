@@ -19,13 +19,6 @@ BasicObject* intrinsic_regexp_escape(BasicObject* str);
 
 // ---- Regexp / MatchData --------------------------------------------
 
-// `re.inspect` — `/source/`. Options stripped; full MRI form
-// `(?-mix:...)` not implemented.
-BasicObject* intrinsic_regexp_inspect(BasicObject* self_);
-
-// `re.to_s` — same surface as inspect.
-BasicObject* intrinsic_regexp_to_s(BasicObject* self_);
-
 // `Regexp.new(pattern, options, kw_opts)` — class arg comes first
 // (eigenclass-side intrinsic), pattern is String, options is Integer
 // or nil, kw_opts ignored.
