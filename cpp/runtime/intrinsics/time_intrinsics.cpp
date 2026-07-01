@@ -190,27 +190,28 @@ BasicObject* intrinsic_time_dup(BasicObject* self_) {
   return out;
 }
 
+// MRI Time#localtime mutates self and returns self (bang-like alias
+// is #localtime — no #localtime! in MRI). The non-mutating variant is
+// #getlocal, spelled dup + localtime in core/4.0/time.rb.
+// FrozenError guard omitted: compiled Time has no frozen bit yet.
 BasicObject* intrinsic_time_localtime(BasicObject* self_, BasicObject* offset) {
   auto* t = static_cast<Time*>(self_);
-  Time* out = new Time();
-  out->sec_ = t->sec_;
-  out->nsec_ = t->nsec_;
-  out->is_utc_ = false;
+  t->is_utc_ = false;
   if (offset && offset != nil_instance() && offset->typeid_eq_q<Integer>()) {
-    out->utc_offset_ = static_cast<int32_t>(static_cast<Integer*>(offset)->raw_);
+    t->utc_offset_ = static_cast<int32_t>(static_cast<Integer*>(offset)->raw_);
   } else {
     time_t s = static_cast<time_t>(t->sec_);
     struct tm tm{};
     ::localtime_r(&s, &tm);
 #ifdef __USE_MISC
-    out->utc_offset_ = static_cast<int32_t>(tm.tm_gmtoff);
+    t->utc_offset_ = static_cast<int32_t>(tm.tm_gmtoff);
 #else
     struct tm gt{};
     ::gmtime_r(&s, &gt);
-    out->utc_offset_ = static_cast<int32_t>(::mktime(&gt) - ::mktime(&tm));
+    t->utc_offset_ = static_cast<int32_t>(::mktime(&gt) - ::mktime(&tm));
 #endif
   }
-  return out;
+  return self_;
 }
 
 // ---- Deferred stubs ---------------------------------------------------
