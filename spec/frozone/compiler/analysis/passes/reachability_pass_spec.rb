@@ -80,6 +80,84 @@ RSpec.describe Frozone::Compiler::Analysis::Passes::ReachabilityPass do
     end
   end
 
+  describe '#transfer_class constant-value walk' do
+    # Runtime-state class refs that live in a class's constants_table
+    # after load-time evaluation but leave no AST trace. Example:
+    # `class Foo; CLASSES = [Bar, Baz]; end` — after load, the array
+    # literal is gone; only the ArrayObject with live Class refs remains.
+    it 'roots classes directly stored in the constants_table' do
+      bar_cls = instance_double(Frozone::Vm::ModuleObject, full_name: 'Bar', name: 'Bar')
+      allow(bar_cls).to receive(:is_a?).and_return(false)
+      allow(bar_cls).to receive(:is_a?).with(Frozone::Vm::ModuleObject).and_return(true)
+      allow(bar_cls).to receive(:eigenclass).and_return(nil)
+      allow(bar_cls).to receive(:methods_table).and_return(nil)
+      allow(bar_cls).to receive(:ancestors_list).and_return([])
+      allow(bar_cls).to receive(:constants_table).and_return(nil)
+
+      foo_cls = instance_double(Frozone::Vm::ModuleObject, full_name: 'Foo', name: 'Foo')
+      allow(foo_cls).to receive(:is_a?).and_return(false)
+      allow(foo_cls).to receive(:is_a?).with(Frozone::Vm::ModuleObject).and_return(true)
+      allow(foo_cls).to receive(:eigenclass).and_return(nil)
+      allow(foo_cls).to receive(:methods_table).and_return(nil)
+      allow(foo_cls).to receive(:ancestors_list).and_return([])
+      # Foo's constants_table holds a direct ref to Bar.
+      allow(foo_cls).to receive(:constants_table).and_return({ Bar: bar_cls })
+
+      all_classes[:Foo] = foo_cls
+      all_classes[:Bar] = bar_cls
+
+      result = pass.transfer(:Foo, :reachable, ->(_) { :unreachable })
+      expect(result.pushes).to include(Bar: :reachable)
+    end
+
+    it 'roots classes embedded in an ArrayObject value (the CLASSES_CONST case)' do
+      bar_cls = instance_double(Frozone::Vm::ModuleObject, full_name: 'Bar', name: 'Bar')
+      allow(bar_cls).to receive(:is_a?).and_return(false)
+      allow(bar_cls).to receive(:is_a?).with(Frozone::Vm::ModuleObject).and_return(true)
+
+      arr_obj = instance_double(Frozone::Vm::ArrayObject, raw: [bar_cls])
+      allow(arr_obj).to receive(:is_a?).and_return(false)
+      allow(arr_obj).to receive(:is_a?).with(Frozone::Vm::ArrayObject).and_return(true)
+      allow(arr_obj).to receive(:class_object).and_return(nil)  # skip class-object push
+
+      foo_cls = instance_double(Frozone::Vm::ModuleObject, full_name: 'Foo', name: 'Foo')
+      allow(foo_cls).to receive(:is_a?).and_return(false)
+      allow(foo_cls).to receive(:is_a?).with(Frozone::Vm::ModuleObject).and_return(true)
+      allow(foo_cls).to receive(:eigenclass).and_return(nil)
+      allow(foo_cls).to receive(:methods_table).and_return(nil)
+      allow(foo_cls).to receive(:ancestors_list).and_return([])
+      allow(foo_cls).to receive(:constants_table).and_return({ CLASSES: arr_obj })
+
+      all_classes[:Foo] = foo_cls
+      all_classes[:Bar] = bar_cls
+
+      result = pass.transfer(:Foo, :reachable, ->(_) { :unreachable })
+      expect(result.pushes).to include(Bar: :reachable)
+    end
+
+    it 'terminates on cyclic container values' do
+      # A container that references itself must not cause infinite
+      # recursion. seen-set guard makes this safe.
+      cyclic_arr = instance_double(Frozone::Vm::ArrayObject)
+      allow(cyclic_arr).to receive(:is_a?).and_return(false)
+      allow(cyclic_arr).to receive(:is_a?).with(Frozone::Vm::ArrayObject).and_return(true)
+      allow(cyclic_arr).to receive(:raw).and_return([cyclic_arr])
+      allow(cyclic_arr).to receive(:class_object).and_return(nil)
+
+      foo_cls = instance_double(Frozone::Vm::ModuleObject, full_name: 'Foo', name: 'Foo')
+      allow(foo_cls).to receive(:is_a?).and_return(false)
+      allow(foo_cls).to receive(:is_a?).with(Frozone::Vm::ModuleObject).and_return(true)
+      allow(foo_cls).to receive(:eigenclass).and_return(nil)
+      allow(foo_cls).to receive(:methods_table).and_return(nil)
+      allow(foo_cls).to receive(:ancestors_list).and_return([])
+      allow(foo_cls).to receive(:constants_table).and_return({ CYC: cyclic_arr })
+
+      all_classes[:Foo] = foo_cls
+
+      expect { pass.transfer(:Foo, :reachable, ->(_) { :unreachable }) }.not_to raise_error
+    end
+  end
+
   describe '#transfer for :instantiated_classes virtual node' do
     it 'pushes flat-names for values whose class_object is in all_classes' do
       user_cls = instance_double(Frozone::Vm::ModuleObject, full_name: 'MyClass', name: 'MyClass')

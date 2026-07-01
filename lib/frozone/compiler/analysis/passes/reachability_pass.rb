@@ -42,6 +42,8 @@ require_relative '../../../ast/node'
 require_relative '../../../vm/class_object'
 require_relative '../../../vm/module_object'
 require_relative '../../../vm/method'
+require_relative '../../../vm/array_object'
+require_relative '../../../vm/hash_object'
 
 module Frozone
   module Compiler
@@ -123,15 +125,73 @@ module Frozone
             pushes = {}
             push_method_refs(cls, pushes)
             push_ancestors(cls, pushes)
+            push_constant_values(cls, pushes)
             pushes.empty? ? TransferResult::EMPTY : TransferResult.push(pushes)
           end
 
           def push_instantiated(val, pushes)
-            klass = val.respond_to?(:class_object) ? val.class_object : nil
-            return unless klass
-            flat = Reachability.flat_name(klass)
+            walk_value(val, pushes, Set.new)
+          end
+
+          # Walk the class's own constants_table for runtime-state class
+          # refs that leave no AST trace. `CLASSES = [Foo, Bar]` inside a
+          # class body is evaluated at load-time — the array literal AST
+          # is discarded, but the resulting ArrayObject sits in
+          # constants_table containing live Class pointers. AST-only
+          # walking would miss them.
+          def push_constant_values(cls, pushes)
+            seen = Set.new
+            (cls.constants_table || {}).each_value do |val|
+              walk_value(val, pushes, seen)
+            end
+          end
+
+          # Traverse a runtime Vm value looking for embedded class refs.
+          # Direct Class/Module refs push their flat name; container
+          # values (Array, Hash) recurse into contents; other Vm objects
+          # have their class_object rooted. Cycle-guarded via `seen`.
+          def walk_value(val, pushes, seen)
+            return if val.nil?
+            oid = val.object_id
+            return if seen.include?(oid)
+            seen.add(oid)
+
+            # Explicit is_a? checks (not case/when — Class#=== bypasses
+            # is_a?, breaking rspec stubbing on doubles).
+            if val.is_a?(Vm::ModuleObject)
+              # Vm::ClassObject < Vm::ModuleObject, so this handles both.
+              push_class_flat_name(val, pushes)
+            elsif val.is_a?(Vm::ArrayObject)
+              push_instance_class(val, pushes)
+              (val.raw rescue []).each { |elem| walk_value(elem, pushes, seen) }
+            elsif val.is_a?(Vm::HashObject)
+              push_instance_class(val, pushes)
+              (val.raw rescue {}).each do |k, v|
+                walk_value(k, pushes, seen)
+                walk_value(v, pushes, seen)
+              end
+            else
+              push_instance_class(val, pushes)
+            end
+          end
+
+          # Push a Vm class's flat name if it's in-universe (i.e., not a
+          # hand-coded universe class that we always emit) and in the
+          # closed-world snapshot.
+          def push_class_flat_name(cls, pushes)
+            flat = Reachability.flat_name(cls)
             return if @universe_class_names.include?(flat.to_s)
             pushes[flat] = :reachable if @all_classes.key?(flat)
+          end
+
+          # For a non-Class Vm value: root its class_object. Same shape
+          # as the old push_instantiated logic — an instantiated user
+          # constant transitively requires its class to be reachable.
+          def push_instance_class(val, pushes)
+            return unless val.respond_to?(:class_object)
+            klass = val.class_object
+            return unless klass
+            push_class_flat_name(klass, pushes)
           end
 
           def push_method_refs(cls, pushes)
