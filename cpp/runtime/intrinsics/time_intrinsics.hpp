@@ -59,8 +59,6 @@ BasicObject* intrinsic_time_utc_offset(BasicObject* self_);
 
 BasicObject* intrinsic_time_utc(BasicObject* self_);
 
-BasicObject* intrinsic_time_dup(BasicObject* self_);
-
 BasicObject* intrinsic_time_localtime(BasicObject* self_, BasicObject* offset);
 
 // ---- Deferred stubs ---------------------------------------------------

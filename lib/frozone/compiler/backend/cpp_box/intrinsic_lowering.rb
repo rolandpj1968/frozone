@@ -127,7 +127,7 @@ module Frozone
             os_time_now os_localtime os_gmtime os_mktime os_strftime
             time_make time_to_i time_nsec
             time_utc_q time_utc time_utc_offset
-            time_dup time_localtime
+            time_localtime
             time_new_from_string time_dump time_load
             integer_bitand integer_bitor integer_bitxor
             integer__div_ integer__mod_ integer_fdiv

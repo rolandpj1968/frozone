@@ -46,7 +46,6 @@ module Frozone
         def time_nsec(_, t) = n2f_int(t.raw.nsec)
         def time_utc_q(_, t) = n2f_bool(t.raw.utc?)
         def time_utc_offset(_, t) = wrap_utc_offset(t.raw.utc_offset)
-        def time_dup(_, t) = time_preserve_class(t, t.raw.dup)
 
         def time_utc(_, t)
           if t.frozen_object?

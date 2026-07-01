@@ -516,7 +516,12 @@ class Time
   def utc_offset = Intrinsics.time_utc_offset(self)
   def gmt_offset = utc_offset
   def gmtoff = utc_offset
-  def dup = Intrinsics.time_dup(self)
+  def dup
+    copy = Intrinsics.time_make(to_i, nsec, utc_offset, utc?)
+    copy.instance_variable_set(:@bdt, @bdt) if @bdt
+    copy.instance_variable_set(:@frozone_timezone, @frozone_timezone) if @frozone_timezone
+    copy
+  end
   def sec = _bdt[0]
   def min = _bdt[1]
   def hour = _bdt[2]
@@ -624,7 +629,7 @@ class Time
   end
 
   def getlocal(tz = nil)
-    t = Intrinsics.time_dup(self)
+    t = dup
     resolved =
       if tz.is_a?(String) && self.class.respond_to?(:find_timezone)
         self.class.find_timezone(tz)

@@ -178,18 +178,6 @@ BasicObject* intrinsic_time_utc(BasicObject* self_) {
   return self_;
 }
 
-BasicObject* intrinsic_time_dup(BasicObject* self_) {
-  auto* t = static_cast<Time*>(self_);
-  Time* out = new Time();
-  out->sec_ = t->sec_;
-  out->nsec_ = t->nsec_;
-  out->utc_offset_ = t->utc_offset_;
-  out->is_utc_ = t->is_utc_;
-  out->iv_frozone_timezone = t->iv_frozone_timezone;
-  out->iv_bdt = t->iv_bdt;
-  return out;
-}
-
 // MRI Time#localtime mutates self and returns self (bang-like alias
 // is #localtime — no #localtime! in MRI). The non-mutating variant is
 // #getlocal, spelled dup + localtime in core/4.0/time.rb.
