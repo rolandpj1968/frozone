@@ -167,14 +167,15 @@ BasicObject* intrinsic_time_utc_offset(BasicObject* self_) {
   return boxed_int(t->is_utc_ ? 0 : t->utc_offset_);
 }
 
+// MRI Time#utc mutates self in place and returns self (the bang-like
+// alias is #gmtime). #getutc is the non-mutating variant, spelled as
+// dup.utc in core/4.0/time.rb.
+// FrozenError guard omitted: compiled Time has no frozen bit yet.
 BasicObject* intrinsic_time_utc(BasicObject* self_) {
   auto* t = static_cast<Time*>(self_);
-  Time* out = new Time();
-  out->sec_ = t->sec_;
-  out->nsec_ = t->nsec_;
-  out->utc_offset_ = 0;
-  out->is_utc_ = true;
-  return out;
+  t->utc_offset_ = 0;
+  t->is_utc_ = true;
+  return self_;
 }
 
 BasicObject* intrinsic_time_dup(BasicObject* self_) {
