@@ -66,7 +66,7 @@ module Frozone
             # dispatch from typed callers). Hash[ruby_name → cpp_leaf_name].
             raw_leaf = (emit.respond_to?(:leaf_dispatch_table) ? emit.leaf_dispatch_table : nil) || {}
             @leaf_dispatch_table = raw_leaf.each_with_object({}) do |(name, classes), h|
-              h[name] = classes.map { |c| c.full_name.to_s.gsub("::", "_") }
+              h[name] = classes.map { |c| Frozone::Compiler::Reachability.flatten(c.full_name) }
             end
             # Constant surface — names referenced via dynamic-receiver
             # paths (`self.class::X`). Each gets a `c_X` virtual on
@@ -208,7 +208,7 @@ module Frozone
                   if vm_for_k.respond_to?(:ancestors_list)
                     vm_for_k.ancestors_list.each do |anc|
                       anc_flat = (anc.respond_to?(:full_name) && anc.full_name ?
-                                    anc.full_name.to_s.gsub("::", "_") :
+                                    Frozone::Compiler::Reachability.flatten(anc.full_name) :
                                     anc.name.to_s).to_sym
                       refs.merge(emit.host_class_refs[anc_flat] || Set.new)
                     end
@@ -246,7 +246,7 @@ module Frozone
                   if vm_for_k.respond_to?(:ancestors_list)
                     vm_for_k.ancestors_list.each do |anc|
                       anc_flat = (anc.respond_to?(:full_name) && anc.full_name ?
-                                    anc.full_name.to_s.gsub("::", "_") :
+                                    Frozone::Compiler::Reachability.flatten(anc.full_name) :
                                     anc.name.to_s).to_sym
                       intr_cats.merge(emit.host_intrinsic_refs[anc_flat] || Set.new)
                     end
@@ -764,7 +764,7 @@ module Frozone
                 vm = vm_class[klass.name.to_sym]
                 if vm
                   (vm.ancestors_list rescue []).each do |a|
-                    aid = class_ids[a.full_name.to_s.gsub("::", "_")]
+                    aid = class_ids[Frozone::Compiler::Reachability.flatten(a.full_name)]
                     lut[i][aid] = true if aid
                   end
                 end

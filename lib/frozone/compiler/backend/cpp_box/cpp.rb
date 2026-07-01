@@ -118,7 +118,7 @@ module Frozone
           # never `:self` (the `:self` body lives at `m_X`).
           def self.shadowed_method_name(ruby_name, origin)
             base = method_name(ruby_name).sub(/^m_/, '')
-            origin_flat = origin.full_name.to_s.gsub("::", "_")
+            origin_flat = Frozone::Compiler::Reachability.flatten(origin.full_name)
             "sm_#{base}__from_#{origin_flat}"
           end
 
@@ -392,7 +392,7 @@ module Frozone
             @cpp_leaf_names ||=
               if emit && emit.respond_to?(:compute_leaf_classes, true)
                 # compute_leaf_classes is private on Emitter — bypass via send.
-                emit.send(:compute_leaf_classes).map { |c| c.full_name.to_s.gsub("::", "_") }.to_set
+                emit.send(:compute_leaf_classes).map { |c| Frozone::Compiler::Reachability.flatten(c.full_name) }.to_set
               else
                 Set.new
               end
@@ -424,7 +424,7 @@ module Frozone
               next if s.respond_to?(:is_singleton_class) && s.is_singleton_class
               fname = s.full_name.to_s rescue nil
               next if fname.nil? || fname.empty? || fname == "Object"
-              return fname.gsub("::", "_")
+              return Frozone::Compiler::Reachability.flatten(fname)
             end
             nil
           end
@@ -1738,7 +1738,7 @@ module Frozone
             qualifier_class = ctx[:host_name]
             cpp_name =
               if next_origin.is_a?(Vm::ClassObject)
-                qualifier_class = next_origin.full_name.to_s.gsub("::", "_")
+                qualifier_class = Frozone::Compiler::Reachability.flatten(next_origin.full_name)
                 Cpp.method_name(ctx[:method_name])
               elsif next_origin == :self
                 Cpp.method_name(ctx[:method_name])

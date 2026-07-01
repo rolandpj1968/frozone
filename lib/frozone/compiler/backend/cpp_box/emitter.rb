@@ -397,7 +397,7 @@ module Frozone
               parent_name = if current.respond_to?(:parent) && current.parent.is_a?(String)
                               current.parent
                             elsif current.respond_to?(:superclass) && current.superclass.respond_to?(:full_name)
-                              current.superclass.full_name.to_s.gsub("::", "_")
+                              Reachability.flatten(current.superclass.full_name)
                             end
               break unless parent_name
               current = by_name[parent_name] || @user_classes[parent_name.to_sym]
@@ -708,7 +708,7 @@ module Frozone
                 # Snapshot ObjectObject — default-construct (no
                 # m_initialize call), let __init_static_state__
                 # populate ivars from the Vm instance.
-                klass_name = val.class_object.full_name.to_s.gsub("::", "_")
+                klass_name = Reachability.flatten(val.class_object.full_name)
                 Runtime::KernelFn.new(
                   name: "k_#{name}",
                   signature: "BO*& k_#{name}()",
@@ -976,12 +976,12 @@ module Frozone
                     if host_refs.respond_to?(:is_singleton_class) && host_refs.is_singleton_class
                       owner = host_refs.singleton_of
                       if owner.respond_to?(:full_name) && owner.full_name
-                        :"#{owner.full_name.to_s.gsub("::", "_")}_eigenclass"
+                        Reachability.eigenclass_flat(owner)
                       elsif owner
-                        :"#{owner.name}_eigenclass"
+                        :"#{owner.name}#{Reachability::EIG_SUFFIX}"
                       end
                     elsif host_refs.respond_to?(:full_name) && host_refs.full_name
-                      host_refs.full_name.to_s.gsub("::", "_").to_sym
+                      Reachability.flatten(host_refs.full_name).to_sym
                     else
                       host_refs.name.to_s.to_sym
                     end
@@ -1004,12 +1004,12 @@ module Frozone
                     if host_refs.respond_to?(:is_singleton_class) && host_refs.is_singleton_class
                       owner = host_refs.singleton_of
                       if owner.respond_to?(:full_name) && owner.full_name
-                        :"#{owner.full_name.to_s.gsub("::", "_")}_eigenclass"
+                        Reachability.eigenclass_flat(owner)
                       elsif owner
-                        :"#{owner.name}_eigenclass"
+                        :"#{owner.name}#{Reachability::EIG_SUFFIX}"
                       end
                     elsif host_refs.respond_to?(:full_name) && host_refs.full_name
-                      host_refs.full_name.to_s.gsub("::", "_").to_sym
+                      Reachability.flatten(host_refs.full_name).to_sym
                     else
                       host_refs.name.to_s.to_sym
                     end
@@ -1373,7 +1373,7 @@ module Frozone
                 # eigenclass's flat name so the per-class .cpp emit
                 # picks up the corresponding `#include "class/Foo_eigenclass.hpp"`.
                 if val.is_a?(Vm::ModuleObject) && val.full_name
-                  ref_flat = val.full_name.to_s.gsub("::", "_").to_sym
+                  ref_flat = Reachability.flat_name(val)
                   @host_class_refs[eigen.name.to_sym] << ref_flat
                 end
               end
@@ -1946,7 +1946,7 @@ module Frozone
               parent_name = user_parent.respond_to?(:superclass) &&
                             user_parent.superclass &&
                             user_parent.superclass.respond_to?(:full_name) ?
-                              user_parent.superclass.full_name.to_s.gsub("::", "_") :
+                              Reachability.flatten(user_parent.superclass.full_name) :
                               nil
             end
             seen
@@ -1978,7 +1978,7 @@ module Frozone
             sc = cls.respond_to?(:superclass) ? cls.superclass : nil
             while sc && sc.respond_to?(:full_name) && sc.full_name &&
                   sc.full_name != :Object
-              flat = sc.full_name.to_s.gsub("::", "_").to_sym
+              flat = Reachability.flat_name(sc)
               parent_cls = @user_classes[flat]
               if parent_cls
                 collect_ivars(parent_cls).each { |iv| seen << iv }
@@ -2079,7 +2079,7 @@ module Frozone
             # Nested classes (Parser::Lexer) need the flattened parent
             # name (`Parser_Lexer`) so the emitted struct inherits from
             # the right type — leaf-name alone collides across nesting.
-            sc.full_name.to_s.gsub("::", "_")
+            Reachability.flatten(sc.full_name)
           end
 
           # Build a ctor spec for a user class. Required params land as

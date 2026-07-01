@@ -97,6 +97,32 @@ module Frozone
         end
       end
 
+      # Canonicalise a Ruby full-name into its flat form. Escapes source
+      # `_` to `__` FIRST so that `Foo_Bar` (bare, with underscore) and
+      # `Foo::Bar` (nested) don't collide:
+      #
+      #   `Foo_Bar`      → `Foo__Bar`
+      #   `Foo::Bar`     → `Foo_Bar`
+      #   `Foo::Bar_Baz` → `Foo_Bar__Baz`
+      #
+      # Single canonicalisation point serving reachability, the
+      # C++ class-name emitter, and every other flat-name site.
+      def flatten(fname_str) = fname_str.to_s.gsub("_", "__").gsub("::", "_")
+
+      # Flat-name of a Vm::Class/Module as Symbol. Preferred convenience
+      # for hash-key + comparison sites.
+      def flat_name(cls) = flatten(cls.full_name || cls.name).to_sym
+
+      # Eigenclass name convention. Currently `_eigenclass`; centralised
+      # here so the shorter `_eig` rename is a single-line follow-up.
+      # Under the `_` → `__` escape in `flatten`, a single `_eig` suffix
+      # would already be collision-safe against user class `Foo_eig`
+      # (which becomes `Foo__eig`) — but the rename touches ~54 usages
+      # across the codebase, deferred to its own commit.
+      EIG_SUFFIX = "_eigenclass"
+      def eigenclass_name(cls) = "#{flatten(cls.full_name)}#{EIG_SUFFIX}"
+      def eigenclass_flat(cls) = eigenclass_name(cls).to_sym
+
       # Class's lexical scope chain (innermost first), as part-arrays.
       # `Blurhash::Ruby` → [["Blurhash", "Ruby"], ["Blurhash"]].
       # The bare top-level lookup (empty prefix) is added by callers.

@@ -129,7 +129,7 @@ module Frozone
           def push_instantiated(val, pushes)
             klass = val.respond_to?(:class_object) ? val.class_object : nil
             return unless klass
-            flat = (klass.full_name || klass.name).to_s.gsub("::", "_").to_sym
+            flat = Reachability.flat_name(klass)
             return if @universe_class_names.include?(flat.to_s)
             pushes[flat] = :reachable if @all_classes.key?(flat)
           end
@@ -170,7 +170,7 @@ module Frozone
           def push_ancestors(cls, pushes)
             (cls.ancestors_list rescue []).each do |a|
               next unless a.is_a?(Vm::ModuleObject)
-              flat = (a.full_name || a.name).to_s.gsub("::", "_").to_sym
+              flat = Reachability.flat_name(a)
               next if @universe_class_names.include?(flat.to_s)
               # Old `schedule_class` filtered via all_classes.key?(flat);
               # apply the same check here so spurious ancestors (not in

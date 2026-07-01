@@ -281,7 +281,7 @@ module Frozone
                 guard("#{n.accessor} entry") { "#{h}->op_aset(univ, new Array({#{ref_expr(k)}, #{ref_expr(v)}}));" }
               end
             else
-              klass = val.class_object.full_name.to_s.gsub("::", "_")
+              klass = Frozone::Compiler::Reachability.flatten(val.class_object.full_name)
               tgt = "(*static_cast<#{klass}*>(#{recv}))"
               (val.instance_variables_hash || {}).filter_map do |name, v|
                 iv = name.to_s.delete_prefix("@")

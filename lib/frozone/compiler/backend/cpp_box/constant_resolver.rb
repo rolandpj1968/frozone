@@ -264,8 +264,7 @@ module Frozone
           # tries each successive prefix against user_classes /
           # Universe. Returns nil if not found (caller raises).
           def class_object_to_flat(cls)
-            fname = cls.full_name.to_s
-            flat = fname.gsub("::", "_").to_sym
+            flat = Frozone::Compiler::Reachability.flat_name(cls)
             return flat if instantiable_class?(flat)
             nil
           end
