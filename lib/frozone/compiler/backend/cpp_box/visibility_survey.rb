@@ -66,10 +66,10 @@ module Frozone
               # Eigenclass (class-method table). Lazy: singleton_class
               # auto-creates on first read. We materialise it here only
               # for classes that have one, which is virtually all of
-              # them in practice. The eigenclass's flat name is suffixed
-              # _eigenclass for uniqueness in per_class.
+              # them in practice. The eigenclass's flat name uses the
+              # centralised EIG_SUFFIX for uniqueness in per_class.
               if cls.respond_to?(:singleton_class) && (ec = cls.singleton_class)
-                visit.call(:"#{flat}_eigenclass", ec)
+                visit.call(:"#{flat}#{Frozone::Compiler::Reachability::EIG_SUFFIX}", ec)
               end
             end
 

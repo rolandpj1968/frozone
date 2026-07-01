@@ -535,7 +535,7 @@ module Frozone
               return if seen.include?(scope.object_id)
               seen << scope.object_id
               (scope.constants_table || {}).each do |name, val|
-                flat = prefix ? :"#{prefix}_#{name}" : name
+                flat = Reachability.compose_flat(prefix, name)
                 if val.is_a?(Vm::ClassObject) || val.is_a?(Vm::ModuleObject)
                   # Filter both by emitted-name collision (universe names
                   # at top level) AND by Vm-identity (a nested constant
@@ -593,7 +593,7 @@ module Frozone
               seen << scope.object_id
               owner = prefix || :main
               (scope.constants_table || {}).each do |name, val|
-                flat = prefix ? :"#{prefix}_#{name}" : name
+                flat = Reachability.compose_flat(prefix, name)
                 if val.is_a?(Vm::ClassObject) || val.is_a?(Vm::ModuleObject)
                   walk.call(val, flat)
                 elsif val.is_a?(Vm::ObjectObject)
@@ -620,7 +620,7 @@ module Frozone
               eigen = scope.eigenclass rescue nil
               if eigen && eigen != scope
                 (eigen.constants_table || {}).each do |name, val|
-                  flat = prefix ? :"#{prefix}_#{name}" : name
+                  flat = Reachability.compose_flat(prefix, name)
                   next if consts.key?(flat)  # host-side wins if both exist
                   if val.is_a?(Vm::ClassObject) || val.is_a?(Vm::ModuleObject)
                     walk.call(val, flat)

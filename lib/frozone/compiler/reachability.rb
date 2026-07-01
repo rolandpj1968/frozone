@@ -113,6 +113,25 @@ module Frozone
       # for hash-key + comparison sites.
       def flat_name(cls) = flatten(cls.full_name || cls.name).to_sym
 
+      # Compose a flat Symbol from an already-flat prefix and a bare
+      # short-name Symbol (typically a constants_table key). Applies the
+      # `_` → `__` escape to the short name so composition matches the
+      # single-pass `flatten` result:
+      #
+      #   compose_flat(nil,  :Foo)      → :Foo
+      #   compose_flat(:Foo, :Bar)      → :Foo_Bar
+      #   compose_flat(nil,  :Foo_X)    → :Foo__X
+      #   compose_flat(:Foo, :Bar_Y)    → :Foo_Bar__Y
+      #
+      # For the walk-with-prefix pattern in the emitter's
+      # collect_all_classes / collect_user_constants — passing raw
+      # `:"#{prefix}_#{name}"` would bypass the escape and produce
+      # class-key mismatches vs `flat_name(cls)`.
+      def compose_flat(prefix, short_name)
+        escaped = short_name.to_s.gsub("_", "__")
+        prefix ? :"#{prefix}_#{escaped}" : escaped.to_sym
+      end
+
       # Eigenclass name convention. Currently `_eigenclass`; centralised
       # here so the shorter `_eig` rename is a single-line follow-up.
       # Under the `_` → `__` escape in `flatten`, a single `_eig` suffix

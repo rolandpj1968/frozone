@@ -740,7 +740,7 @@ module Frozone
               return if walked.include?(scope.object_id)
               walked << scope.object_id
               (scope.constants_table || {}).each do |name, val|
-                flat = prefix ? :"#{prefix}_#{name}" : name
+                flat = Frozone::Compiler::Reachability.compose_flat(prefix, name)
                 if val.is_a?(Vm::ClassObject) || val.is_a?(Vm::ModuleObject)
                   vm_class[flat] = val
                   walk_top.call(val, flat)
