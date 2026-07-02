@@ -38,12 +38,14 @@ require_relative '../lattice'
 require_relative '../transfer_result'
 require_relative '../../../ast/constant_path'
 require_relative '../../../ast/constant_read'
+require_relative '../../../ast/method_call'
 require_relative '../../../ast/node'
 require_relative '../../../vm/class_object'
 require_relative '../../../vm/module_object'
 require_relative '../../../vm/method'
 require_relative '../../../vm/array_object'
 require_relative '../../../vm/hash_object'
+require_relative '../../backend/cpp_box/intrinsic_lowering'
 
 module Frozone
   module Compiler
@@ -224,6 +226,18 @@ module Frozone
             return if body.nil?
             Reachability.each_class_ref_in(body, scope, @all_classes, @universe_class_names) do |flat|
               pushes[flat] = :reachable
+            end
+            # Intrinsic-declared dependencies: `Intrinsics.X(...)` calls
+            # in the body pull in each class listed in the intrinsic's
+            # `uses:` declaration. Closes the RegexpError-genus gap
+            # where a C++ intrinsic body constructs or raises a class
+            # not visible in any Ruby AST leading to it.
+            Reachability.each_intrinsic_ref_in(body) do |intrinsic_name|
+              Backend::CppBox::IntrinsicLowering.uses_of(intrinsic_name).each do |cls_sym|
+                flat = Reachability.flatten(cls_sym.to_s).to_sym
+                next if @universe_class_names.include?(flat.to_s)
+                pushes[flat] = :reachable if @all_classes.key?(flat)
+              end
             end
           end
 

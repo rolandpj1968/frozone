@@ -703,6 +703,34 @@ module Frozone
             # arity behaviour user code typically expects.
             proc_lambda_p: ->(_self_) { "false_instance()" },
           }.freeze
+
+          # Reachability metadata: intrinsic-name → array of class
+          # flat-name Symbols that the intrinsic's C++ body
+          # transitively raises / instantiates / references — but that
+          # aren't visible in any Ruby AST. Reachability walks reached
+          # AST for `Intrinsics.X(...)` calls and pushes each entry
+          # here so the class gets rooted.
+          #
+          # Direction: intrinsic OWNS its declaration. Reachability
+          # CONSUMES. When adding a new intrinsic whose C++ body
+          # constructs / raises a class not mentioned in its Ruby
+          # wrapper, list the class here.
+          #
+          # Class-level hand-coded C++ bodies (RubyClass overrides
+          # like Regexp::m_initialize calling intrinsic_raise_X) are
+          # declared separately on the RubyClass entry (task #219).
+          INTRINSIC_USES = {
+            # Regexp.new → intrinsic_regexp_new → Regexp::m_initialize
+            # (hand-coded C++, calls intrinsic_raise_regexp_error on
+            # Onigmo compile failure). RegexpError is not mentioned in
+            # any Ruby AST that leads here.
+            regexp_new:   %i[RegexpError],
+            regexp_match: %i[MatchData],
+          }.freeze
+
+          # Look up the declared class-name uses for a given
+          # intrinsic. Returns [] for intrinsics with no declaration.
+          def uses_of(name) = INTRINSIC_USES[name.to_sym] || []
         end
       end
     end

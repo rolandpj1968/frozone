@@ -40,6 +40,7 @@
 require 'set'
 require_relative '../ast/constant_path'
 require_relative '../ast/constant_read'
+require_relative '../ast/method_call'
 require_relative '../ast/node'
 require_relative '../vm/class_object'
 require_relative '../vm/module_object'
@@ -68,6 +69,24 @@ module Frozone
         # also live in the value map but they're not reachable classes.
         values.each_with_object(Set.new) do |(node, v), reach|
           reach << node if node.is_a?(Symbol) && v == :reachable
+        end
+      end
+
+      # Walk an AST tree, yielding each `Intrinsics.X(...)` call's method
+      # name (a Symbol like :regexp_new). Used by ReachabilityPass to
+      # look up the intrinsic's declared class dependencies via
+      # IntrinsicLowering.uses_of and push them as reachable.
+      def each_intrinsic_ref_in(node, &block)
+        return if node.nil?
+        return unless node.is_a?(Ast::Node)
+        if node.is_a?(Ast::MethodCall)
+          recv = node.receiver_node
+          if recv.is_a?(Ast::ConstantRead) && recv.name.to_sym == :Intrinsics
+            block.call(node.name.to_sym)
+          end
+        end
+        if node.respond_to?(:children)
+          node.children.each { |c| each_intrinsic_ref_in(c, &block) }
         end
       end
 

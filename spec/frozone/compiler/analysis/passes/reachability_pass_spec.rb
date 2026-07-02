@@ -158,6 +158,69 @@ RSpec.describe Frozone::Compiler::Analysis::Passes::ReachabilityPass do
     end
   end
 
+  describe 'intrinsic uses: declaration' do
+    it 'roots classes declared in IntrinsicLowering.uses_of for an Intrinsics call in a reached body' do
+      # Set up a class Foo whose body contains `Intrinsics.regexp_new(...)`.
+      # Declared uses for regexp_new include :RegexpError → RegexpError
+      # should be rooted even though it never appears as a ConstantRead
+      # in the AST.
+      recv = Frozone::Ast::ConstantRead.new(:Intrinsics)
+      intrinsic_call = Frozone::Ast::MethodCall.new(:regexp_new, recv, [], [])
+
+      method = instance_double(Frozone::Vm::Method,
+        body: intrinsic_call,
+        optional_params: [],
+        optional_kw_params: [],
+      )
+      allow(method).to receive(:is_a?).and_return(false)
+      allow(method).to receive(:is_a?).with(Frozone::Vm::Method).and_return(true)
+
+      foo_cls = instance_double(Frozone::Vm::ModuleObject, full_name: 'Foo', name: 'Foo')
+      allow(foo_cls).to receive(:is_a?).and_return(false)
+      allow(foo_cls).to receive(:is_a?).with(Frozone::Vm::ModuleObject).and_return(true)
+      allow(foo_cls).to receive(:eigenclass).and_return(nil)
+      allow(foo_cls).to receive(:methods_table).and_return({ do_match: method })
+      allow(foo_cls).to receive(:ancestors_list).and_return([])
+      allow(foo_cls).to receive(:constants_table).and_return(nil)
+
+      regexp_error_cls = instance_double(Frozone::Vm::ModuleObject)
+      all_classes[:Foo] = foo_cls
+      all_classes[:RegexpError] = regexp_error_cls
+
+      result = pass.transfer(:Foo, :reachable, ->(_) { :unreachable })
+      expect(result.pushes).to include(RegexpError: :reachable)
+    end
+
+    it 'ignores Intrinsics calls whose declared classes are in universe_class_names' do
+      # If an intrinsic's uses: entry names a universe class, it's
+      # already emitted — skip pushing it into the reach set.
+      recv = Frozone::Ast::ConstantRead.new(:Intrinsics)
+      intrinsic_call = Frozone::Ast::MethodCall.new(:regexp_match, recv, [], [])
+
+      method = instance_double(Frozone::Vm::Method,
+        body: intrinsic_call,
+        optional_params: [],
+        optional_kw_params: [],
+      )
+      allow(method).to receive(:is_a?).and_return(false)
+      allow(method).to receive(:is_a?).with(Frozone::Vm::Method).and_return(true)
+
+      foo_cls = instance_double(Frozone::Vm::ModuleObject, full_name: 'Foo', name: 'Foo')
+      allow(foo_cls).to receive(:is_a?).and_return(false)
+      allow(foo_cls).to receive(:is_a?).with(Frozone::Vm::ModuleObject).and_return(true)
+      allow(foo_cls).to receive(:eigenclass).and_return(nil)
+      allow(foo_cls).to receive(:methods_table).and_return({ m: method })
+      allow(foo_cls).to receive(:ancestors_list).and_return([])
+      allow(foo_cls).to receive(:constants_table).and_return(nil)
+
+      universe_class_names << 'MatchData'  # pretend MatchData is universe
+      all_classes[:Foo] = foo_cls
+
+      result = pass.transfer(:Foo, :reachable, ->(_) { :unreachable })
+      expect(result.pushes).not_to include(MatchData: :reachable)
+    end
+  end
+
   describe '#transfer for :instantiated_classes virtual node' do
     it 'pushes flat-names for values whose class_object is in all_classes' do
       user_cls = instance_double(Frozone::Vm::ModuleObject, full_name: 'MyClass', name: 'MyClass')
