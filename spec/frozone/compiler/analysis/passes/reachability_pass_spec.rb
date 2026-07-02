@@ -158,6 +158,68 @@ RSpec.describe Frozone::Compiler::Analysis::Passes::ReachabilityPass do
     end
   end
 
+  describe 'RubyClass class_uses: declaration' do
+    it 'pushes declared class_uses for a reached universe overlay' do
+      # A universe class Regexp has `uses: [:RegexpError]` on its
+      # RubyClass entry. When the universe overlay virtual node fires,
+      # RegexpError is rooted even without any Ruby AST reference.
+      regexp_cls = instance_double(Frozone::Vm::ModuleObject)
+      allow(regexp_cls).to receive(:is_a?).and_return(false)
+      allow(regexp_cls).to receive(:is_a?).with(Frozone::Vm::ModuleObject).and_return(true)
+      allow(regexp_cls).to receive(:methods_table).and_return(nil)
+      allow(regexp_cls).to receive(:eigenclass).and_return(nil)
+      allow(regexp_cls).to receive(:full_name).and_return('Regexp')
+      allow(regexp_cls).to receive(:name).and_return('Regexp')
+      allow(top_level_scope).to receive(:constants_table).and_return({ Regexp: regexp_cls })
+
+      regexp_error_cls = instance_double(Frozone::Vm::ModuleObject)
+      all_classes[:RegexpError] = regexp_error_cls
+
+      pass = described_class.new(
+        execute_block:         nil,
+        user_methods:          {},
+        top_level_scope:       top_level_scope,
+        all_classes:           all_classes,
+        universe_class_names:  universe_class_names,
+        instantiated_classes:  [],
+        class_uses:            { Regexp: %i[RegexpError] },
+      )
+
+      # Fire the Regexp universe-overlay virtual node.
+      node = described_class.universe_overlay_node(:Regexp)
+      result = pass.transfer(node, :reachable, ->(_) { :unreachable })
+      expect(result.pushes).to include(RegexpError: :reachable)
+    end
+
+    it 'skips class_uses entries that are in universe_class_names' do
+      # If a class_uses declaration names a universe class, filter it —
+      # universe is always emitted, no need to root.
+      regexp_cls = instance_double(Frozone::Vm::ModuleObject)
+      allow(regexp_cls).to receive(:is_a?).and_return(false)
+      allow(regexp_cls).to receive(:is_a?).with(Frozone::Vm::ModuleObject).and_return(true)
+      allow(regexp_cls).to receive(:methods_table).and_return(nil)
+      allow(regexp_cls).to receive(:eigenclass).and_return(nil)
+      allow(regexp_cls).to receive(:full_name).and_return('Regexp')
+      allow(regexp_cls).to receive(:name).and_return('Regexp')
+      allow(top_level_scope).to receive(:constants_table).and_return({ Regexp: regexp_cls })
+      universe_class_names << 'MatchData'
+
+      pass = described_class.new(
+        execute_block:         nil,
+        user_methods:          {},
+        top_level_scope:       top_level_scope,
+        all_classes:           all_classes,
+        universe_class_names:  universe_class_names,
+        instantiated_classes:  [],
+        class_uses:            { Regexp: %i[MatchData] },
+      )
+
+      node = described_class.universe_overlay_node(:Regexp)
+      result = pass.transfer(node, :reachable, ->(_) { :unreachable })
+      expect(result.pushes).not_to include(MatchData: :reachable)
+    end
+  end
+
   describe 'intrinsic uses: declaration' do
     it 'roots classes declared in IntrinsicLowering.uses_of for an Intrinsics call in a reached body' do
       # Set up a class Foo whose body contains `Intrinsics.regexp_new(...)`.

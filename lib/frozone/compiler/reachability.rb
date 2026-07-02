@@ -55,7 +55,7 @@ module Frozone
 
       def compute(execute_block:, user_methods:, top_level_scope:,
                   universe_class_names:, all_classes:,
-                  instantiated_classes: [])
+                  instantiated_classes: [], class_uses: {})
         pass = Analysis::Passes::ReachabilityPass.new(
           execute_block:        execute_block,
           user_methods:         user_methods,
@@ -63,6 +63,7 @@ module Frozone
           all_classes:          all_classes,
           universe_class_names: universe_class_names,
           instantiated_classes: instantiated_classes,
+          class_uses:           class_uses,
         )
         values = Analysis::Engine.new(pass).run
         # Filter to Symbol keys: virtual seed nodes (Array-tagged tuples)

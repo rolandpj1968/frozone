@@ -517,6 +517,11 @@ module Frozone
               # `new XClass()` in the accessor body — no AST trace,
               # so we have to root them explicitly.
               instantiated_classes: @user_constants.values,
+              # Hand-coded C++ class-body dependencies (RubyClass.uses:)
+              # for universe classes. Regexp::m_initialize's C++ body
+              # calling intrinsic_raise_regexp_error is the motivating
+              # case — RegexpError isn't visible in any Ruby AST.
+              class_uses:           Runtime.class_uses,
             )
             kept = all.select { |flat, _| reach.include?(flat) }
             if ENV['FROZONE_BOX_DEBUG'] == '1'

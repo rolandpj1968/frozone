@@ -37,6 +37,23 @@ module Frozone
             # universe entries (Math, …) and on every user-defined module
             # at build_user_class_def time.
             :is_module,
+            # Reachability metadata: array of class-name Symbols that any
+            # of this class's HAND-CODED C++ bodies (overrides, ctor,
+            # members) transitively raise / instantiate / reference but
+            # that aren't visible from Ruby AST.
+            #
+            # Example: Regexp's m_initialize (hand-coded C++ body in
+            # its `overrides`) calls intrinsic_raise_regexp_error on
+            # Onigmo compile failure. `uses: %i[RegexpError]` on the
+            # RubyClass declares that dep. Reachability picks it up via
+            # the universe-overlay transfer. Sibling mechanism to
+            # IntrinsicLowering::INTRINSIC_USES for Ruby-callable
+            # intrinsics.
+            #
+            # Only used for universe classes (Ruby classes defined via
+            # `class Foo` in core/4.0 have no hand-coded C++). Leave
+            # nil for classes with no hand-coded deps.
+            :uses,
             keyword_init: true
           )
 
@@ -1320,6 +1337,11 @@ module Frozone
           REGEXP = RubyClass.new(
             name: "Regexp",
             parent: "Object",
+            # m_initialize below calls intrinsic_raise_regexp_error on
+            # Onigmo compile failure. RegexpError isn't visible in any
+            # Ruby AST leading here — declare it so reachability roots
+            # the class.
+            uses: %i[RegexpError],
             members: [
               "BO* source_ = nullptr;          // String*",
               "int64_t options_ = 0;",
@@ -1459,6 +1481,18 @@ module Frozone
             PROC0, PROC1, PROC2,
             REGEXP, MATCH_DATA, MATH, RANDOM, TIME, THROWN_TAG
           ].freeze
+
+          # Reachability lookup: universe class name Symbol → array of
+          # class name Symbols listed in that RubyClass's `uses:`
+          # declaration. Populated from ALL_CLASSES at build time and
+          # threaded into ReachabilityPass so hand-coded C++ class-body
+          # dependencies are rooted.
+          def self.class_uses
+            ALL_CLASSES.each_with_object({}) do |k, h|
+              next if k.uses.nil? || k.uses.empty?
+              h[k.name.to_sym] = k.uses
+            end.freeze
+          end
 
           # Per-class eigenclass — generated programmatically from each
           # RubyClass entry. Class methods (def self.X) live as virtuals

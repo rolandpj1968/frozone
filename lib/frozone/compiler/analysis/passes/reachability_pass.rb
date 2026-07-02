@@ -64,13 +64,15 @@ module Frozone
           def self.universe_overlay_node(name) = [:universe_overlay, name.to_sym].freeze
 
           def initialize(execute_block:, user_methods:, top_level_scope:,
-                         all_classes:, universe_class_names:, instantiated_classes:)
+                         all_classes:, universe_class_names:, instantiated_classes:,
+                         class_uses: {})
             @execute_block = execute_block
             @user_methods = user_methods
             @top_level_scope = top_level_scope
             @all_classes = all_classes
             @universe_class_names = universe_class_names
             @instantiated_classes = instantiated_classes
+            @class_uses = class_uses
           end
 
           def lattice = LATTICE
@@ -117,6 +119,11 @@ module Frozone
               walk_methods(cls.methods_table, scope, pushes)
               eigen = cls.eigenclass rescue nil
               walk_methods(eigen.methods_table, scope, pushes) if eigen
+              # Push hand-coded C++ class-body dependencies declared on
+              # the universe class's RubyClass entry (task #219). Sibling
+              # mechanism to IntrinsicLowering::INTRINSIC_USES for
+              # class-level (not intrinsic-level) declarations.
+              push_class_uses(node[1], pushes)
             end
             pushes.empty? ? TransferResult::EMPTY : TransferResult.push(pushes)
           end
@@ -238,6 +245,16 @@ module Frozone
                 next if @universe_class_names.include?(flat.to_s)
                 pushes[flat] = :reachable if @all_classes.key?(flat)
               end
+            end
+          end
+
+          def push_class_uses(universe_name_sym, pushes)
+            list = @class_uses[universe_name_sym]
+            return unless list && !list.empty?
+            list.each do |cls_sym|
+              flat = Reachability.flatten(cls_sym.to_s).to_sym
+              next if @universe_class_names.include?(flat.to_s)
+              pushes[flat] = :reachable if @all_classes.key?(flat)
             end
           end
 
