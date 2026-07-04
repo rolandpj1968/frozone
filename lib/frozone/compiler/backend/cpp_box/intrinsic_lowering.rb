@@ -733,6 +733,118 @@ module Frozone
           # Look up the declared class-name uses for a given
           # intrinsic. Returns [] for intrinsics with no declaration.
           def uses_of(name) = INTRINSIC_USES[name.to_sym] || []
+
+          # Declared return type of each intrinsic — feeds TypeInferencePass.
+          # Sibling of INTRINSIC_USES: the intrinsic OWNS the declaration,
+          # TI CONSUMES.
+          #
+          # Value shape:
+          #   Symbol                     — a concrete class (e.g. `:Integer`)
+          #   [Symbol, nullable: true]   — nullable version
+          #   :__boolean__               — synthetic <boolean> union
+          #   :__top__                   — genuinely-unknown return type
+          #                                (rare; prefer a concrete tag)
+          #
+          # Direction: Intrinsics are Frozone's Ruby↔C++ membrane. Every
+          # intrinsic that appears in a Ruby body should list its return
+          # type here so TI's precision propagates through the wrapper.
+          # Missing entry → default ⊤ (safe but blocks narrowing chains).
+          #
+          # When adding a new intrinsic, list its return type here alongside
+          # any INTRINSIC_USES entry it needs. Where the C++ return-type is
+          # naturally `BO*` (universal-dispatch surface), pick the tightest
+          # Ruby class the runtime actually returns; use nullable when the
+          # runtime can return nil.
+          INTRINSIC_RETURN_TYPES = {
+            # ---- Integer arithmetic --------------------------------
+            integer__plus_:  :Integer,
+            integer__minus_: :Integer,
+            integer__mul_:   :Integer,
+            integer__div_:   :Integer,
+            integer__mod_:   :Integer,
+            integer__pow_:   :Integer,
+            integer_bitand:  :Integer,
+            integer_bitor:   :Integer,
+            integer_bitxor:  :Integer,
+            integer_lshift:  :Integer,
+            integer_rshift:  :Integer,
+            integer_bit_length: :Integer,
+            integer_fdiv:    :Float,
+            integer_to_f:    :Float,
+            integer_to_s:    :String,
+            integer_to_c:    :Complex,
+
+            # ---- Float arithmetic ----------------------------------
+            float_ceil:      :Integer,
+            float_floor:     :Integer,
+            float_truncate:  :Integer,
+            float_round:     :Integer,
+
+            # ---- String primitives ---------------------------------
+            string_length:   :Integer,
+            string_hash:     :Integer,
+            string_ord:      :Integer,
+            string_oct:      :Integer,
+            string_slice:    [:String, nullable: true],
+            string_index:    [:Integer, nullable: true],
+            string_rindex:   [:Integer, nullable: true],
+            string_byteindex:  [:Integer, nullable: true],
+            string_byterindex: [:Integer, nullable: true],
+            string_byteslice:  [:String, nullable: true],
+            string_inspect:  :String,
+            string_dump:     :String,
+            string_to_sym:   :Symbol,
+            string_to_i_base: :Integer,
+            string_concat:   :String,
+            string_dup:      :String,
+            string_clone:    :String,
+            string_format:   :String,
+            string_encoding: :Encoding,
+
+            # ---- Symbol / Regexp / MatchData -----------------------
+            symbol_to_s:      :String,
+            regexp_new:       :Regexp,
+            regexp_escape:    :String,
+            regexp_match:     [:MatchData, nullable: true],
+            regexp_match_index: [:Integer, nullable: true],
+            regexp_last_match:  [:MatchData, nullable: true],
+
+            # ---- Container primitives ------------------------------
+            array_to_s:       :String,
+            array_unshift:    :Array,
+            array_initialize: :Array,
+            hash_new:         :Hash,
+            hash_delete:      :__top__,  # value type — genuinely unknown
+
+            # ---- Object identity / class ---------------------------
+            object_class:                       :Class,
+            object_shallow_copy:                :__top__,  # same class as self, but per-callsite
+            basic_object__equal_equal_:         :__boolean__,
+            basic_object___id__:                :Integer,
+
+            # ---- Kernel ---------------------------------------------
+            kernel_lambda:  :Proc,
+            kernel_proc:    :Proc,
+            kernel_rand:    :Numeric,
+            kernel_integer: :Integer,
+            kernel_float:   :Float,
+            kernel_puts:    :NilClass,
+            kernel_print:   :NilClass,
+
+            # ---- Process / Time -------------------------------------
+            process_pid:       :Integer,
+            process_clock_gettime: :Float,
+            time_make:         :Time,
+            time_to_i:         :Integer,
+            time_nsec:         :Integer,
+            time_utc_q:        :__boolean__,
+            time_utc_offset:   :Integer,
+          }.freeze
+
+          # Look up the declared return type for an intrinsic. Returns
+          # `nil` when there's no declaration — callers (TI) treat that
+          # as `⊤` under their lattice's own convention.
+          def return_type_of(name) = INTRINSIC_RETURN_TYPES[name.to_sym]
         end
       end
     end

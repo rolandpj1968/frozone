@@ -52,6 +52,7 @@ require_relative '../lattice'
 require_relative '../type_lattice'
 require_relative '../transfer_result'
 require_relative '../../../ast/node'
+require_relative '../../backend/cpp_box/intrinsic_lowering'
 
 module Frozone
   module Compiler
@@ -146,6 +147,7 @@ module Frozone
             when Ast::If                 then transfer_if(node, ctx)
             when Ast::Return             then transfer_return(node, ctx)
             when Ast::MethodCall         then transfer_method_call(node, ctx)
+            when Ast::IntrinsicCall      then transfer_intrinsic_call(node, ctx)
             else
               # Recurse into children (their types get cached), but the
               # node itself is ⊤ until we add a handler for its kind.
@@ -206,6 +208,38 @@ module Frozone
             return @lattice.top if recv_class == :__boolean__ || !@methods.key?([recv_class, node.name])
 
             ctx.lookup.call(self.class.method_node(recv_class, node.name))
+          end
+
+          # `Intrinsics.foo(...)` — Frozone's Ruby↔C++ membrane. The
+          # return type comes from IntrinsicLowering::INTRINSIC_RETURN_TYPES,
+          # the single annotation surface. Missing entry → ⊤ (safe
+          # default; blocks narrowing chains and shows up as a
+          # de-annotation candidate).
+          def transfer_intrinsic_call(node, ctx)
+            (node.param_nodes || []).each { |a| walk(a, ctx) }
+            annotation = Backend::CppBox::IntrinsicLowering.return_type_of(node.name)
+            annotation_to_type(annotation)
+          end
+
+          # Decode the INTRINSIC_RETURN_TYPES value shape into a lattice
+          # Type. See the map's docstring for the shape reference.
+          def annotation_to_type(annotation)
+            return @lattice.top if annotation.nil?
+            case annotation
+            when Symbol
+              case annotation
+              when :__top__     then @lattice.top
+              when :__boolean__ then @lattice.boolean_type
+              else                    @lattice.concrete(annotation)
+              end
+            when Array
+              # [Symbol, nullable: true] tail-hash-arg form
+              class_sym, *opts = annotation
+              nullable = opts.any? { |o| o.is_a?(Hash) && o[:nullable] }
+              @lattice.concrete(class_sym, nullable: nullable)
+            else
+              @lattice.top
+            end
           end
         end
       end

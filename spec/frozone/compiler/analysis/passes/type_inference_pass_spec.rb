@@ -12,6 +12,7 @@ require_relative '../../../../../lib/frozone/ast/if'
 require_relative '../../../../../lib/frozone/ast/return'
 require_relative '../../../../../lib/frozone/ast/method_call'
 require_relative '../../../../../lib/frozone/ast/self_literal'
+require_relative '../../../../../lib/frozone/ast/intrinsic_call'
 
 RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
   let(:vm) { Frozone::Vm }
@@ -197,6 +198,59 @@ RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
       methods = { [:Foo, :m] => make_method(call) }
       pass = run_pass(methods)
       expect(pass.type_of(call).top?).to be true
+    end
+  end
+
+  describe 'IntrinsicCall — annotated return type via INTRINSIC_RETURN_TYPES' do
+    it 'infers Integer for integer__plus_' do
+      body = ast::IntrinsicCall.new(:integer__plus_, [
+        ast::IntegerLiteral.from(1), ast::IntegerLiteral.from(2)
+      ])
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body)).to eq(t(:Integer))
+    end
+
+    it 'infers Float for integer_to_f' do
+      body = ast::IntrinsicCall.new(:integer_to_f, [ast::IntegerLiteral.from(1)])
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body)).to eq(t(:Float))
+    end
+
+    it 'infers <boolean> for basic_object__equal_equal_' do
+      body = ast::IntrinsicCall.new(:basic_object__equal_equal_, [
+        ast::IntegerLiteral.from(1), ast::IntegerLiteral.from(2)
+      ])
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      # <boolean> is the synthetic union of TrueClass | FalseClass.
+      expect(pass.type_of(body).boolean_synth?).to be true
+    end
+
+    it 'infers nullable when annotation carries nullable: true' do
+      body = ast::IntrinsicCall.new(:string_slice, [ast::IntegerLiteral.from(0), ast::IntegerLiteral.from(3)])
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body)).to eq(t(:String, nullable: true))
+    end
+
+    it 'defaults to ⊤ for an unannotated intrinsic (annotation-missing => safe)' do
+      body = ast::IntrinsicCall.new(:not_declared_anywhere, [])
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body).top?).to be true
+    end
+
+    it 'infers ⊤ when annotation is :__top__' do
+      # hash_delete's value type is genuinely unknown at annotation
+      # time — the value came from user code with no shared type
+      # discipline. Declared explicitly to distinguish "unannotated"
+      # (bug) from "unannotable" (semantic ⊤).
+      body = ast::IntrinsicCall.new(:hash_delete, [])
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body).top?).to be true
     end
   end
 
