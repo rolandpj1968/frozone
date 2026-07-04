@@ -64,7 +64,18 @@ module Frozone
             [:method, class_flat.to_sym, method_name.to_sym].freeze
           end
 
-          # `methods` — Hash [class_flat, method_name] → Vm::Method
+          # `methods` — Hash [class_flat, method_name] → Vm::Method for
+          # EVERY reachable class with a walkable Ruby body — user classes
+          # AND universe classes alike. Universe classes are not special
+          # to TI: they're just classes with some methods whose bodies
+          # terminate in Intrinsics.foo calls. The Ruby↔C++ membrane is
+          # exclusively Intrinsics (annotated via INTRINSIC_RETURN_TYPES),
+          # so a class being "hand-coded structure" says nothing about
+          # whether TI can walk its method bodies. Hand-coded RubyClass
+          # overrides (raw C++ strings) are the actual TI-blind spot —
+          # those aren't Vm::Method entries and shouldn't appear in
+          # `methods` here; each occurrence is a de-intrinsification
+          # candidate.
           # `all_classes` — Hash flat_name → Vm::ModuleObject (for the lattice)
           def initialize(methods:, all_classes:)
             @methods = methods
@@ -188,13 +199,25 @@ module Frozone
             @lattice.bottom
           end
 
-          # Method-call return-type resolution. Tier 1:
-          #   - receiver type = ⊤ or unknown → return type = ⊤
-          #   - receiver type = concrete C, method registered on C → look up
-          #     C.m's return-type node in the engine's value map
-          #   - method is on a class we don't have in @methods (universe /
-          #     hand-coded) → ⊤ for now; intrinsic-return-type map is a
-          #     follow-up.
+          # Method-call return-type resolution. No distinction between
+          # universe and user classes — everything TI cares about is
+          # "does this class have a Ruby-body method entry for this name?"
+          # Universe classes are just classes that happen to have some
+          # methods that terminate in Intrinsics.foo (whose return types
+          # come from INTRINSIC_RETURN_TYPES, not any universe-specific
+          # annotation).
+          #
+          #   1. Walk the receiver's class-only ancestor chain (Ruby is
+          #      single-inheritance for classes; module_flattening has
+          #      already lowered module includes into per-class tables).
+          #   2. First class C in the chain with @methods[[C, name]] set
+          #      → look up C.name's return type via the engine.
+          #   3. No hit → ⊤ (either method_missing at runtime or the
+          #      method is a hand-coded override we haven't hoisted to
+          #      Ruby yet — a de-intrinsification candidate).
+          #
+          # ⊤ / ⊥ / <boolean> receivers → ⊤ (Tier 1 can't split
+          # <boolean> into TrueClass|FalseClass without cloning the call).
           def transfer_method_call(node, ctx)
             # Walk receiver + args + block so their types get cached.
             recv_type = node.receiver_node ? walk(node.receiver_node, ctx) : @lattice.concrete(ctx.class_flat)
@@ -203,11 +226,20 @@ module Frozone
 
             return @lattice.top if recv_type.top? || recv_type.bottom?
             recv_class = recv_type.concrete
-            # <boolean> receiver: no obvious way to look up "the" method's
-            # return without splitting into TrueClass/FalseClass; punt.
-            return @lattice.top if recv_class == :__boolean__ || !@methods.key?([recv_class, node.name])
+            return @lattice.top if recv_class == :__boolean__
 
-            ctx.lookup.call(self.class.method_node(recv_class, node.name))
+            resolve_method_call_return(recv_class, node.name, ctx)
+          end
+
+          # Walk the class-only ancestor chain from `recv_class` upward,
+          # returning the first hit's return-type node value.
+          def resolve_method_call_return(recv_class, method_name, ctx)
+            chain = @lattice.ancestor_chains[recv_class] || [recv_class]
+            chain.each do |cls|
+              next unless @methods.key?([cls, method_name])
+              return ctx.lookup.call(self.class.method_node(cls, method_name))
+            end
+            @lattice.top
           end
 
           # `Intrinsics.foo(...)` — Frozone's Ruby↔C++ membrane. The

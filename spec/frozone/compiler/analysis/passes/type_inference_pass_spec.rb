@@ -201,6 +201,88 @@ RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
     end
   end
 
+  describe 'MethodCall ancestor-chain walk (universe = user, no special case)' do
+    it 'finds a method defined on the receiver class directly' do
+      # class Foo; def bar; 42; end; end
+      # class Zap; def m; Foo.new.bar; end; end
+      # (elided: Foo.new — we just test that Foo#bar resolves to Integer)
+      bar_body = ast::IntegerLiteral.from(42)
+      recv = ast::LocalVariableWrite.new(:x, 0, ast::MethodCall.new(:noop, nil, [], []))
+      # Simpler: put the whole recv path into env with Foo type by writing.
+      # Actually simplest — call Foo#bar directly from Foo#outer via self.
+      outer_call = ast::MethodCall.new(:bar, ast::SelfLiteral::SELF, [], [])
+      methods = {
+        [:Foo, :bar]   => make_method(bar_body),
+        [:Foo, :outer] => make_method(outer_call),
+      }
+      pass = run_pass(methods)
+      expect(pass.type_of(outer_call)).to eq(t(:Integer))
+    end
+
+    it 'finds a method defined on the receiver`s superclass' do
+      # class Numeric; def sign; 1; end; end
+      # class Integer < Numeric; ; end
+      # class Foo; def m; some_int.sign; end; end
+      # where some_int has type Integer.
+      sign_body = ast::IntegerLiteral.from(1)
+      # some_int : Integer via a write, then read + call.
+      # To keep the test simple: use self of Foo, cast to Integer via
+      # a MethodCall on Foo that returns Integer, then call sign.
+      # Even simpler — manually seed a local as Integer via an
+      # IntrinsicCall whose annotation is Integer, then call sign.
+      int_from_intrinsic = ast::IntrinsicCall.new(:integer_to_s, [ast::IntegerLiteral.from(1)])
+      # Oops, that returns String. Use integer__plus_.
+      int_from_intrinsic = ast::IntrinsicCall.new(:integer__plus_, [
+        ast::IntegerLiteral.from(1), ast::IntegerLiteral.from(2)
+      ])
+      w = ast::LocalVariableWrite.new(:x, 0, int_from_intrinsic)
+      r = ast::LocalVariableRead.new(:x, 0)
+      call = ast::MethodCall.new(:sign, r, [], [])
+      body = ast::MethodCall.new(:noop, nil, [w, call], [])
+
+      methods = {
+        [:Numeric, :sign] => make_method(sign_body),
+        [:Foo, :m]        => make_method(body),
+      }
+      pass = run_pass(methods)
+      # Integer inherits from Numeric — sign found via chain walk.
+      expect(pass.type_of(call)).to eq(t(:Integer))
+    end
+
+    it 'returns ⊤ when the method is not found anywhere on the ancestor chain' do
+      # No `unknown_method` defined anywhere.
+      recv = ast::LocalVariableWrite.new(:x, 0,
+        ast::IntrinsicCall.new(:integer__plus_, [
+          ast::IntegerLiteral.from(1), ast::IntegerLiteral.from(2)
+        ]))
+      call = ast::MethodCall.new(:unknown_method, ast::LocalVariableRead.new(:x, 0), [], [])
+      body = ast::MethodCall.new(:noop, nil, [recv, call], [])
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(call).top?).to be true
+    end
+
+    it 'a universe class (e.g. Integer) is not special — its methods walk the same way' do
+      # This is the key test: put Integer#to_i in @methods just like a
+      # user class, and TI resolves it identically. No universe-specific
+      # code path.
+      to_i_body = ast::IntrinsicCall.new(:integer__plus_, [
+        ast::IntegerLiteral.from(0), ast::IntegerLiteral.from(0)
+      ])  # returns Integer per the intrinsic annotation
+      call = ast::MethodCall.new(:to_i,
+        ast::IntrinsicCall.new(:integer__plus_, [
+          ast::IntegerLiteral.from(1), ast::IntegerLiteral.from(2)
+        ]),
+        [], [])
+      methods = {
+        [:Integer, :to_i] => make_method(to_i_body),
+        [:Foo, :m]        => make_method(call),
+      }
+      pass = run_pass(methods)
+      expect(pass.type_of(call)).to eq(t(:Integer))
+    end
+  end
+
   describe 'IntrinsicCall — annotated return type via INTRINSIC_RETURN_TYPES' do
     it 'infers Integer for integer__plus_' do
       body = ast::IntrinsicCall.new(:integer__plus_, [
