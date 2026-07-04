@@ -497,7 +497,7 @@ namespace {
 
 BasicObject* intrinsic_string_encoding(BasicObject* self_) {
   auto* s = static_cast<String*>(self_);
-  return s->enc == String::BINARY ? k_Encoding_BINARY() : k_Encoding_UTF_8();
+  return s->enc == String::BINARY ? k_Encoding_BINARY() : k_Encoding_UTF__8();
 }
 
 BasicObject* intrinsic_string_force_encoding(BasicObject* self_, BasicObject* enc) {
