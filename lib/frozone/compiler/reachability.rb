@@ -42,6 +42,8 @@ require_relative '../ast/constant_path'
 require_relative '../ast/constant_read'
 require_relative '../ast/method_call'
 require_relative '../ast/node'
+require_relative '../ast/string_literal'
+require_relative '../ast/symbol_literal'
 require_relative '../vm/class_object'
 require_relative '../vm/module_object'
 require_relative '../vm/method'
@@ -120,6 +122,39 @@ module Frozone
           end
         end
         found
+      end
+
+      # Classify a reflection call site into one of four tiers, based
+      # on the shape of the receiver and the first positional argument
+      # (all six reflection primitives take the name/key as arg[0]).
+      # See docs/reflection-under-aot.md — "The switch-based framing"
+      # for the tier definitions:
+      #
+      #   :a — receiver is a constant, arg is a Symbol/String literal
+      #        → fully static, resolvable at compile time
+      #   :b — receiver is a constant, arg is dynamic
+      #        → receiver-scoped candidate set (walk receiver's constants /
+      #          methods / ivars)
+      #   :c — receiver is dynamic, arg is a literal
+      #        → TI narrows receiver, else over-approximate across
+      #          reachable classes that have a matching slot
+      #   :d — receiver and arg both dynamic
+      #        → force-root or refuse
+      #
+      # Implicit-self receiver (receiver_node.nil?) is treated as dynamic:
+      # without TI, self's type is unknown at the call site.
+      def classify_reflection_call(call_node)
+        return :d unless call_node.is_a?(Ast::MethodCall)
+        recv = call_node.receiver_node
+        arg0 = (call_node.arg_nodes || [])[0]
+        recv_static = recv.is_a?(Ast::ConstantRead) || recv.is_a?(Ast::ConstantPath)
+        arg_static  = arg0.is_a?(Ast::SymbolLiteral) || arg0.is_a?(Ast::StringLiteral)
+        case [recv_static, arg_static]
+        when [true, true]  then :a
+        when [true, false] then :b
+        when [false, true] then :c
+        else :d
+        end
       end
 
       # Walk an AST tree, yielding each MethodCall node whose method

@@ -187,6 +187,67 @@ RSpec.describe Frozone::Compiler::Reachability do
     end
   end
 
+  describe '.classify_reflection_call' do
+    def const(sym)      = Frozone::Ast::ConstantRead.new(sym)
+    def sym_lit(sym)    = Frozone::Ast::SymbolLiteral.from(sym)
+    def str_lit(str)    = Frozone::Ast::StringLiteral.from(str)
+    def call(recv, name, *args) = Frozone::Ast::MethodCall.new(name, recv, args, [])
+
+    it 'tier :a — constant receiver + Symbol literal arg' do
+      c = call(const(:Foo), :const_get, sym_lit(:Bar))
+      expect(described_class.classify_reflection_call(c)).to eq(:a)
+    end
+
+    it 'tier :a — constant receiver + String literal arg' do
+      c = call(const(:Foo), :const_get, str_lit('Bar'))
+      expect(described_class.classify_reflection_call(c)).to eq(:a)
+    end
+
+    it 'tier :b — constant receiver + dynamic arg' do
+      var_ref = call(nil, :dynamic_name)  # placeholder for any non-literal
+      c = call(const(:Foo), :const_get, var_ref)
+      expect(described_class.classify_reflection_call(c)).to eq(:b)
+    end
+
+    it 'tier :c — dynamic receiver + literal arg' do
+      var_ref = call(nil, :some_object)
+      c = call(var_ref, :instance_variable_get, sym_lit(:@x))
+      expect(described_class.classify_reflection_call(c)).to eq(:c)
+    end
+
+    it 'tier :d — dynamic receiver + dynamic arg' do
+      var_ref = call(nil, :some_object)
+      dyn_arg = call(nil, :name_var)
+      c = call(var_ref, :send, dyn_arg)
+      expect(described_class.classify_reflection_call(c)).to eq(:d)
+    end
+
+    it 'tier :d — implicit self receiver treated as dynamic' do
+      # `instance_variable_get(:@x)` inside a method — receiver_node is nil.
+      # Without TI we don't know self's class, so treat as dynamic receiver.
+      c = call(nil, :instance_variable_get, sym_lit(:@x))
+      expect(described_class.classify_reflection_call(c)).to eq(:c)  # arg is literal, so :c not :d
+    end
+
+    it 'tier :d — no arg at all' do
+      # Malformed but shouldn't crash — no literal arg → dynamic
+      c = call(const(:Foo), :const_get)
+      expect(described_class.classify_reflection_call(c)).to eq(:b)  # constant recv, no literal arg
+    end
+
+    it 'returns :d for non-MethodCall input' do
+      expect(described_class.classify_reflection_call(nil)).to eq(:d)
+      expect(described_class.classify_reflection_call(const(:Foo))).to eq(:d)
+    end
+
+    it 'tier :a — ConstantPath receiver counts as constant' do
+      # `Foo::Bar.const_get(:X)` — receiver is a ConstantPath
+      path = Frozone::Ast::ConstantPath.new(const(:Foo), :Bar)
+      c = call(path, :const_get, sym_lit(:X))
+      expect(described_class.classify_reflection_call(c)).to eq(:a)
+    end
+  end
+
   describe '.eigenclass_name and .eigenclass_flat' do
     let(:cls) { double('class', full_name: 'Foo::Bar', name: 'Bar') }
 
