@@ -387,6 +387,60 @@ RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
     end
   end
 
+  describe 'ConstantRead (Tier 1 — class-of-value; classes collapse to Class)' do
+    it 'defaults to ⊤ when no top_level_scope is provided' do
+      body = ast::ConstantRead.new(:Integer)
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = described_class.new(methods: methods, all_classes: hierarchy)
+      Frozone::Compiler::Analysis::Engine.new(pass).run
+      expect(pass.type_of(body).top?).to be true
+    end
+
+    it 'types a class-valued constant as Class' do
+      # top_level_scope with `Integer` mapped to the Integer class object.
+      scope = double('scope', constants_table: { Integer: hierarchy[:Integer] })
+      body = ast::ConstantRead.new(:Integer)
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = described_class.new(methods: methods, all_classes: hierarchy, top_level_scope: scope)
+      Frozone::Compiler::Analysis::Engine.new(pass).run
+      # Precision loss: Integer class → Class. This is the case that
+      # motivates the Class[X] Tier 2 extension.
+      expect(pass.type_of(body)).to eq(t(:Class))
+    end
+
+    it 'types a value-constant as the value`s class' do
+      # X = 42 — value is an IntegerObject; its class_object is Integer.
+      int_val = double('IntegerObject', class_object: hierarchy[:Integer])
+      allow(int_val).to receive(:is_a?).and_return(false)
+      allow(int_val).to receive(:respond_to?).with(:class_object).and_return(true)
+      scope = double('scope', constants_table: { X: int_val })
+      body = ast::ConstantRead.new(:X)
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = described_class.new(methods: methods, all_classes: hierarchy, top_level_scope: scope)
+      Frozone::Compiler::Analysis::Engine.new(pass).run
+      expect(pass.type_of(body)).to eq(t(:Integer))
+    end
+
+    it 'types a module-valued constant as Module' do
+      mod_val = Frozone::Vm::ModuleObject.new(:Comparable, nil)
+      scope = double('scope', constants_table: { Comparable: mod_val })
+      body = ast::ConstantRead.new(:Comparable)
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = described_class.new(methods: methods, all_classes: hierarchy, top_level_scope: scope)
+      Frozone::Compiler::Analysis::Engine.new(pass).run
+      expect(pass.type_of(body)).to eq(t(:Module))
+    end
+
+    it 'is ⊤ when the constant name isn`t in top_level_scope' do
+      scope = double('scope', constants_table: { Integer: hierarchy[:Integer] })
+      body = ast::ConstantRead.new(:NoSuchConst)
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = described_class.new(methods: methods, all_classes: hierarchy, top_level_scope: scope)
+      Frozone::Compiler::Analysis::Engine.new(pass).run
+      expect(pass.type_of(body).top?).to be true
+    end
+  end
+
   describe 'engine value map' do
     it 'stores each method-return-type node under [:method, C, m]' do
       body = ast::IntegerLiteral.from(1)

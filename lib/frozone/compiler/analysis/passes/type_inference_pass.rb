@@ -52,6 +52,7 @@ require_relative '../lattice'
 require_relative '../type_lattice'
 require_relative '../transfer_result'
 require_relative '../../../ast/node'
+require_relative '../../reachability'
 require_relative '../../backend/cpp_box/intrinsic_lowering'
 
 module Frozone
@@ -77,8 +78,12 @@ module Frozone
           # `methods` here; each occurrence is a de-intrinsification
           # candidate.
           # `all_classes` — Hash flat_name → Vm::ModuleObject (for the lattice)
-          def initialize(methods:, all_classes:)
+          # `top_level_scope` — Object's constants_table for ConstantRead
+          #                    resolution. Optional; defaults to no scope
+          #                    (all ConstantRead types as ⊤).
+          def initialize(methods:, all_classes:, top_level_scope: nil)
             @methods = methods
+            @top_level_scope = top_level_scope
             @lattice = TypeLattice.new(all_classes)
             @per_node_types = {}
           end
@@ -154,6 +159,7 @@ module Frozone
             when Ast::HashLiteral       then @lattice.concrete(:Hash)
             when Ast::SelfLiteral       then @lattice.concrete(ctx.class_flat)
             when Ast::LocalVariableRead then ctx.env[node.name] || @lattice.top
+            when Ast::ConstantRead      then transfer_constant_read(node)
             when Ast::LocalVariableWrite then transfer_local_write(node, ctx)
             when Ast::If                 then transfer_if(node, ctx)
             when Ast::Return             then transfer_return(node, ctx)
@@ -255,6 +261,48 @@ module Frozone
 
           CLASS_VALUE_METHODS = %i[new allocate].freeze
           private_constant :CLASS_VALUE_METHODS
+
+          # Type of a bare constant reference. Under the "class-of-value"
+          # rule, look up the constant's value in the top-level scope,
+          # then return its class as the type:
+          #
+          #   X = 42        → value: IntegerObject → type = Integer
+          #   Y = "hi"      → value: StringObject  → type = String
+          #   INT = Integer → value: Integer class → type = Class
+          #
+          # Class-valued constants (`Integer`, `String`, `Foo`) all
+          # collapse to `Class` under Tier 1. That precision loss is the
+          # motivating case for the Class[X] lattice extension in Tier 2.
+          # The AST-level peek in transfer_method_call already recovers
+          # the common `.new` / `.allocate` construction pattern on bare
+          # constant references without needing dependent types.
+          #
+          # Resolution is intentionally simple — top-level lookup only.
+          # Lexical scope walking and nested paths (Foo::Bar) come when
+          # we're typing programs that need them; the tighter rule
+          # goes through Compiler::Reachability.resolve_const_to_flat.
+          def transfer_constant_read(node)
+            return @lattice.top if @top_level_scope.nil?
+            val = (@top_level_scope.constants_table || {})[node.name.to_sym]
+            return @lattice.top if val.nil?
+            class_sym_of_value(val)
+          end
+
+          # Class-of-value primitive. A ClassObject's class is Class;
+          # a plain ModuleObject's class is Module (Class is a subclass
+          # of Module in Ruby); anything else uses its own class_object.
+          # Falls back to ⊤ for unfamiliar Vm value types.
+          def class_sym_of_value(val)
+            if val.is_a?(Vm::ClassObject)
+              @lattice.concrete(:Class)
+            elsif val.is_a?(Vm::ModuleObject)
+              @lattice.concrete(:Module)
+            elsif val.respond_to?(:class_object) && val.class_object
+              @lattice.concrete(Reachability.flat_name(val.class_object))
+            else
+              @lattice.top
+            end
+          end
 
           # If this call is `SomeClass.new(…)` / `SomeClass.allocate`
           # where SomeClass is a ConstantRead resolving to a known
