@@ -133,7 +133,16 @@ module Frozone
         def run
           # Seed lands directly into @values — there's no "previous round"
           # yet, so the eager/snapshot distinction is moot for the seed.
-          @pass.seed.each { |node, value| apply_update(node, value, into: @values) }
+          # Every seeded node is always enqueued for the first-round
+          # transfer, regardless of whether its seed value grows past
+          # the default. This matters for passes whose transfer LEARNS
+          # the value (TI: start at ⊥, transfer walks the body, joins
+          # up); a bottom-valued seed still needs to be visited once so
+          # the transfer runs.
+          @pass.seed.each do |node, value|
+            apply_update(node, value, into: @values)
+            @worklist << node
+          end
           case @mode
           when :eager    then drain_eager
           when :snapshot then drain_snapshot
