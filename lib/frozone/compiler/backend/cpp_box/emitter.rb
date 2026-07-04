@@ -1661,7 +1661,7 @@ module Frozone
               "  // C++ vtable layer. Dispatching :hash there would fall through",
               "  // to method_missing and BUG. Identity is the right default.",
               "  BO* _m = #{lim_call.call('hash')};",
-              "  if (!_m || _m == nil_instance() || _m == k_Frozone_Vm_ModuleObject_UNDEF__SENTINEL()) {",
+              "  if (!_m || _m == nil_instance() || _m == #{CppBox.k_call('Frozone::Vm::ModuleObject::UNDEF_SENTINEL')}) {",
               "    return reinterpret_cast<std::size_t>(_self);",
               "  }",
               "  BO* _ctx = g_fiber_storage()->op_aref(univ, new Array({intern(\"context\")}));",
@@ -1695,7 +1695,7 @@ module Frozone
               "  // already returned true if pointers match; otherwise default to",
               "  // false unless a Ruby `==` is registered.",
               "  BO* _m = #{lim_call.call('==')};",
-              "  if (!_m || _m == nil_instance() || _m == k_Frozone_Vm_ModuleObject_UNDEF__SENTINEL()) {",
+              "  if (!_m || _m == nil_instance() || _m == #{CppBox.k_call('Frozone::Vm::ModuleObject::UNDEF_SENTINEL')}) {",
               "    return false_instance();",
               "  }",
               "  BO* _ctx = g_fiber_storage()->op_aref(univ, new Array({intern(\"context\")}));",
@@ -3269,12 +3269,12 @@ module Frozone
             indented do
               line "FROZONE_GC_INIT();"
               line "__init_static_state__();"
-              # Populate ARGV from C++ argc/argv. Pre-AOT k_ARGV() is a
+              # Populate ARGV from C++ argc/argv. Pre-AOT #{CppBox.k_call('ARGV')} is a
               # static empty Array snapshot; without this the runtime
               # binary ignores its command-line args entirely. argv[0]
               # is the program name (matches Ruby's $PROGRAM_NAME, not
               # ARGV), so start from argv[1].
-              line "if (auto* arr = BO::try_cast<Array>(k_ARGV())) {"
+              line "if (auto* arr = BO::try_cast<Array>(#{CppBox.k_call('ARGV')})) {"
               indented do
                 line "for (int i = 1; i < argc; i++) arr->data.push_back(new String(argv[i]));"
               end
@@ -3311,7 +3311,7 @@ module Frozone
                 # ivar set by Exception#initialize. Mirrors Ruby's
                 # `(uncaught exception)` shape.
                 line "std::fprintf(stderr, \"%s\", e->ruby_class_name());"
-                line "if (e->mm_is_a_q_direct(&Exception_CLASS)) {"
+                line "if (e->mm_is_a_q_direct(#{CppBox.klass_ptr_ref('Exception')})) {"
                 indented do
                   line "auto* exc = static_cast<Exception*>(e);"
                   line "if (auto* msg = BO::try_cast<String>(exc->iv_message)) {"

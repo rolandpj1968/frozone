@@ -24,6 +24,8 @@
 #
 # Mixed into Cpp so call sites stay unchanged.
 
+require_relative 'naming'
+
 module Frozone
   module Compiler
     module Backend
@@ -65,7 +67,7 @@ module Frozone
               # `raise "msg"` is sugar for `raise RuntimeError.new("msg")`.
               if first.is_a?(Ast::StringLiteral) || first.is_a?(Ast::InterpolatedString)
                 msg_str = from_expr(first, locals)
-                return Cpp.throw_expr(["throw static_cast<Exception*>((&RuntimeError_CLASS)->m_new(univ, new Array({static_cast<BO*>(#{msg_str})})));"])
+                return Cpp.throw_expr(["throw static_cast<Exception*>(#{CppBox.klass_ptr_ref('RuntimeError')}->m_new(univ, new Array({static_cast<BO*>(#{msg_str})})));"])
               end
               expr_str = from_expr(first, locals)
               return Cpp.throw_expr(["throw static_cast<Exception*>(#{expr_str});"])
@@ -267,7 +269,7 @@ module Frozone
           # specs (`rescue *exprs => e`) still defer to
           # rescue_splat_matches, which walks the array at runtime.
           def rescue_clause_condition(clause, locals)
-            return "e_->mm_is_a_q_direct(&StandardError_CLASS)" if clause.exception_nodes.empty?
+            return "e_->mm_is_a_q_direct(#{CppBox.klass_ptr_ref('StandardError')})" if clause.exception_nodes.empty?
             clause.exception_nodes.map { |n|
               if n.is_a?(Ast::SplatArg)
                 "rescue_splat_matches(e_, #{from_expr(n.value_node, locals)})"

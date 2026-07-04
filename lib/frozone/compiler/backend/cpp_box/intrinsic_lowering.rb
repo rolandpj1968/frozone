@@ -22,6 +22,8 @@
 # already exist in lib/core/4.0/ — we don't generate the
 # Intrinsics module, just consume calls into it.
 
+require_relative 'naming'
+
 module Frozone
   module Compiler
     module Backend
@@ -401,7 +403,7 @@ module Frozone
             # path, etc. The WQ parser's lexer needs this for source
             # buffer scanning. Always returning UTF-8 is fine while
             # box-first only sees UTF-8 source files.
-            encoding_compatible: ->(_a, _b) { "k_Encoding_UTF__8()" },
+            encoding_compatible: ->(_a, _b) { CppBox.k_call("Encoding::UTF_8") },
             # Stub: assume the byte stream is valid UTF-8 (the WQ parser
             # needs this to gate its source-buffer encoding check).
             # Real walker would scan bytes for UTF-8 validity.
@@ -452,7 +454,7 @@ module Frozone
               )
             },
             string_to_r: ->(_self_) {
-              "(&Rational_CLASS)->m_new(univ, new Array({static_cast<BO*>(boxed_int(0)), static_cast<BO*>(boxed_int(1))}))"
+              "#{CppBox.klass_ptr_ref('Rational')}->m_new(univ, new Array({static_cast<BO*>(boxed_int(0)), static_cast<BO*>(boxed_int(1))}))"
             },
             # `String#to_sym` — interns the string. intern() takes a
             # const char*, so the string must be NUL-terminated. Copy
@@ -490,7 +492,7 @@ module Frozone
             string_unpack: ->(self_, fmt, _offset) { "string_unpack_helper(#{self_}, #{fmt})" },
 
             string_gsub: ->(self_, pat, repl, block) {
-              "string_gsub_helper(#{self_}, #{pat}, #{repl}, ((#{block}) && (#{block})->mm_is_a_q_direct(&Proc_CLASS) ? static_cast<Proc*>(#{block}) : nullptr))"
+              "string_gsub_helper(#{self_}, #{pat}, #{repl}, ((#{block}) && (#{block})->mm_is_a_q_direct(#{CppBox.klass_ptr_ref('Proc')}) ? static_cast<Proc*>(#{block}) : nullptr))"
             },
             string_scan: ->(self_, pat, block) {
               "string_scan_helper(#{self_}, #{pat}, #{block})"
@@ -499,7 +501,7 @@ module Frozone
             # matches once. WQ doesn't call sub yet, so an exact `sub`
             # impl can wait.
             string_sub: ->(self_, pat, repl, block) {
-              "string_gsub_helper(#{self_}, #{pat}, #{repl}, ((#{block}) && (#{block})->mm_is_a_q_direct(&Proc_CLASS) ? static_cast<Proc*>(#{block}) : nullptr))"
+              "string_gsub_helper(#{self_}, #{pat}, #{repl}, ((#{block}) && (#{block})->mm_is_a_q_direct(#{CppBox.klass_ptr_ref('Proc')}) ? static_cast<Proc*>(#{block}) : nullptr))"
             },
 
             # MatchData accessors. md[N] (Integer N) routes here.

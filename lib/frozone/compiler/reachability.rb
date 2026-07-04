@@ -267,9 +267,10 @@ module Frozone
       #   `Foo::Bar`     → `Foo_Bar`
       #   `Foo::Bar_Baz` → `Foo_Bar__Baz`
       #
-      # Single canonicalisation point serving reachability, the
-      # C++ class-name emitter, and every other flat-name site.
-      def flatten(fname_str) = fname_str.to_s.gsub("_", "__").gsub("::", "_")
+      # Delegates to Backend::CppBox.flatten — the dep-free source of
+      # truth. Kept here so existing `Reachability.flatten(...)` callers
+      # (analysis passes) still work without importing cpp_box/naming.
+      def flatten(fname_str) = Backend::CppBox.flatten(fname_str)
 
       # Flat-name of a Vm::Class/Module as Symbol. Preferred convenience
       # for hash-key + comparison sites.

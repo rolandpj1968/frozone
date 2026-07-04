@@ -14,6 +14,8 @@
 
 require_relative 'runtime/universe'
 
+require_relative 'naming'
+
 module Frozone
   module Compiler
     module Backend
@@ -833,7 +835,7 @@ module Frozone
               # all return &Class_CLASS (with_auto_overrides targets
               # Class_CLASS for any *_eig class). One virtual call +
               # pointer compare beats walking RTTI via dynamic_cast<Class*>.
-              emit.line "if (target->m_class(univ) != (&Class_CLASS)) return false_instance();"
+              emit.line "if (target->m_class(univ) != #{CppBox.klass_ptr_ref('Class')}) return false_instance();"
               emit.line "auto* tc = static_cast<Class*>(target);"
               emit.line "int target_id = tc->instance_class_id_;"
               emit.line "if (target_id < 0 || target_id >= N_CLASSES) return false_instance();"
@@ -852,7 +854,7 @@ module Frozone
             emit.indented do
               emit.line "int my_id = this->__class_id__();"
               emit.line "if (my_id < 0) return false;"
-              emit.line "if (target->m_class(univ) != (&Class_CLASS)) return false;"
+              emit.line "if (target->m_class(univ) != #{CppBox.klass_ptr_ref('Class')}) return false;"
               emit.line "auto* tc = static_cast<Class*>(target);"
               emit.line "int target_id = tc->instance_class_id_;"
               emit.line "if (target_id < 0 || target_id >= N_CLASSES) return false;"
@@ -878,9 +880,9 @@ module Frozone
                 # The eigenclass's parent tells us if its instance is a
                 # module or a class — `Module` parent → instance.class
                 # is Module; otherwise Class.
-                klass.parent == "Module" ? "Module_CLASS" : "Class_CLASS"
+                CppBox.klass_ptr_name(klass.parent == "Module" ? "Module" : "Class")
               else
-                "#{klass.name}_CLASS"
+                CppBox.klass_ptr_name(klass.name)
               end
             overrides = (klass.overrides || {}).dup
             overrides["m_class"] ||= { params: [], body: "return (&#{target});" }
@@ -1220,7 +1222,7 @@ module Frozone
               emit.line "msg->bytes.insert(msg->bytes.end(), suffix, suffix + sizeof(suffix) - 1);"
               emit.line "Array* mm_args = new Array();"
               emit.line "mm_args->data.push_back(static_cast<BO*>(msg));"
-              emit.line "throw static_cast<Exception*>((&TypeError_CLASS)->m_new(univ, mm_args));"
+              emit.line "throw static_cast<Exception*>(#{CppBox.klass_ptr_ref('TypeError')}->m_new(univ, mm_args));"
             end
             emit.line "}"
             emit.blank
@@ -1253,7 +1255,7 @@ module Frozone
               emit.line "msg->bytes.insert(msg->bytes.end(), const_name, const_name + nlen);"
               emit.line "Array* mm_args = new Array();"
               emit.line "mm_args->data.push_back(static_cast<BO*>(msg));"
-              emit.line "throw static_cast<Exception*>((&NameError_CLASS)->m_new(univ, mm_args));"
+              emit.line "throw static_cast<Exception*>(#{CppBox.klass_ptr_ref('NameError')}->m_new(univ, mm_args));"
             end
             emit.line "}"
             emit.blank
@@ -1291,7 +1293,7 @@ module Frozone
               emit.line "msg->bytes.insert(msg->bytes.end(), ruby_class_name(), ruby_class_name() + clen);"
               emit.line "Array* mm_args = new Array();"
               emit.line "mm_args->data.push_back(static_cast<BO*>(msg));"
-              emit.line "throw static_cast<Exception*>((&NoMethodError_CLASS)->m_new(univ, mm_args));"
+              emit.line "throw static_cast<Exception*>(#{CppBox.klass_ptr_ref('NoMethodError')}->m_new(univ, mm_args));"
             end
             emit.line "}"
             emit.blank
