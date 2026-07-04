@@ -33,6 +33,21 @@ module Frozone
     # `alias my_send __send__` (which shares the exact body ref). See
     # docs/reflection-under-aot.md.
     CANONICAL_REFLECTION_BODIES = {}
+
+    # AST body references for canonical predicate methods used by TI
+    # narrowing (is_a?, kind_of?, instance_of?, nil?). Populated by
+    # Vm#capture_canonical_predicate_bodies at end of load_core.
+    # Consumed by Compiler::Analysis::PredicateCanonicity — TI's narrowing
+    # transfer refuses to narrow via a predicate whose body isn't
+    # identity-equal to a captured canonical, so user overrides that
+    # return arbitrary values can't silently invalidate narrowed types.
+    #
+    # Shape: { predicate_name (Symbol) => Set<Ast::Node body> }.
+    # A predicate may have multiple canonical bodies (e.g. nil? has one
+    # body on Kernel that returns false and one body on NilClass that
+    # returns true — both are canonical; any user override with a
+    # different body is non-canonical).
+    CANONICAL_PREDICATE_BODIES = {}
   end
 end
 
@@ -323,6 +338,7 @@ module Frozone
         evaluate_file("#{core_path}/rubygems.rb")
         evaluate_file("#{core_path}/marshal.rb")
         capture_canonical_reflection_bodies
+        capture_canonical_predicate_bodies
       end
 
       # Snapshot the AST body references of the seven canonical
@@ -351,6 +367,34 @@ module Frozone
           m = cls.lookup_method(name)
           next unless m.is_a?(Method) && m.body
           ::Frozone::Vm::CANONICAL_REFLECTION_BODIES[name] = m.body
+        end
+      end
+
+      # Snapshot canonical predicate method bodies. See the
+      # CANONICAL_PREDICATE_BODIES doc-comment above. Substrate for
+      # TI narrowing — the actual soundness check (does class C's body
+      # match any captured canonical for name N?) lives in
+      # Compiler::Analysis::PredicateCanonicity.
+      #
+      # Kernel#is_a? + Kernel#kind_of? are aliased (see kernel.rb),
+      # so their captured bodies are identity-equal. That's fine —
+      # they both live in the :is_a?/:kind_of? sets independently and
+      # any override to either name is checked against its own set.
+      #
+      # Kernel#nil? returns false; NilClass#nil? returns true. Both
+      # are canonical — captured together into the :nil? set.
+      def capture_canonical_predicate_bodies
+        ::Frozone::Vm::CANONICAL_PREDICATE_BODIES.clear
+        [
+          [Core::OBJECT_CLASS,         :is_a?],
+          [Core::OBJECT_CLASS,         :kind_of?],
+          [Core::OBJECT_CLASS,         :instance_of?],
+          [Core::OBJECT_CLASS,         :nil?],
+          [Core::NIL_CLASS_CLASS,      :nil?],
+        ].each do |cls, name|
+          m = cls.lookup_method(name)
+          next unless m.is_a?(Method) && m.body
+          (::Frozone::Vm::CANONICAL_PREDICATE_BODIES[name] ||= Set.new) << m.body
         end
       end
 
