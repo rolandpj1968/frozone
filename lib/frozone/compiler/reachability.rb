@@ -58,7 +58,8 @@ module Frozone
 
       def compute(execute_block:, user_methods:, top_level_scope:,
                   seed_reachable_classes:, all_classes:,
-                  instantiated_classes: [], class_uses: {})
+                  instantiated_classes: [], class_uses: {},
+                  method_level: false)
         pass = Analysis::Passes::ReachabilityPass.new(
           execute_block:          execute_block,
           user_methods:           user_methods,
@@ -67,6 +68,7 @@ module Frozone
           seed_reachable_classes: seed_reachable_classes,
           instantiated_classes:   instantiated_classes,
           class_uses:             class_uses,
+          method_level:           method_level,
         )
         values = Analysis::Engine.new(pass).run
         # Filter to Symbol keys: virtual seed nodes (Array-tagged tuples)
@@ -74,7 +76,11 @@ module Frozone
         reach = values.each_with_object(Set.new) do |(node, v), r|
           r << node if node.is_a?(Symbol) && v == :reachable
         end
-        Result.new(reach: reach, reflection_findings: pass.reflection_findings)
+        Result.new(
+          reach:               reach,
+          reflection_findings: pass.reflection_findings,
+          walked_methods:      pass.walked_methods,
+        )
       end
 
       # Return value of Reachability.compute. `reach` is a Set of
@@ -87,7 +93,7 @@ module Frozone
       # `include?` and `each` delegate to `reach` so existing callers
       # (`reach.include?(flat)`, `reach.each { ... }`) still work
       # transparently.
-      Result = Struct.new(:reach, :reflection_findings, keyword_init: true) do
+      Result = Struct.new(:reach, :reflection_findings, :walked_methods, keyword_init: true) do
         def include?(flat) = reach.include?(flat)
         def each(&block)   = reach.each(&block)
         # Override Struct's default positional to_a — callers expect
@@ -191,6 +197,21 @@ module Frozone
         end
         if node.respond_to?(:children)
           node.children.each { |c| each_reflection_call_in(c, reflection_names, &block) }
+        end
+      end
+
+      # Walk an AST tree, yielding each MethodCall node's method name as
+      # a Symbol. Used by ReachabilityPass under method-level to push
+      # [:mname, :m] reachable for every call — the name-based fanout
+      # to every class defining that name (over-approximation without
+      # TI). Includes reflection calls: caller can layer tier-A/B/C
+      # rooting on top of the base fanout.
+      def each_method_call_name_in(node, &block)
+        return if node.nil?
+        return unless node.is_a?(Ast::Node)
+        block.call(node.name.to_sym) if node.is_a?(Ast::MethodCall)
+        if node.respond_to?(:children)
+          node.children.each { |c| each_method_call_name_in(c, &block) }
         end
       end
 

@@ -530,6 +530,12 @@ module Frozone
               # calling intrinsic_raise_regexp_error is the motivating
               # case — RegexpError isn't visible in any Ruby AST.
               class_uses:             Runtime.class_uses,
+              # Method-level reachability (opt-in): under FROZONE_REACHABILITY_METHOD_LEVEL=1
+              # only individually-called (class, method-name) pairs get
+              # walked instead of every method of every reached class.
+              # First cut — reflection (send tier A/B/C rooting) still
+              # over-approximates via name-based fanout.
+              method_level:           ENV['FROZONE_REACHABILITY_METHOD_LEVEL'] == '1',
             )
             kept = user_only.select { |flat, _| reach.include?(flat) }
             if ENV['FROZONE_BOX_DEBUG'] == '1'

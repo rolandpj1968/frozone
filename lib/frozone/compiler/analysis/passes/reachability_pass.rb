@@ -1,32 +1,48 @@
-# Class-level reachability pass on the unified analysis engine.
+# Reachability pass on the unified analysis engine. Two modes:
 #
-# The pass has two kinds of nodes in one lattice:
+#   Class-level (default): every reached class walks its whole
+#     methods_table + eigenclass methods_table. Coarse but safe.
 #
-#   1. Class flat-name Symbols (e.g. :Integer, :Frozone_Vm_ObjectObject)
-#      — the answers the compute wants. Universes and user classes are
-#      uniform: every class known to the closed world has a node, and
-#      universes are simply pre-seeded reachable (they emit unconditionally
-#      on the emit side; keeping them in the reach set here just gives one
-#      uniform transfer path).
+#   Method-level (method_level: true): only individually-reached
+#     (class, method-name) pairs get walked. A method-name is reached
+#     when any walked body calls `.m` — the transfer then fans out to
+#     every class in @all_classes that has `m` in its instance or
+#     eigenclass methods_table (name-based over-approximation without
+#     TI; TI narrows this later). Tier D reflection is the fallback
+#     — universe-of-names expansion, still to wire.
 #
-#   2. Virtual seed nodes — tagged Array tuples for the entry sources.
-#      Seeded :reachable; their transfer walks associated content (AST
-#      bodies, instantiated Vm values) and pushes class-name contributions.
+# Node kinds:
 #
-#      SEED_EXECUTE_BLOCK  — the program's top-level execution AST
-#      SEED_USER_METHODS   — top-level user def'd methods
-#      SEED_INSTANTIATED   — user-constant values (C++ accessors do
-#                            `new XClass()` with no AST trace)
+#   Symbols (class flat-names, e.g. :Integer)
+#     — the emit-set. Universes pre-seeded; user classes reached via
+#       constant refs (walked bodies), instantiated_classes seed, or
+#       method-level's [:mname, :m] fanout.
+#
+#   Virtual seed nodes (tagged Array tuples):
+#     SEED_EXECUTE_BLOCK  — top-level execution AST
+#     SEED_USER_METHODS   — top-level user def'd methods (class-mode only;
+#                           method-mode discovers them via [:mname, :m]
+#                           since they live in Object.methods_table)
+#     SEED_INSTANTIATED   — user-constant values (C++ accessors do
+#                           `new XClass()` with no AST trace)
+#
+#   Method-level nodes (only under method_level: true):
+#     [:mname, :m]             — method name m has been called somewhere
+#     [:cls_method, C, m]      — walk C.methods_table[m]
+#     [:cls_eig_method, C, m]  — walk C.eigenclass.methods_table[m]
 #
 # Lattice: TwoValueLattice(bottom=:unreachable, top=:reachable).
 #
 # Transfer (pure-push):
 #   virtual node → walk associated content, push :reachable to class
-#                  flat-names that appear as constant refs.
-#   class node   → walk methods_table + eigenclass methods_table for more
-#                  refs + push ancestor flat-names + push class_uses
-#                  (hand-coded C++ class-body deps for universe classes;
-#                  no-op for user classes).
+#                  flat-names / method-names.
+#   class node   → walk methods_table + eigenclass methods_table (class
+#                  mode only) + push ancestor flat-names + walk
+#                  constants_table + push class_uses.
+#   [:mname]     → for each class C with m in its (instance | eigenclass)
+#                  methods_table, push [:cls_method, C, m] (or eig variant)
+#                  reachable and push :C reachable.
+#   [:cls_method]/[:cls_eig_method] → walk that one method's body.
 #
 # Pure-push: no use of `lookup`. Converges in one eager drain — each
 # node processed once, 2-value lattice means no re-visit on grow.
@@ -69,7 +85,7 @@ module Frozone
 
           def initialize(execute_block:, user_methods:, top_level_scope:,
                          all_classes:, seed_reachable_classes:, instantiated_classes:,
-                         class_uses: {})
+                         class_uses: {}, method_level: false)
             @execute_block = execute_block
             @user_methods = user_methods
             @top_level_scope = top_level_scope
@@ -77,8 +93,24 @@ module Frozone
             @seed_reachable_classes = seed_reachable_classes
             @instantiated_classes = instantiated_classes
             @class_uses = class_uses
+            @method_level = method_level
             @reflection_names = Reachability.compute_reflection_method_names(all_classes)
             @reflection_findings = []
+            # Set of [flat_name, method_name, :instance | :eigen] triples for
+            # every method body walked under method-level. Populated by
+            # transfer_cls_method; empty under class-level. Consumed for
+            # measurement / diff (class-level walks everything so its
+            # equivalent set is derivable from reach × methods_table).
+            @walked_methods = Set.new
+            # Precomputed inverse indices for method-level fanout.
+            # method_owners[:foo]     → [flat, ...] classes with :foo in methods_table
+            # eig_method_owners[:foo] → [flat, ...] classes with :foo in eigenclass.methods_table
+            # Built once at init; [:mname, :m] transfer becomes an O(K) lookup
+            # instead of O(|classes| × |methods|) full scan per push.
+            if @method_level
+              @method_owners = build_method_owners_index
+              @eig_method_owners = build_eig_method_owners_index
+            end
           end
 
           def lattice = LATTICE
@@ -87,12 +119,20 @@ module Frozone
           # order. Filter by `.tier == :d` for the actionable set.
           attr_reader :reflection_findings
 
+          # Set of [flat_name, method_name, :instance | :eigen] triples
+          # walked under method-level. Empty under class-level.
+          attr_reader :walked_methods
+
           def seed
             seeds = {
               SEED_EXECUTE_BLOCK => :reachable,
-              SEED_USER_METHODS  => :reachable,
               SEED_INSTANTIATED  => :reachable,
             }
+            # Under method-level, top-level user defs are discovered via
+            # [:mname, :m] fanout — they live in Object.methods_table, so
+            # a call in execute_block seeds their walk. Redundant seed here
+            # would just re-walk them.
+            seeds[SEED_USER_METHODS] = :reachable unless @method_level
             @seed_reachable_classes.each do |sym|
               seeds[sym] = :reachable if @all_classes.key?(sym)
             end
@@ -119,6 +159,12 @@ module Frozone
               (@user_methods || {}).each_value { |m| walk_method(m, [], pushes) }
             when :instantiated_classes
               @instantiated_classes.each { |val| push_instantiated(val, pushes) }
+            when :mname
+              transfer_mname(node[1], pushes) if @method_level
+            when :cls_method
+              transfer_cls_method(node[1], node[2], pushes, instance: true) if @method_level
+            when :cls_eig_method
+              transfer_cls_method(node[1], node[2], pushes, instance: false) if @method_level
             end
             pushes.empty? ? TransferResult::EMPTY : TransferResult.push(pushes)
           end
@@ -127,11 +173,49 @@ module Frozone
             cls = @all_classes[flat_name]
             return TransferResult::EMPTY unless cls
             pushes = {}
-            push_method_refs(cls, pushes)
+            # Class-level: walk every method_table entry for this class.
+            # Method-level: skip — walking happens per (class, name) via
+            # [:cls_method] / [:cls_eig_method] as [:mname] fanout schedules.
+            push_method_refs(cls, pushes) unless @method_level
             push_ancestors(cls, pushes)
             push_constant_values(cls, pushes)
             push_class_uses(flat_name, pushes)
             pushes.empty? ? TransferResult::EMPTY : TransferResult.push(pushes)
+          end
+
+          # Method name m has been called. Fan out to every class in
+          # @all_classes that defines m — schedule its body-walk and
+          # push the owning class reachable (name-based over-approximation:
+          # x.m could dispatch to any receiver type with m). Precomputed
+          # indices make this O(K) per name.
+          def transfer_mname(method_name, pushes)
+            (@method_owners[method_name] || []).each do |flat|
+              pushes[[:cls_method, flat, method_name].freeze] = :reachable
+              pushes[flat] = :reachable
+            end
+            (@eig_method_owners[method_name] || []).each do |flat|
+              pushes[[:cls_eig_method, flat, method_name].freeze] = :reachable
+              pushes[flat] = :reachable
+            end
+          end
+
+          # Walk exactly one method body — C.methods_table[method_name] if
+          # instance:true, else C.eigenclass.methods_table[method_name].
+          # Scheduled by [:mname] fanout under method-level.
+          def transfer_cls_method(flat_name, method_name, pushes, instance:)
+            cls = @all_classes[flat_name]
+            return unless cls
+            table = if instance
+                      cls.methods_table
+                    else
+                      eigen = cls.eigenclass rescue nil
+                      eigen&.methods_table
+                    end
+            return unless table
+            m = table[method_name]
+            return unless m.is_a?(Vm::Method)
+            @walked_methods << [flat_name, method_name, instance ? :instance : :eigen].freeze
+            walk_method(m, Reachability.scope_for_class(cls), pushes)
           end
 
           def push_instantiated(val, pushes)
@@ -254,6 +338,14 @@ module Frozone
                 source_location: call.respond_to?(:source_location) ? call.source_location : nil,
               )
             end
+            # Method-level: every MethodCall's name reaches its [:mname]
+            # node. The [:mname] transfer then fans out to every class
+            # in @all_classes with that method in its (instance|eigenclass)
+            # methods_table. Name-based over-approximation without TI.
+            return unless @method_level
+            Reachability.each_method_call_name_in(body) do |mname|
+              pushes[[:mname, mname].freeze] = :reachable
+            end
           end
 
           # Hand-coded C++ class-body deps declared on a RubyClass entry
@@ -279,6 +371,33 @@ module Frozone
               next unless @all_classes.key?(flat)
               pushes[flat] = :reachable
             end
+          end
+
+          # method_owners[:foo] → Array of flat-name Symbols for every
+          # class in @all_classes whose instance methods_table defines
+          # :foo. Built once at init under method-level to keep the
+          # [:mname] transfer O(K) instead of O(|classes| × |methods|).
+          def build_method_owners_index
+            idx = {}
+            @all_classes.each do |flat, cls|
+              next unless cls.respond_to?(:methods_table)
+              (cls.methods_table || {}).each_key do |mname|
+                (idx[mname] ||= []) << flat
+              end
+            end
+            idx.each_value(&:freeze).freeze
+          end
+
+          def build_eig_method_owners_index
+            idx = {}
+            @all_classes.each do |flat, cls|
+              eigen = cls.eigenclass rescue nil
+              next unless eigen && eigen.respond_to?(:methods_table)
+              (eigen.methods_table || {}).each_key do |mname|
+                (idx[mname] ||= []) << flat
+              end
+            end
+            idx.each_value(&:freeze).freeze
           end
         end
       end

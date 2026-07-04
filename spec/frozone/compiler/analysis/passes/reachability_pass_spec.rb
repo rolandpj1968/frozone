@@ -309,6 +309,138 @@ RSpec.describe Frozone::Compiler::Analysis::Passes::ReachabilityPass do
     end
   end
 
+  describe 'method-level reachability' do
+    # Build a small class with two methods; walk only the called one.
+    def stubbed_method(body)
+      m = instance_double(Frozone::Vm::Method,
+        body: body,
+        optional_params: [],
+        optional_kw_params: [],
+      )
+      allow(m).to receive(:is_a?).and_return(false)
+      allow(m).to receive(:is_a?).with(Frozone::Vm::Method).and_return(true)
+      m
+    end
+
+    def stubbed_class(name, methods_table: {}, eigen_table: nil)
+      cls = instance_double(Frozone::Vm::ModuleObject, full_name: name.to_s, name: name.to_s)
+      allow(cls).to receive(:is_a?).and_return(false)
+      allow(cls).to receive(:is_a?).with(Frozone::Vm::ModuleObject).and_return(true)
+      allow(cls).to receive(:methods_table).and_return(methods_table)
+      allow(cls).to receive(:ancestors_list).and_return([])
+      allow(cls).to receive(:constants_table).and_return(nil)
+      eigen = if eigen_table
+                e = instance_double(Frozone::Vm::ModuleObject)
+                allow(e).to receive(:methods_table).and_return(eigen_table)
+                e
+              end
+      allow(cls).to receive(:eigenclass).and_return(eigen)
+      cls
+    end
+
+    it 'walks only the called method, not siblings on the same class' do
+      bar_body = Frozone::Ast::MethodCall.new(:noop, nil, [], [])  # trivial body
+      unused_body = Frozone::Ast::MethodCall.new(:something_else, nil, [], [])
+      foo_cls = stubbed_class(:Foo, methods_table: {
+        bar:            stubbed_method(bar_body),
+        unused_method:  stubbed_method(unused_body),
+      })
+      all_classes[:Foo] = foo_cls
+
+      exec_block = Frozone::Ast::MethodCall.new(:bar,
+        Frozone::Ast::ConstantRead.new(:Foo),
+        [], [])
+
+      pass = described_class.new(
+        execute_block:          exec_block,
+        user_methods:           {},
+        top_level_scope:        top_level_scope,
+        all_classes:            all_classes,
+        seed_reachable_classes: [],
+        instantiated_classes:   [],
+        method_level:           true,
+      )
+      Frozone::Compiler::Analysis::Engine.new(pass).run
+
+      walked_methods = pass.walked_methods.map { |c, m, _| [c, m] }
+      expect(walked_methods).to include([:Foo, :bar])
+      expect(walked_methods).not_to include([:Foo, :unused_method])
+    end
+
+    it 'fans out a method name to every class defining it (name-based over-approximation)' do
+      # Two classes both define :share_name. Both bodies walked when
+      # someone calls .share_name — TI would narrow this later.
+      foo_body = Frozone::Ast::MethodCall.new(:foo_marker, nil, [], [])
+      bar_body = Frozone::Ast::MethodCall.new(:bar_marker, nil, [], [])
+      all_classes[:Foo] = stubbed_class(:Foo, methods_table: { share_name: stubbed_method(foo_body) })
+      all_classes[:Bar] = stubbed_class(:Bar, methods_table: { share_name: stubbed_method(bar_body) })
+
+      # `x.share_name` — receiver x is dynamic. Both Foo and Bar could be it.
+      exec_block = Frozone::Ast::MethodCall.new(:share_name, nil, [], [])
+
+      pass = described_class.new(
+        execute_block:          exec_block,
+        user_methods:           {},
+        top_level_scope:        top_level_scope,
+        all_classes:            all_classes,
+        seed_reachable_classes: [],
+        instantiated_classes:   [],
+        method_level:           true,
+      )
+      Frozone::Compiler::Analysis::Engine.new(pass).run
+
+      walked_methods = pass.walked_methods.map { |c, m, _| [c, m] }
+      expect(walked_methods).to include([:Foo, :share_name])
+      expect(walked_methods).to include([:Bar, :share_name])
+    end
+
+    it 'walks eigenclass methods for class-method calls (e.g. Foo.new)' do
+      new_body = Frozone::Ast::MethodCall.new(:noop, nil, [], [])
+      all_classes[:Foo] = stubbed_class(:Foo,
+                                        methods_table: {},
+                                        eigen_table:   { new: stubbed_method(new_body) })
+
+      exec_block = Frozone::Ast::MethodCall.new(:new,
+        Frozone::Ast::ConstantRead.new(:Foo), [], [])
+
+      pass = described_class.new(
+        execute_block:          exec_block,
+        user_methods:           {},
+        top_level_scope:        top_level_scope,
+        all_classes:            all_classes,
+        seed_reachable_classes: [],
+        instantiated_classes:   [],
+        method_level:           true,
+      )
+      Frozone::Compiler::Analysis::Engine.new(pass).run
+
+      walked_methods = pass.walked_methods.to_a
+      expect(walked_methods).to include([:Foo, :new, :eigen])
+      expect(walked_methods).not_to include([:Foo, :new, :instance])
+    end
+
+    it 'walked_methods is empty under class-level (default mode)' do
+      # Class-level walks everything of every reached class but does not
+      # populate the per-(C, m) walked_methods set — that's only tracked
+      # under method-level.
+      foo_cls = stubbed_class(:Foo, methods_table: { bar: stubbed_method(nil) })
+      all_classes[:Foo] = foo_cls
+
+      pass = described_class.new(
+        execute_block:          nil,
+        user_methods:           {},
+        top_level_scope:        top_level_scope,
+        all_classes:            all_classes,
+        seed_reachable_classes: [:Foo],
+        instantiated_classes:   [],
+        # method_level: false — default
+      )
+      Frozone::Compiler::Analysis::Engine.new(pass).run
+
+      expect(pass.walked_methods).to be_empty
+    end
+  end
+
   describe '#transfer for :instantiated_classes virtual node' do
     it 'pushes flat-names for values whose class_object is in all_classes' do
       user_cls = instance_double(Frozone::Vm::ModuleObject, full_name: 'MyClass', name: 'MyClass')
