@@ -100,6 +100,10 @@ module Frozone
       def compute_reflection_method_names(all_classes)
         names = CANONICAL_REFLECTION_METHOD_NAMES.dup
         (all_classes || {}).each_value do |cls|
+          # Explicit respond_to? check — real Vm::ModuleObject always
+          # responds, test doubles may not stub methods_table, and
+          # walking past those is safe (they contribute no primitive).
+          next unless cls.respond_to?(:methods_table)
           (cls.methods_table || {}).each do |method_name, method|
             next unless method.is_a?(Vm::Method)
             names << method_name if body_reaches_reflection_intrinsic?(method.body)

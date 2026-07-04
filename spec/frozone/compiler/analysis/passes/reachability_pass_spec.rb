@@ -158,6 +158,100 @@ RSpec.describe Frozone::Compiler::Analysis::Passes::ReachabilityPass do
     end
   end
 
+  describe 'reflection call-site detection' do
+    def const(sym)   = Frozone::Ast::ConstantRead.new(sym)
+    def sym_lit(sym) = Frozone::Ast::SymbolLiteral.from(sym)
+    def call(recv, name, *args) = Frozone::Ast::MethodCall.new(name, recv, args, [])
+
+    it 'collects a ReflectionFinding for each reflection call in a walked body' do
+      # `Foo.const_get(:Bar)` — tier :a
+      body = call(const(:Foo), :const_get, sym_lit(:Bar))
+
+      method = instance_double(Frozone::Vm::Method,
+        body: body,
+        optional_params: [],
+        optional_kw_params: [],
+      )
+      allow(method).to receive(:is_a?).and_return(false)
+      allow(method).to receive(:is_a?).with(Frozone::Vm::Method).and_return(true)
+
+      foo_cls = instance_double(Frozone::Vm::ModuleObject, full_name: 'Foo', name: 'Foo')
+      allow(foo_cls).to receive(:is_a?).and_return(false)
+      allow(foo_cls).to receive(:is_a?).with(Frozone::Vm::ModuleObject).and_return(true)
+      allow(foo_cls).to receive(:eigenclass).and_return(nil)
+      allow(foo_cls).to receive(:methods_table).and_return({ do_lookup: method })
+      allow(foo_cls).to receive(:ancestors_list).and_return([])
+      allow(foo_cls).to receive(:constants_table).and_return(nil)
+
+      all_classes[:Foo] = foo_cls
+      pass.transfer(:Foo, :reachable, ->(_) { :unreachable })
+
+      expect(pass.reflection_findings.size).to eq(1)
+      finding = pass.reflection_findings.first
+      expect(finding.method_name).to eq(:const_get)
+      expect(finding.tier).to eq(:a)
+    end
+
+    it 'classifies each site by receiver/arg shape into tier :a/:b/:c/:d' do
+      # Two sites in one body: tier :a and tier :d
+      # (Chain via a block-like arg-list — body just needs to contain both calls)
+      a_call = call(const(:Foo), :const_get, sym_lit(:Bar))
+      var_recv = call(nil, :some_object)
+      var_arg = call(nil, :name_var)
+      d_call = call(var_recv, :send, var_arg)
+      # Compose: outer call whose args include both — walker recurses into children
+      outer = call(nil, :harness, a_call, d_call)
+
+      method = instance_double(Frozone::Vm::Method,
+        body: outer,
+        optional_params: [],
+        optional_kw_params: [],
+      )
+      allow(method).to receive(:is_a?).and_return(false)
+      allow(method).to receive(:is_a?).with(Frozone::Vm::Method).and_return(true)
+
+      foo_cls = instance_double(Frozone::Vm::ModuleObject, full_name: 'Foo', name: 'Foo')
+      allow(foo_cls).to receive(:is_a?).and_return(false)
+      allow(foo_cls).to receive(:is_a?).with(Frozone::Vm::ModuleObject).and_return(true)
+      allow(foo_cls).to receive(:eigenclass).and_return(nil)
+      allow(foo_cls).to receive(:methods_table).and_return({ m: method })
+      allow(foo_cls).to receive(:ancestors_list).and_return([])
+      allow(foo_cls).to receive(:constants_table).and_return(nil)
+
+      all_classes[:Foo] = foo_cls
+      pass.transfer(:Foo, :reachable, ->(_) { :unreachable })
+
+      tiers = pass.reflection_findings.map(&:tier)
+      expect(tiers).to contain_exactly(:a, :d)
+    end
+
+    it 'no findings when no reflection calls appear' do
+      # A body with a non-reflection MethodCall.
+      body = call(const(:Foo), :some_regular_method)
+
+      method = instance_double(Frozone::Vm::Method,
+        body: body,
+        optional_params: [],
+        optional_kw_params: [],
+      )
+      allow(method).to receive(:is_a?).and_return(false)
+      allow(method).to receive(:is_a?).with(Frozone::Vm::Method).and_return(true)
+
+      foo_cls = instance_double(Frozone::Vm::ModuleObject, full_name: 'Foo', name: 'Foo')
+      allow(foo_cls).to receive(:is_a?).and_return(false)
+      allow(foo_cls).to receive(:is_a?).with(Frozone::Vm::ModuleObject).and_return(true)
+      allow(foo_cls).to receive(:eigenclass).and_return(nil)
+      allow(foo_cls).to receive(:methods_table).and_return({ m: method })
+      allow(foo_cls).to receive(:ancestors_list).and_return([])
+      allow(foo_cls).to receive(:constants_table).and_return(nil)
+
+      all_classes[:Foo] = foo_cls
+      pass.transfer(:Foo, :reachable, ->(_) { :unreachable })
+
+      expect(pass.reflection_findings).to be_empty
+    end
+  end
+
   describe 'RubyClass class_uses: declaration' do
     it 'pushes declared class_uses for a reached universe overlay' do
       # A universe class Regexp has `uses: [:RegexpError]` on its

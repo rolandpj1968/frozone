@@ -63,6 +63,13 @@ module Frozone
 
           def self.universe_overlay_node(name) = [:universe_overlay, name.to_sym].freeze
 
+          # Surfaced at build time whenever a reflection call site is
+          # walked in a reachable method body. Tier :d is the actionable
+          # case (force-root or refuse); tiers :a/:b/:c are informational
+          # for now (rooting logic follows in later commits). See
+          # docs/reflection-under-aot.md and Reachability.classify_reflection_call.
+          ReflectionFinding = Struct.new(:method_name, :tier, :source_location, keyword_init: true)
+
           def initialize(execute_block:, user_methods:, top_level_scope:,
                          all_classes:, universe_class_names:, instantiated_classes:,
                          class_uses: {})
@@ -73,9 +80,15 @@ module Frozone
             @universe_class_names = universe_class_names
             @instantiated_classes = instantiated_classes
             @class_uses = class_uses
+            @reflection_names = Reachability.compute_reflection_method_names(all_classes)
+            @reflection_findings = []
           end
 
           def lattice = LATTICE
+
+          # Reflection call sites detected during the pass, in walk
+          # order. Filter by `.tier == :d` for the actionable set.
+          attr_reader :reflection_findings
 
           def seed
             seeds = {
@@ -245,6 +258,19 @@ module Frozone
                 next if @universe_class_names.include?(flat.to_s)
                 pushes[flat] = :reachable if @all_classes.key?(flat)
               end
+            end
+            # Reflection call-site detection. Walk for MethodCall nodes
+            # whose name is in the alias-closure REFLECTION_NAMES set;
+            # classify each by receiver/arg shape (tier :a/:b/:c/:d)
+            # and store as a finding for later emission of diagnostics
+            # (tier :d is the actionable case). Rooting logic for
+            # tiers :a/:b/:c comes in follow-up commits.
+            Reachability.each_reflection_call_in(body, @reflection_names) do |call|
+              @reflection_findings << ReflectionFinding.new(
+                method_name:     call.name.to_sym,
+                tier:            Reachability.classify_reflection_call(call),
+                source_location: call.respond_to?(:source_location) ? call.source_location : nil,
+              )
             end
           end
 
