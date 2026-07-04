@@ -3274,19 +3274,19 @@ module Frozone
               # binary ignores its command-line args entirely. argv[0]
               # is the program name (matches Ruby's $PROGRAM_NAME, not
               # ARGV), so start from argv[1].
-              line "if (auto* arr = Ruby::BO::try_cast<Ruby::Array>(Ruby::k_ARGV())) {"
+              line "if (auto* arr = BO::try_cast<Array>(k_ARGV())) {"
               indented do
-                line "for (int i = 1; i < argc; i++) arr->data.push_back(new Ruby::String(argv[i]));"
+                line "for (int i = 1; i < argc; i++) arr->data.push_back(new String(argv[i]));"
               end
               line "}"
-              line "Ruby::MainObject mo;"
+              line "MainObject mo;"
               line "try {"
               indented do
                 line "mo.__top_level__();"
               end
               # Kernel#exit / exit! throw SystemExitException; terminate
               # with its status (ensures already ran during unwinding).
-              line "} catch (Ruby::SystemExitException& se) {"
+              line "} catch (SystemExitException& se) {"
               indented do
                 line "std::fflush(stdout);"
                 line "return static_cast<int>(se.status);"
@@ -3298,23 +3298,23 @@ module Frozone
               # one slips through (raw `throw` from a path that never
               # entered kernel_catch), terminate would be the next
               # stop. Report and exit non-zero instead.
-              line "} catch (Ruby::ThrownTag* t) {"
+              line "} catch (ThrownTag* t) {"
               indented do
                 line %|std::fprintf(stderr, "uncaught throw\\n");|
                 line "(void)t;"
                 line "return 1;"
               end
-              line "} catch (Ruby::BO* e) {"
+              line "} catch (BO* e) {"
               indented do
                 # Print the exception class + iv_message (if any) to
                 # stderr. iv_message is the Exception's `@message`
                 # ivar set by Exception#initialize. Mirrors Ruby's
                 # `(uncaught exception)` shape.
                 line "std::fprintf(stderr, \"%s\", e->ruby_class_name());"
-                line "if (e->mm_is_a_q_direct(&Ruby::Exception_CLASS)) {"
+                line "if (e->mm_is_a_q_direct(&Exception_CLASS)) {"
                 indented do
-                  line "auto* exc = static_cast<Ruby::Exception*>(e);"
-                  line "if (auto* msg = Ruby::BO::try_cast<Ruby::String>(exc->iv_message)) {"
+                  line "auto* exc = static_cast<Exception*>(e);"
+                  line "if (auto* msg = BO::try_cast<String>(exc->iv_message)) {"
                   indented do
                     line "std::fputs(\": \", stderr);"
                     line "std::fwrite(msg->bytes.data(), 1, msg->bytes.size(), stderr);"

@@ -401,7 +401,7 @@ module Frozone
             # path, etc. The WQ parser's lexer needs this for source
             # buffer scanning. Always returning UTF-8 is fine while
             # box-first only sees UTF-8 source files.
-            encoding_compatible: ->(_a, _b) { "k_Encoding_UTF_8()" },
+            encoding_compatible: ->(_a, _b) { "k_Encoding_UTF__8()" },
             # Stub: assume the byte stream is valid UTF-8 (the WQ parser
             # needs this to gate its source-buffer encoding check).
             # Real walker would scan bytes for UTF-8 validity.

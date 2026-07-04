@@ -11,6 +11,8 @@
 # `lib/core/4.0/integer.rb`. The shape this emitter consumes won't
 # change — just the source of the bodies.
 
+require_relative '../naming'
+
 module Frozone
   module Compiler
     module Backend
@@ -1557,12 +1559,12 @@ module Frozone
             # still resolves m_new / m_class.
             eigen_parent =
               if klass.parent && !klass.parent.empty?
-                "#{klass.parent}#{Frozone::Compiler::Reachability::EIG_SUFFIX}"
+                "#{klass.parent}#{Frozone::Compiler::Backend::CppBox::EIG_SUFFIX}"
               else
                 klass.is_module ? "Module" : "Class"
               end
             RubyClass.new(
-              name: "#{klass.name}#{Frozone::Compiler::Reachability::EIG_SUFFIX}",
+              name: "#{klass.name}#{Frozone::Compiler::Backend::CppBox::EIG_SUFFIX}",
               parent: eigen_parent,
               ivars: (klass.eigenclass_ivars || []).map { |iv| "BO* iv_#{iv} = nil_instance();" },
               members: [%(const char* ruby_class_name() const override { return "#{klass.name}"; })],

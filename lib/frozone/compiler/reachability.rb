@@ -50,6 +50,7 @@ require_relative '../vm/method'
 require_relative 'analysis/engine'
 require_relative 'analysis/passes/reachability_pass'
 require_relative 'backend/cpp_box/intrinsic_lowering'
+require_relative 'backend/cpp_box/naming'
 
 module Frozone
   module Compiler
@@ -299,7 +300,11 @@ module Frozone
       # A nod to the Eigerwand while we're mangling names. Lowercase
       # matters: Ruby class names start uppercase, so no valid Ruby
       # class can collapse to a `_eig`-suffixed form.
-      EIG_SUFFIX = "_eig"
+      # Alias for backend/cpp_box/naming.rb's canonical constant. Kept
+      # here so existing callers (Reachability::EIG_SUFFIX) keep working;
+      # the source of truth lives in Backend::CppBox to break the
+      # load-order coupling for early consumers like runtime/universe.rb.
+      EIG_SUFFIX = Backend::CppBox::EIG_SUFFIX
       def eigenclass_name(cls) = "#{flatten(cls.full_name)}#{EIG_SUFFIX}"
       def eigenclass_flat(cls) = eigenclass_name(cls).to_sym
 
