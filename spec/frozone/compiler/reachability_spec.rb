@@ -106,46 +106,55 @@ RSpec.describe Frozone::Compiler::Reachability do
       end
     end
 
-    describe '.body_reaches_reflection_intrinsic?' do
-      it 'is true for a direct Intrinsics.basic_object___send__ call' do
-        body = intrinsics_call(:basic_object___send__)
-        expect(described_class.body_reaches_reflection_intrinsic?(body)).to be true
-      end
-
-      it 'is false for a non-reflection Intrinsics call' do
-        body = intrinsics_call(:regexp_new)
-        expect(described_class.body_reaches_reflection_intrinsic?(body)).to be false
-      end
-
-      it 'is false for nil body' do
-        expect(described_class.body_reaches_reflection_intrinsic?(nil)).to be false
-      end
-    end
-
     describe '.compute_reflection_method_names' do
-      it 'returns the canonical set when no classes contribute aliases' do
+      around do |ex|
+        saved = Frozone::Vm::CANONICAL_REFLECTION_BODIES.dup
+        Frozone::Vm::CANONICAL_REFLECTION_BODIES.clear
+        ex.run
+      ensure
+        Frozone::Vm::CANONICAL_REFLECTION_BODIES.clear
+        Frozone::Vm::CANONICAL_REFLECTION_BODIES.merge!(saved)
+      end
+
+      it 'returns the canonical set when the captured-bodies hash is empty' do
+        # No load_core has run in this context — no bodies captured.
         result = described_class.compute_reflection_method_names({})
         expect(result).to eq(described_class::CANONICAL_REFLECTION_METHOD_NAMES)
       end
 
-      it 'adds an alias whose method body reaches a reflection intrinsic' do
-        # `alias my_send __send__` — the aliased method's body IS __send__'s
-        # body (an Intrinsics.basic_object___send__ delegation).
-        aliased_body = intrinsics_call(:basic_object___send__)
-        cls = make_class({ my_send: make_method(aliased_body) })
+      it 'returns the canonical set when no methods share a captured body' do
+        Frozone::Vm::CANONICAL_REFLECTION_BODIES[:__send__] = intrinsics_call(:basic_object___send__)
+        # Different body object — not identity-equal, so not detected.
+        cls = make_class({ compile: make_method(intrinsics_call(:regexp_new)) })
+        result = described_class.compute_reflection_method_names({ Foo: cls })
+        expect(result).to eq(described_class::CANONICAL_REFLECTION_METHOD_NAMES)
+      end
+
+      it 'adds an alias whose method body is identity-equal to a captured canonical body' do
+        # `alias my_send __send__` — the aliased method-table entry SHARES the
+        # exact body ref with __send__. Identity comparison detects it.
+        captured = intrinsics_call(:basic_object___send__)
+        Frozone::Vm::CANONICAL_REFLECTION_BODIES[:__send__] = captured
+        cls = make_class({ my_send: make_method(captured) })
         result = described_class.compute_reflection_method_names({ Foo: cls })
         expect(result).to include(:my_send)
         expect(result).to include(*described_class::CANONICAL_REFLECTION_METHOD_NAMES)
       end
 
-      it 'does NOT add methods whose bodies only call non-reflection intrinsics' do
-        body = intrinsics_call(:regexp_new)
-        cls = make_class({ compile: make_method(body) })
+      it 'does NOT add wrappers that call a reflection primitive without sharing body' do
+        # `def my_send(...) = __send__(...)` — the wrapper's body is a fresh
+        # MethodCall AST node, NOT identity-equal to the captured body.
+        # ReachabilityPass catches the inner __send__ call via body-walk;
+        # my_send itself is not a reflection primitive.
+        Frozone::Vm::CANONICAL_REFLECTION_BODIES[:__send__] = intrinsics_call(:basic_object___send__)
+        wrapper_body = intrinsics_call(:basic_object___send__)
+        cls = make_class({ my_send: make_method(wrapper_body) })
         result = described_class.compute_reflection_method_names({ Foo: cls })
-        expect(result).not_to include(:compile)
+        expect(result).not_to include(:my_send)
       end
 
       it 'ignores methods_table entries that are not Vm::Method (e.g. RubyClass override hashes)' do
+        Frozone::Vm::CANONICAL_REFLECTION_BODIES[:__send__] = intrinsics_call(:basic_object___send__)
         cls = make_class({ some_override: { params: [], body: 'C++ body string' } })
         expect { described_class.compute_reflection_method_names({ Foo: cls }) }.not_to raise_error
       end

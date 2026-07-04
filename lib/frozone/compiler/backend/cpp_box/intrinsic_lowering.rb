@@ -731,29 +731,6 @@ module Frozone
           # Look up the declared class-name uses for a given
           # intrinsic. Returns [] for intrinsics with no declaration.
           def uses_of(name) = INTRINSIC_USES[name.to_sym] || []
-
-          # Reflection primitives — intrinsics whose Ruby wrappers are
-          # the canonical dynamic-name access methods (send / __send__ /
-          # public_send / instance_variable_get / instance_variable_set
-          # / const_get / const_set). Any user method whose body reaches
-          # one of these `Intrinsics.X(...)` calls is a reflection method
-          # — whether by original name, by alias (shares body), or by
-          # explicit wrapper.
-          #
-          # Reachability uses this set + the alias closure over reached
-          # method tables to build REFLECTION_NAMES, the set of method
-          # names to flag at reachable AST call sites for tier
-          # classification (see docs/reflection-under-aot.md).
-          REFLECTION_INTRINSIC_NAMES = Set.new(%i[
-            basic_object___send__
-            object_public_send
-            object_ivar_get
-            object_ivar_set
-            module_const_get
-            module_const_set
-          ]).freeze
-
-          def reflection_intrinsic?(name) = REFLECTION_INTRINSIC_NAMES.include?(name.to_sym)
         end
       end
     end

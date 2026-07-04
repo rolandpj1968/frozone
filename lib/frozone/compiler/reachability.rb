@@ -108,18 +108,30 @@ module Frozone
 
       # Compute the closure of method names that resolve to a reflection
       # primitive across the reachable class set. Seeded with the
-      # canonical names; extended with any method whose Ruby body
-      # reaches an `Intrinsics.X(...)` call for
-      # X ∈ REFLECTION_INTRINSIC_NAMES (catches aliases like
-      # `alias my_send __send__` — the method-table entry shares body
-      # with __send__ — and thin wrappers like `def my_send(...) = ...`
-      # that delegate through the canonical primitive).
+      # canonical names; extended with any method whose body is
+      # identity-equal (`equal?`) to one of the canonical bodies
+      # snapshotted in `Vm::CANONICAL_REFLECTION_BODIES` at end of
+      # load_core. This catches `alias my_send __send__` (the aliased
+      # method-table entry shares the exact body ref with __send__)
+      # cleanly, without also pulling in mundane wrappers that happen
+      # to call a reflection intrinsic — those wrappers don't need to
+      # be in the closure because ReachabilityPass walks method bodies
+      # anyway and will see the canonical MethodCall inside.
+      #
+      # Over-approximation is safe: if a user overrides `send` on some
+      # class to do something mundane, that override's body is NOT
+      # equal? to the captured canonical body, so it won't get added
+      # to the closure — but the base :send in CANONICAL_REFLECTION_METHOD_NAMES
+      # keeps the call site classified as reflection at the type-agnostic
+      # walk stage. TI can narrow later.
       #
       # Returns a frozen Set of method-name Symbols. Used by
       # ReachabilityPass to flag MethodCall sites for tier
       # classification (see docs/reflection-under-aot.md).
       def compute_reflection_method_names(all_classes)
         names = CANONICAL_REFLECTION_METHOD_NAMES.dup
+        canonical_body_ids = Set.new(Vm::CANONICAL_REFLECTION_BODIES.each_value.map(&:object_id))
+        return names.freeze if canonical_body_ids.empty?
         (all_classes || {}).each_value do |cls|
           # Explicit respond_to? check — real Vm::ModuleObject always
           # responds, test doubles may not stub methods_table, and
@@ -127,26 +139,11 @@ module Frozone
           next unless cls.respond_to?(:methods_table)
           (cls.methods_table || {}).each do |method_name, method|
             next unless method.is_a?(Vm::Method)
-            names << method_name if body_reaches_reflection_intrinsic?(method.body)
+            next unless method.body
+            names << method_name if canonical_body_ids.include?(method.body.object_id)
           end
         end
         names.freeze
-      end
-
-      # Walk an AST body, yielding true if any `Intrinsics.X(...)` call
-      # in the subtree names X ∈ REFLECTION_INTRINSIC_NAMES. Wraps the
-      # single-purpose predicate used by the closure computation.
-      def body_reaches_reflection_intrinsic?(body)
-        return false if body.nil?
-        found = false
-        each_intrinsic_ref_in(body) do |name|
-          if Backend::CppBox::IntrinsicLowering.reflection_intrinsic?(name)
-            found = true
-            # each_intrinsic_ref_in has no early-exit; the found flag
-            # short-circuits the intent even though the walk continues.
-          end
-        end
-        found
       end
 
       # Classify a reflection call site into one of four tiers, based

@@ -23,6 +23,16 @@ require_relative 'wq_parser'
 module Frozone
   module Vm
     EVAL_PARSER_CLASS = WqParser
+
+    # AST body references for the seven canonical reflection primitives,
+    # snapshotted at end of load_core (post core/4.0, pre user code).
+    # Populated by Vm#capture_canonical_reflection_bodies. Consumed by
+    # Compiler::Reachability.compute_reflection_method_names — the
+    # alias-closure walk over class method tables uses identity
+    # (`equal?`) comparison against these bodies to detect aliases like
+    # `alias my_send __send__` (which shares the exact body ref). See
+    # docs/reflection-under-aot.md.
+    CANONICAL_REFLECTION_BODIES = {}
   end
 end
 
@@ -312,6 +322,36 @@ module Frozone
         evaluate_file("#{core_path}/env.rb")
         evaluate_file("#{core_path}/rubygems.rb")
         evaluate_file("#{core_path}/marshal.rb")
+        capture_canonical_reflection_bodies
+      end
+
+      # Snapshot the AST body references of the seven canonical
+      # reflection primitives at post-core/4.0-load, before any user
+      # code executes. Reachability's alias-closure walk then does an
+      # identity check against these bodies to find aliases like
+      # `alias my_send __send__` (same body ref). Wrappers such as
+      # `def my_send(...); __send__(...); end` do NOT need to be in
+      # the closure — reachability walks method bodies anyway and
+      # will see the canonical MethodCall by name at the inner call
+      # site. See docs/reflection-under-aot.md and #221.
+      def capture_canonical_reflection_bodies
+        # Bare `Vm::` inside `Vm::Vm` would resolve to `self` (the class);
+        # the constant lives one level up on the `Frozone::Vm` module, so
+        # use the fully-qualified path.
+        ::Frozone::Vm::CANONICAL_REFLECTION_BODIES.clear
+        [
+          [Core::BASIC_OBJECT_CLASS, :__send__],
+          [Core::OBJECT_CLASS,       :send],
+          [Core::OBJECT_CLASS,       :public_send],
+          [Core::OBJECT_CLASS,       :instance_variable_get],
+          [Core::OBJECT_CLASS,       :instance_variable_set],
+          [Core::MODULE_CLASS,       :const_get],
+          [Core::MODULE_CLASS,       :const_set],
+        ].each do |cls, name|
+          m = cls.lookup_method(name)
+          next unless m.is_a?(Method) && m.body
+          ::Frozone::Vm::CANONICAL_REFLECTION_BODIES[name] = m.body
+        end
       end
 
       # Attach 'main' proxy singleton methods for private/public/protected → Object
