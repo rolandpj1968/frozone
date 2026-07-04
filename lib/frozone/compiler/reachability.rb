@@ -57,16 +57,16 @@ module Frozone
       module_function
 
       def compute(execute_block:, user_methods:, top_level_scope:,
-                  universe_class_names:, all_classes:,
+                  seed_reachable_classes:, all_classes:,
                   instantiated_classes: [], class_uses: {})
         pass = Analysis::Passes::ReachabilityPass.new(
-          execute_block:        execute_block,
-          user_methods:         user_methods,
-          top_level_scope:      top_level_scope,
-          all_classes:          all_classes,
-          universe_class_names: universe_class_names,
-          instantiated_classes: instantiated_classes,
-          class_uses:           class_uses,
+          execute_block:          execute_block,
+          user_methods:           user_methods,
+          top_level_scope:        top_level_scope,
+          all_classes:            all_classes,
+          seed_reachable_classes: seed_reachable_classes,
+          instantiated_classes:   instantiated_classes,
+          class_uses:             class_uses,
         )
         values = Analysis::Engine.new(pass).run
         # Filter to Symbol keys: virtual seed nodes (Array-tagged tuples)
@@ -213,20 +213,19 @@ module Frozone
       end
 
       # Walk an AST tree, yielding each referenced class as a flat-name
-      # Symbol, filtered to those in all_classes and not in
-      # universe_class_names. Used by ReachabilityPass's walk_body.
-      def each_class_ref_in(node, scope_prefixes, all_classes, universe_class_names, &block)
+      # Symbol, filtered to those in all_classes. Used by ReachabilityPass's
+      # walk_body. Universes live in all_classes and are pre-seeded reachable,
+      # so re-yielding them is a benign no-op in the engine.
+      def each_class_ref_in(node, scope_prefixes, all_classes, &block)
         return if node.nil?
         return unless node.is_a?(Ast::Node)
         case node
         when Ast::ConstantRead, Ast::ConstantPath
           flat = resolve_const_to_flat(node, scope_prefixes, all_classes)
-          if flat && all_classes.key?(flat) && !universe_class_names.include?(flat.to_s)
-            block.call(flat)
-          end
+          block.call(flat) if flat && all_classes.key?(flat)
         end
         if node.respond_to?(:children)
-          node.children.each { |c| each_class_ref_in(c, scope_prefixes, all_classes, universe_class_names, &block) }
+          node.children.each { |c| each_class_ref_in(c, scope_prefixes, all_classes, &block) }
         end
       end
 

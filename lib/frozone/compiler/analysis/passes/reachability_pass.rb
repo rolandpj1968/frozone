@@ -3,31 +3,30 @@
 # The pass has two kinds of nodes in one lattice:
 #
 #   1. Class flat-name Symbols (e.g. :Integer, :Frozone_Vm_ObjectObject)
-#      — the answers the compute wants. Transitively rooted from the
-#      seed contributions.
+#      — the answers the compute wants. Universes and user classes are
+#      uniform: every class known to the closed world has a node, and
+#      universes are simply pre-seeded reachable (they emit unconditionally
+#      on the emit side; keeping them in the reach set here just gives one
+#      uniform transfer path).
 #
-#   2. Virtual seed nodes — tagged Array tuples that represent the four
-#      classical entry sources. Each is seeded :reachable and their
-#      transfer functions walk their associated content (AST bodies,
-#      method tables, instantiated Vm values) and push flat-name Symbol
-#      contributions. They live in the value map alongside class nodes;
-#      callers of Reachability.compute filter to Symbol keys.
+#   2. Virtual seed nodes — tagged Array tuples for the entry sources.
+#      Seeded :reachable; their transfer walks associated content (AST
+#      bodies, instantiated Vm values) and pushes class-name contributions.
 #
-#      SEED_EXECUTE_BLOCK        — the program's top-level execution AST
-#      SEED_USER_METHODS         — top-level user def'd methods
-#      SEED_INSTANTIATED         — user-constant values (C++ accessors
-#                                  do `new XClass()` with no AST trace)
-#      [:universe_overlay, :Name] — one per universe class; walks the
-#                                   core/4.0 method-body Ruby that may
-#                                   reference user classes
+#      SEED_EXECUTE_BLOCK  — the program's top-level execution AST
+#      SEED_USER_METHODS   — top-level user def'd methods
+#      SEED_INSTANTIATED   — user-constant values (C++ accessors do
+#                            `new XClass()` with no AST trace)
 #
 # Lattice: TwoValueLattice(bottom=:unreachable, top=:reachable).
 #
 # Transfer (pure-push):
 #   virtual node → walk associated content, push :reachable to class
 #                  flat-names that appear as constant refs.
-#   class node   → walk methods_table + eigenclass methods_table for
-#                  more refs + push ancestor flat-names.
+#   class node   → walk methods_table + eigenclass methods_table for more
+#                  refs + push ancestor flat-names + push class_uses
+#                  (hand-coded C++ class-body deps for universe classes;
+#                  no-op for user classes).
 #
 # Pure-push: no use of `lookup`. Converges in one eager drain — each
 # node processed once, 2-value lattice means no re-visit on grow.
@@ -61,8 +60,6 @@ module Frozone
           SEED_USER_METHODS  = [:user_methods].freeze
           SEED_INSTANTIATED  = [:instantiated_classes].freeze
 
-          def self.universe_overlay_node(name) = [:universe_overlay, name.to_sym].freeze
-
           # Surfaced at build time whenever a reflection call site is
           # walked in a reachable method body. Tier :d is the actionable
           # case (force-root or refuse); tiers :a/:b/:c are informational
@@ -71,13 +68,13 @@ module Frozone
           ReflectionFinding = Struct.new(:method_name, :tier, :source_location, keyword_init: true)
 
           def initialize(execute_block:, user_methods:, top_level_scope:,
-                         all_classes:, universe_class_names:, instantiated_classes:,
+                         all_classes:, seed_reachable_classes:, instantiated_classes:,
                          class_uses: {})
             @execute_block = execute_block
             @user_methods = user_methods
             @top_level_scope = top_level_scope
             @all_classes = all_classes
-            @universe_class_names = universe_class_names
+            @seed_reachable_classes = seed_reachable_classes
             @instantiated_classes = instantiated_classes
             @class_uses = class_uses
             @reflection_names = Reachability.compute_reflection_method_names(all_classes)
@@ -96,11 +93,8 @@ module Frozone
               SEED_USER_METHODS  => :reachable,
               SEED_INSTANTIATED  => :reachable,
             }
-            top = @top_level_scope.constants_table || {}
-            @universe_class_names.each do |name|
-              cls = top[name.to_sym]
-              next unless cls.is_a?(Vm::ModuleObject)
-              seeds[self.class.universe_overlay_node(name)] = :reachable
+            @seed_reachable_classes.each do |sym|
+              seeds[sym] = :reachable if @all_classes.key?(sym)
             end
             seeds
           end
@@ -125,18 +119,6 @@ module Frozone
               (@user_methods || {}).each_value { |m| walk_method(m, [], pushes) }
             when :instantiated_classes
               @instantiated_classes.each { |val| push_instantiated(val, pushes) }
-            when :universe_overlay
-              cls = (@top_level_scope.constants_table || {})[node[1]]
-              return TransferResult::EMPTY unless cls.is_a?(Vm::ModuleObject)
-              scope = Reachability.scope_for_class(cls)
-              walk_methods(cls.methods_table, scope, pushes)
-              eigen = cls.eigenclass rescue nil
-              walk_methods(eigen.methods_table, scope, pushes) if eigen
-              # Push hand-coded C++ class-body dependencies declared on
-              # the universe class's RubyClass entry (task #219). Sibling
-              # mechanism to IntrinsicLowering::INTRINSIC_USES for
-              # class-level (not intrinsic-level) declarations.
-              push_class_uses(node[1], pushes)
             end
             pushes.empty? ? TransferResult::EMPTY : TransferResult.push(pushes)
           end
@@ -148,6 +130,7 @@ module Frozone
             push_method_refs(cls, pushes)
             push_ancestors(cls, pushes)
             push_constant_values(cls, pushes)
+            push_class_uses(flat_name, pushes)
             pushes.empty? ? TransferResult::EMPTY : TransferResult.push(pushes)
           end
 
@@ -197,12 +180,12 @@ module Frozone
             end
           end
 
-          # Push a Vm class's flat name if it's in-universe (i.e., not a
-          # hand-coded universe class that we always emit) and in the
-          # closed-world snapshot.
+          # Push a Vm class's flat name if in the closed-world snapshot.
+          # No universe filter — universes are in @all_classes too and
+          # are pre-seeded reachable; re-pushing to an already-reachable
+          # node is a no-op in the engine.
           def push_class_flat_name(cls, pushes)
             flat = Reachability.flat_name(cls)
-            return if @universe_class_names.include?(flat.to_s)
             pushes[flat] = :reachable if @all_classes.key?(flat)
           end
 
@@ -244,7 +227,7 @@ module Frozone
 
           def walk_body(body, scope, pushes)
             return if body.nil?
-            Reachability.each_class_ref_in(body, scope, @all_classes, @universe_class_names) do |flat|
+            Reachability.each_class_ref_in(body, scope, @all_classes) do |flat|
               pushes[flat] = :reachable
             end
             # Intrinsic-declared dependencies: `Intrinsics.X(...)` calls
@@ -255,7 +238,6 @@ module Frozone
             Reachability.each_intrinsic_ref_in(body) do |intrinsic_name|
               Backend::CppBox::IntrinsicLowering.uses_of(intrinsic_name).each do |cls_sym|
                 flat = Reachability.flatten(cls_sym.to_s).to_sym
-                next if @universe_class_names.include?(flat.to_s)
                 pushes[flat] = :reachable if @all_classes.key?(flat)
               end
             end
@@ -274,12 +256,16 @@ module Frozone
             end
           end
 
-          def push_class_uses(universe_name_sym, pushes)
-            list = @class_uses[universe_name_sym]
+          # Hand-coded C++ class-body deps declared on a RubyClass entry
+          # (task #219). Sibling of IntrinsicLowering::INTRINSIC_USES for
+          # class-level (not intrinsic-level) declarations. Runs for every
+          # reached class; @class_uses[flat_name] is empty for user classes
+          # (declarations only live on RubyClass entries → universes).
+          def push_class_uses(flat_name, pushes)
+            list = @class_uses[flat_name]
             return unless list && !list.empty?
             list.each do |cls_sym|
               flat = Reachability.flatten(cls_sym.to_s).to_sym
-              next if @universe_class_names.include?(flat.to_s)
               pushes[flat] = :reachable if @all_classes.key?(flat)
             end
           end
@@ -288,9 +274,7 @@ module Frozone
             (cls.ancestors_list rescue []).each do |a|
               next unless a.is_a?(Vm::ModuleObject)
               flat = Reachability.flat_name(a)
-              next if @universe_class_names.include?(flat.to_s)
-              # Old `schedule_class` filtered via all_classes.key?(flat);
-              # apply the same check here so spurious ancestors (not in
+              # Filter via all_classes.key? — spurious ancestors (not in
               # the closed-world snapshot) don't pollute the reach set.
               next unless @all_classes.key?(flat)
               pushes[flat] = :reachable

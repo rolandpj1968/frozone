@@ -505,30 +505,51 @@ module Frozone
           # eigenclass exactly like a Class's class methods. Module
           # instances are never allocated; the struct is just a marker.
           def collect_all_classes
-            all = collect_all_classes_unfiltered
-            return all if ENV['FROZONE_BOX_NO_PRUNE'] == '1'
+            user_only = collect_all_classes_unfiltered
+            return user_only if ENV['FROZONE_BOX_NO_PRUNE'] == '1'
+            # Universes go into all_classes alongside user classes so
+            # the class-node transfer treats them uniformly. Pre-seed
+            # them reachable via seed_reachable_classes — nothing else
+            # would push their flat-names. Emission stays user-only
+            # (kept is filtered from user_only, not the merged map),
+            # so no double-emit risk.
+            universe_map = build_universe_class_map
+            all = user_only.merge(universe_map)
             reach = Reachability.compute(
-              execute_block:        @execute_block,
-              user_methods:         user_methods,
-              top_level_scope:      @top_level_scope,
-              universe_class_names: UNIVERSE_NAMES,
-              all_classes:          all,
+              execute_block:          @execute_block,
+              user_methods:           user_methods,
+              top_level_scope:        @top_level_scope,
+              seed_reachable_classes: universe_map.keys,
+              all_classes:            all,
               # User constants instantiate their class via C++
               # `new XClass()` in the accessor body — no AST trace,
               # so we have to root them explicitly.
-              instantiated_classes: @user_constants.values,
+              instantiated_classes:   @user_constants.values,
               # Hand-coded C++ class-body dependencies (RubyClass.uses:)
               # for universe classes. Regexp::m_initialize's C++ body
               # calling intrinsic_raise_regexp_error is the motivating
               # case — RegexpError isn't visible in any Ruby AST.
-              class_uses:           Runtime.class_uses,
+              class_uses:             Runtime.class_uses,
             )
-            kept = all.select { |flat, _| reach.include?(flat) }
+            kept = user_only.select { |flat, _| reach.include?(flat) }
             if ENV['FROZONE_BOX_DEBUG'] == '1'
-              $stderr.puts "[box-first] reachability pruning: #{kept.size}/#{all.size} user classes kept"
+              $stderr.puts "[box-first] reachability pruning: #{kept.size}/#{user_only.size} user classes kept"
             end
             report_reflection_findings(reach.reflection_findings)
             kept
+          end
+
+          # Resolve universe class name Symbols to their top-level scope
+          # constants. Feeds seed_reachable_classes so their :C nodes are
+          # reachable from the start, driving the uniform class-node
+          # transfer over their methods/ancestors/constants.
+          def build_universe_class_map
+            scope = @top_level_scope
+            UNIVERSE_NAMES.each_with_object({}) do |name, m|
+              key = name.to_sym
+              val = (scope.constants_table || {})[key]
+              m[key] = val if val.is_a?(Vm::ClassObject) || val.is_a?(Vm::ModuleObject)
+            end
           end
 
           # Emit build-time warnings for tier-D reflection call sites —
