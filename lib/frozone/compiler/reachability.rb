@@ -71,9 +71,30 @@ module Frozone
         values = Analysis::Engine.new(pass).run
         # Filter to Symbol keys: virtual seed nodes (Array-tagged tuples)
         # also live in the value map but they're not reachable classes.
-        values.each_with_object(Set.new) do |(node, v), reach|
-          reach << node if node.is_a?(Symbol) && v == :reachable
+        reach = values.each_with_object(Set.new) do |(node, v), r|
+          r << node if node.is_a?(Symbol) && v == :reachable
         end
+        Result.new(reach: reach, reflection_findings: pass.reflection_findings)
+      end
+
+      # Return value of Reachability.compute. `reach` is a Set of
+      # flat-name Symbols (the classes that must be emitted). `reflection_findings`
+      # is an Array of ReachabilityPass::ReflectionFinding structs — each a
+      # `{method_name:, tier:, source_location:}` record for a
+      # reflection call site detected during the pass. Callers filter
+      # by `.tier == :d` for the actionable diagnostic set.
+      #
+      # `include?` and `each` delegate to `reach` so existing callers
+      # (`reach.include?(flat)`, `reach.each { ... }`) still work
+      # transparently.
+      Result = Struct.new(:reach, :reflection_findings, keyword_init: true) do
+        def include?(flat) = reach.include?(flat)
+        def each(&block)   = reach.each(&block)
+        # Override Struct's default positional to_a — callers expect
+        # iterating a Result to see the reach set members, not the
+        # Struct's positional members.
+        def to_a           = reach.to_a
+        def size           = reach.size
       end
 
       # Canonical Ruby method names for the reflection primitives —

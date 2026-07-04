@@ -527,7 +527,22 @@ module Frozone
             if ENV['FROZONE_BOX_DEBUG'] == '1'
               $stderr.puts "[box-first] reachability pruning: #{kept.size}/#{all.size} user classes kept"
             end
+            report_reflection_findings(reach.reflection_findings)
             kept
+          end
+
+          # Emit build-time warnings for tier-D reflection call sites —
+          # dynamic-receiver, dynamic-arg reflection escapes that can't
+          # be resolved statically and require force-root declaration or
+          # program restructure. Non-fatal today; force-root manifest
+          # + hard failure follow later.
+          def report_reflection_findings(findings)
+            return unless findings
+            findings.each do |f|
+              next unless f.tier == :d
+              loc = f.source_location || '(unknown location)'
+              $stderr.puts "[box-first] reflection escape (tier D): #{f.method_name} at #{loc} — dynamic receiver and dynamic arg; consider force-root or refactor"
+            end
           end
 
           # Walk top_level_scope.constants_table for every Vm::ClassObject

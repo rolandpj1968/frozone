@@ -187,6 +187,30 @@ RSpec.describe Frozone::Compiler::Reachability do
     end
   end
 
+  describe 'Result struct' do
+    it 'delegates include? to reach' do
+      reach = Set.new(%i[Foo Bar])
+      result = described_class::Result.new(reach: reach, reflection_findings: [])
+      expect(result.include?(:Foo)).to be true
+      expect(result.include?(:Baz)).to be false
+    end
+
+    it 'exposes reflection_findings verbatim' do
+      finding = Frozone::Compiler::Analysis::Passes::ReachabilityPass::ReflectionFinding.new(
+        method_name: :send, tier: :d, source_location: 'foo.rb:1',
+      )
+      result = described_class::Result.new(reach: Set.new, reflection_findings: [finding])
+      expect(result.reflection_findings).to eq([finding])
+    end
+
+    it 'delegates enumeration to reach' do
+      reach = Set.new(%i[Foo Bar])
+      result = described_class::Result.new(reach: reach, reflection_findings: [])
+      expect(result.to_a).to contain_exactly(:Foo, :Bar)
+      expect(result.size).to eq(2)
+    end
+  end
+
   describe '.classify_reflection_call' do
     def const(sym)      = Frozone::Ast::ConstantRead.new(sym)
     def sym_lit(sym)    = Frozone::Ast::SymbolLiteral.from(sym)
