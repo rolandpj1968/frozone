@@ -47,6 +47,7 @@ require_relative '../vm/module_object'
 require_relative '../vm/method'
 require_relative 'analysis/engine'
 require_relative 'analysis/passes/reachability_pass'
+require_relative 'backend/cpp_box/intrinsic_lowering'
 
 module Frozone
   module Compiler
@@ -70,6 +71,69 @@ module Frozone
         # also live in the value map but they're not reachable classes.
         values.each_with_object(Set.new) do |(node, v), reach|
           reach << node if node.is_a?(Symbol) && v == :reachable
+        end
+      end
+
+      # Canonical Ruby method names for the reflection primitives —
+      # always in the reflection-name set regardless of whether their
+      # method-table entries appear during the alias-closure walk.
+      CANONICAL_REFLECTION_METHOD_NAMES = Set.new(%i[
+        send __send__ public_send
+        instance_variable_get instance_variable_set
+        const_get const_set
+      ]).freeze
+
+      # Compute the closure of method names that resolve to a reflection
+      # primitive across the reachable class set. Seeded with the
+      # canonical names; extended with any method whose Ruby body
+      # reaches an `Intrinsics.X(...)` call for
+      # X ∈ REFLECTION_INTRINSIC_NAMES (catches aliases like
+      # `alias my_send __send__` — the method-table entry shares body
+      # with __send__ — and thin wrappers like `def my_send(...) = ...`
+      # that delegate through the canonical primitive).
+      #
+      # Returns a frozen Set of method-name Symbols. Used by
+      # ReachabilityPass to flag MethodCall sites for tier
+      # classification (see docs/reflection-under-aot.md).
+      def compute_reflection_method_names(all_classes)
+        names = CANONICAL_REFLECTION_METHOD_NAMES.dup
+        (all_classes || {}).each_value do |cls|
+          (cls.methods_table || {}).each do |method_name, method|
+            next unless method.is_a?(Vm::Method)
+            names << method_name if body_reaches_reflection_intrinsic?(method.body)
+          end
+        end
+        names.freeze
+      end
+
+      # Walk an AST body, yielding true if any `Intrinsics.X(...)` call
+      # in the subtree names X ∈ REFLECTION_INTRINSIC_NAMES. Wraps the
+      # single-purpose predicate used by the closure computation.
+      def body_reaches_reflection_intrinsic?(body)
+        return false if body.nil?
+        found = false
+        each_intrinsic_ref_in(body) do |name|
+          if Backend::CppBox::IntrinsicLowering.reflection_intrinsic?(name)
+            found = true
+            # each_intrinsic_ref_in has no early-exit; the found flag
+            # short-circuits the intent even though the walk continues.
+          end
+        end
+        found
+      end
+
+      # Walk an AST tree, yielding each MethodCall node whose method
+      # name is in `reflection_names` — i.e., call sites for tier
+      # A/B/C/D classification. The receiver_node, arg_nodes, and
+      # source_location are all available on the yielded node.
+      def each_reflection_call_in(node, reflection_names, &block)
+        return if node.nil?
+        return unless node.is_a?(Ast::Node)
+        if node.is_a?(Ast::MethodCall) && reflection_names.include?(node.name.to_sym)
+          block.call(node)
+        end
+        if node.respond_to?(:children)
+          node.children.each { |c| each_reflection_call_in(c, reflection_names, &block) }
         end
       end
 

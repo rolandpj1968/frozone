@@ -78,6 +78,115 @@ RSpec.describe Frozone::Compiler::Reachability do
     end
   end
 
+  describe 'reflection method-name detection' do
+    def intrinsics_call(name, *args)
+      recv = Frozone::Ast::ConstantRead.new(:Intrinsics)
+      Frozone::Ast::MethodCall.new(name, recv, args, [])
+    end
+
+    def make_method(body)
+      m = instance_double(Frozone::Vm::Method, body: body)
+      allow(m).to receive(:is_a?).and_return(false)
+      allow(m).to receive(:is_a?).with(Frozone::Vm::Method).and_return(true)
+      m
+    end
+
+    def make_class(methods)
+      cls = double('class', methods_table: methods)
+      cls
+    end
+
+    describe '.CANONICAL_REFLECTION_METHOD_NAMES' do
+      it 'contains the seven canonical reflection method names' do
+        expect(described_class::CANONICAL_REFLECTION_METHOD_NAMES).to eq(
+          Set.new(%i[send __send__ public_send
+                     instance_variable_get instance_variable_set
+                     const_get const_set])
+        )
+      end
+    end
+
+    describe '.body_reaches_reflection_intrinsic?' do
+      it 'is true for a direct Intrinsics.basic_object___send__ call' do
+        body = intrinsics_call(:basic_object___send__)
+        expect(described_class.body_reaches_reflection_intrinsic?(body)).to be true
+      end
+
+      it 'is false for a non-reflection Intrinsics call' do
+        body = intrinsics_call(:regexp_new)
+        expect(described_class.body_reaches_reflection_intrinsic?(body)).to be false
+      end
+
+      it 'is false for nil body' do
+        expect(described_class.body_reaches_reflection_intrinsic?(nil)).to be false
+      end
+    end
+
+    describe '.compute_reflection_method_names' do
+      it 'returns the canonical set when no classes contribute aliases' do
+        result = described_class.compute_reflection_method_names({})
+        expect(result).to eq(described_class::CANONICAL_REFLECTION_METHOD_NAMES)
+      end
+
+      it 'adds an alias whose method body reaches a reflection intrinsic' do
+        # `alias my_send __send__` — the aliased method's body IS __send__'s
+        # body (an Intrinsics.basic_object___send__ delegation).
+        aliased_body = intrinsics_call(:basic_object___send__)
+        cls = make_class({ my_send: make_method(aliased_body) })
+        result = described_class.compute_reflection_method_names({ Foo: cls })
+        expect(result).to include(:my_send)
+        expect(result).to include(*described_class::CANONICAL_REFLECTION_METHOD_NAMES)
+      end
+
+      it 'does NOT add methods whose bodies only call non-reflection intrinsics' do
+        body = intrinsics_call(:regexp_new)
+        cls = make_class({ compile: make_method(body) })
+        result = described_class.compute_reflection_method_names({ Foo: cls })
+        expect(result).not_to include(:compile)
+      end
+
+      it 'ignores methods_table entries that are not Vm::Method (e.g. RubyClass override hashes)' do
+        cls = make_class({ some_override: { params: [], body: 'C++ body string' } })
+        expect { described_class.compute_reflection_method_names({ Foo: cls }) }.not_to raise_error
+      end
+    end
+
+    describe '.each_reflection_call_in' do
+      let(:reflection_names) { described_class::CANONICAL_REFLECTION_METHOD_NAMES }
+
+      it 'yields MethodCall nodes whose name is a reflection name' do
+        # `foo.send(:bar)` — direct reflection call site
+        recv = Frozone::Ast::ConstantRead.new(:Foo)
+        call = Frozone::Ast::MethodCall.new(:send, recv, [], [])
+
+        yielded = []
+        described_class.each_reflection_call_in(call, reflection_names) { |n| yielded << n }
+        expect(yielded).to eq([call])
+      end
+
+      it 'does NOT yield non-reflection MethodCall nodes' do
+        recv = Frozone::Ast::ConstantRead.new(:Foo)
+        call = Frozone::Ast::MethodCall.new(:some_method, recv, [], [])
+
+        yielded = []
+        described_class.each_reflection_call_in(call, reflection_names) { |n| yielded << n }
+        expect(yielded).to be_empty
+      end
+
+      it 'recurses into children' do
+        inner_recv = Frozone::Ast::ConstantRead.new(:Foo)
+        inner = Frozone::Ast::MethodCall.new(:const_get, inner_recv, [], [])
+        # Wrap in an outer call whose arg is the reflection call.
+        outer_recv = Frozone::Ast::ConstantRead.new(:Bar)
+        outer = Frozone::Ast::MethodCall.new(:innocent, outer_recv, [inner], [])
+
+        yielded = []
+        described_class.each_reflection_call_in(outer, reflection_names) { |n| yielded << n }
+        expect(yielded).to eq([inner])
+      end
+    end
+  end
+
   describe '.eigenclass_name and .eigenclass_flat' do
     let(:cls) { double('class', full_name: 'Foo::Bar', name: 'Bar') }
 
