@@ -13,6 +13,7 @@ require_relative '../../../../../lib/frozone/ast/return'
 require_relative '../../../../../lib/frozone/ast/method_call'
 require_relative '../../../../../lib/frozone/ast/self_literal'
 require_relative '../../../../../lib/frozone/ast/intrinsic_call'
+require_relative '../../../../../lib/frozone/ast/constant_read'
 
 RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
   let(:vm) { Frozone::Vm }
@@ -331,6 +332,56 @@ RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
       # (bug) from "unannotable" (semantic ⊤).
       body = ast::IntrinsicCall.new(:hash_delete, [])
       methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body).top?).to be true
+    end
+  end
+
+  describe 'class-value peek-through for .new / .allocate' do
+    it 'infers the class from a bare ConstantRead receiver on .new' do
+      # Foo.new  — receiver AST resolves to Foo, so .new returns Foo.
+      body = ast::MethodCall.new(:new, ast::ConstantRead.new(:Foo), [], [])
+      methods = { [:Bar, :make] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body)).to eq(t(:Foo))
+    end
+
+    it 'infers the class from a bare ConstantRead receiver on .allocate' do
+      body = ast::MethodCall.new(:allocate, ast::ConstantRead.new(:Integer), [], [])
+      methods = { [:Bar, :make] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body)).to eq(t(:Integer))
+    end
+
+    it 'falls through to normal dispatch when receiver isn`t a ConstantRead' do
+      # cls = Foo; cls.new — LocalVariableRead receiver, no peek.
+      w = ast::LocalVariableWrite.new(:cls, 0, ast::ConstantRead.new(:Foo))
+      r = ast::LocalVariableRead.new(:cls, 0)
+      call = ast::MethodCall.new(:new, r, [], [])
+      body = ast::MethodCall.new(:noop, nil, [w, call], [])
+      methods = { [:Bar, :make] => make_method(body) }
+      pass = run_pass(methods)
+      # Falls through: no annotation for Class#new in our test @methods,
+      # ancestor walk on receiver's TYPE (which is ⊤ since ConstantRead
+      # types as ⊤ until we add ConstantRead handling) → ⊤.
+      expect(pass.type_of(call).top?).to be true
+    end
+
+    it 'does not peek for methods other than .new / .allocate' do
+      # Foo.some_class_method — receiver is a ConstantRead but the
+      # method isn't a class-value primitive, so no peek. Falls through
+      # to ancestor walk (⊤ here since no method registered).
+      body = ast::MethodCall.new(:some_class_method, ast::ConstantRead.new(:Foo), [], [])
+      methods = { [:Bar, :make] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body).top?).to be true
+    end
+
+    it 'does not peek when the ConstantRead name is unknown' do
+      # NoSuchClass.new — receiver is a ConstantRead but the name
+      # doesn't match any class we know about → no peek, fall through.
+      body = ast::MethodCall.new(:new, ast::ConstantRead.new(:NoSuchClass), [], [])
+      methods = { [:Bar, :make] => make_method(body) }
       pass = run_pass(methods)
       expect(pass.type_of(body).top?).to be true
     end

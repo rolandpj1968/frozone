@@ -224,11 +224,52 @@ module Frozone
             (node.arg_nodes || []).each { |a| walk(a, ctx) }
             walk(node.block_node, ctx) if node.block_node
 
+            # Ruby's class-as-value primitives — `.new` and `.allocate`
+            # break the "type-determines-dispatch" model because the
+            # receiver's VALUE (which class) determines the return, not
+            # its TYPE (Class). When the receiver AST is literally a
+            # constant that resolves to a class we know, peek through
+            # and return that class's instance type.
+            #
+            # This is monotone: the receiver's AST *shape* is fixed at
+            # parse time, so the peek branch is chosen once and never
+            # changes. Within it, the returned type is a compile-time
+            # constant, independent of anything that flows through the
+            # analysis.
+            #
+            # Falls through to the normal ancestor walk when receiver
+            # isn't a constant — under Tier 1 that yields ⊤ via
+            # Class#new's annotated return (currently ⊤). Recovering
+            # precision through non-constant receivers needs dependent
+            # `Class[X]` types — Tier 2+ extension.
+            if (t = try_class_value_peek(node))
+              return t
+            end
+
             return @lattice.top if recv_type.top? || recv_type.bottom?
             recv_class = recv_type.concrete
             return @lattice.top if recv_class == :__boolean__
 
             resolve_method_call_return(recv_class, node.name, ctx)
+          end
+
+          CLASS_VALUE_METHODS = %i[new allocate].freeze
+          private_constant :CLASS_VALUE_METHODS
+
+          # If this call is `SomeClass.new(…)` / `SomeClass.allocate`
+          # where SomeClass is a ConstantRead resolving to a known
+          # class, return that class as the type. Otherwise nil (caller
+          # falls through to normal dispatch).
+          def try_class_value_peek(node)
+            return nil unless CLASS_VALUE_METHODS.include?(node.name)
+            recv = node.receiver_node
+            return nil unless recv.is_a?(Ast::ConstantRead)
+            class_sym = recv.name.to_sym
+            # Simple resolver: top-level lookup only. Doesn't handle
+            # lexical-scope shadowing or nested constants (Foo::Bar) —
+            # extend when we start typing programs that need it.
+            return nil unless @lattice.ancestor_chains.key?(class_sym)
+            @lattice.concrete(class_sym)
           end
 
           # Walk the class-only ancestor chain from `recv_class` upward,
