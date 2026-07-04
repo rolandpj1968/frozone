@@ -199,14 +199,14 @@ module Frozone
           # or nil if no scope yields a match.
           def resolve_constant(parts)
             (scope_prefixes + [[]]).each do |prefix|
-              flat = (prefix + parts).join("_").to_sym
+              flat = Reachability.flatten((prefix + parts).join("::")).to_sym
               return flat if @user_constants.key?(flat) || instantiable_class?(flat)
             end
             nil
           end
 
           def resolve_top_level(parts)
-            flat = parts.join("_").to_sym
+            flat = Reachability.flatten(parts.join("::")).to_sym
             (@user_constants.key?(flat) || instantiable_class?(flat)) ? flat : nil
           end
 
