@@ -125,6 +125,42 @@ RSpec.describe Frozone::Compiler::Analysis::PredicateCanonicity do
     end
   end
 
+  describe '.assert_no_hard_overrides!' do
+    it 'is a no-op when nothing overrides a hard predicate' do
+      all = { Object: Frozone::Vm::Core::OBJECT_CLASS,
+              Integer: Frozone::Vm::Core::INTEGER_CLASS,
+              NilClass: Frozone::Vm::Core::NIL_CLASS_CLASS }
+      expect { pc.assert_no_hard_overrides!(all) }.not_to raise_error
+    end
+
+    it 'raises OverrideError when a class overrides is_a?' do
+      foo = Frozone::Vm::ClassObject.new(:Foo, nil, Frozone::Vm::Core::OBJECT_CLASS)
+      foreign = Frozone::Ast::NilLiteral::NIL
+      m = Frozone::Vm::Method.new(
+        [foo], :is_a?, [:klass], [], nil, [], [], [], nil, nil, [:klass], foreign
+      )
+      foo.set_method(:is_a?, m)
+      all = { Foo: foo, Object: Frozone::Vm::Core::OBJECT_CLASS }
+      expect { pc.assert_no_hard_overrides!(all) }
+        .to raise_error(pc::OverrideError, /Foo#is_a\?/)
+    end
+
+    it 'lists every offender in the error message' do
+      foo = Frozone::Vm::ClassObject.new(:Foo, nil, Frozone::Vm::Core::OBJECT_CLASS)
+      bar = Frozone::Vm::ClassObject.new(:Bar, nil, Frozone::Vm::Core::OBJECT_CLASS)
+      foreign = Frozone::Ast::NilLiteral::NIL
+      m_foo = Frozone::Vm::Method.new([foo], :is_a?, [:k], [], nil, [], [], [], nil, nil, [:k], foreign)
+      m_bar = Frozone::Vm::Method.new([bar], :nil?, [], [], nil, [], [], [], nil, nil, [], foreign)
+      foo.set_method(:is_a?, m_foo)
+      bar.set_method(:nil?, m_bar)
+      all = { Foo: foo, Bar: bar }
+      expect { pc.assert_no_hard_overrides!(all) }.to raise_error(pc::OverrideError) do |err|
+        expect(err.message).to include('Foo#is_a?')
+        expect(err.message).to include('Bar#nil?')
+      end
+    end
+  end
+
   describe '.override_classes' do
     it 'returns empty set when no overrides exist' do
       all = { Object: Frozone::Vm::Core::OBJECT_CLASS,

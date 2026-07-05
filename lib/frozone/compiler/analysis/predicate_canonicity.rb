@@ -57,6 +57,20 @@ module Frozone
         # frozen list so tests and diagnostics can enumerate the set.
         NARROWING_PREDICATES = %i[is_a? kind_of? instance_of? nil?].freeze
 
+        # Predicates whose semantics MUST be canonical — overriding
+        # them breaks Ruby's own type-check contract (`x.is_a?(T)` is
+        # supposed to mean "x's class inherits T", not "arbitrary
+        # user-computed value"). We reject non-canonical overrides
+        # loudly at compile time rather than silently mis-narrowing.
+        # `==` / `eql?` are NOT in this set — their per-class override
+        # is legitimate and the narrowing machinery handles them
+        # type-directed.
+        HARD_PREDICATES = %i[is_a? kind_of? instance_of? nil?].freeze
+
+        # Raised by `assert_no_hard_overrides!` when a reachable class
+        # overrides a HARD_PREDICATES entry with a non-canonical body.
+        class OverrideError < StandardError; end
+
         class << self
           # True iff `body` is identity-equal to a captured canonical
           # for `name`. False if capture never ran (no canonical
@@ -92,6 +106,29 @@ module Frozone
               return false unless m.is_a?(Vm::Method) && body_canonical?(name, m.body)
             end
             true
+          end
+
+          # Raise OverrideError if any reachable class overrides a
+          # HARD_PREDICATES entry non-canonically. Called from the
+          # compile pipeline before codegen. Message lists every
+          # offender with its source_location.
+          def assert_no_hard_overrides!(all_classes)
+            offenders = HARD_PREDICATES.flat_map do |name|
+              override_classes(all_classes, name).map { |cls| [name, cls] }
+            end
+            return if offenders.empty?
+            lines = offenders.map do |name, cls|
+              m = (cls.methods_table || {})[name]
+              loc = (m.respond_to?(:source_location) && m.source_location) || '(unknown location)'
+              cls_name = cls.respond_to?(:name) ? cls.name : cls.inspect
+              "  #{cls_name}##{name} at #{loc}"
+            end
+            raise OverrideError, <<~MSG
+              Predicate override(s) not supported — is_a?/kind_of?/instance_of?/nil?
+              must have canonical semantics for TI to reason about type narrowing.
+              Offenders:
+              #{lines.join("\n")}
+            MSG
           end
 
           # Classes in `all_classes` whose own methods_table defines a

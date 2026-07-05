@@ -24,6 +24,7 @@ require_relative 'method_shape_survey'
 require_relative 'visibility_survey'
 require_relative '../../module_flattening'
 require_relative '../../reachability'
+require_relative '../../analysis/predicate_canonicity'
 
 module Frozone
   module Compiler
@@ -515,6 +516,10 @@ module Frozone
             # so no double-emit risk.
             universe_map = build_universe_class_map
             all = user_only.merge(universe_map)
+            # Hard-predicate override guard: is_a?/kind_of?/instance_of?/nil?
+            # semantics are TI-load-bearing; user overrides silently mis-
+            # narrow generated code. Barf loudly with location instead.
+            Analysis::PredicateCanonicity.assert_no_hard_overrides!(all)
             reach = Reachability.compute(
               execute_block:          @execute_block,
               user_methods:           user_methods,
