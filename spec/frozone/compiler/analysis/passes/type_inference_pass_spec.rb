@@ -23,6 +23,7 @@ require_relative '../../../../../lib/frozone/ast/while'
 require_relative '../../../../../lib/frozone/ast/until'
 require_relative '../../../../../lib/frozone/ast/for_loop'
 require_relative '../../../../../lib/frozone/ast/array_literal'
+require_relative '../../../../../lib/frozone/ast/case'
 
 RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
   let(:vm) { Frozone::Vm }
@@ -346,6 +347,53 @@ RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
       methods = { [:Foo, :m] => make_method(loop_node) }
       pass = run_pass(methods)
       expect(pass.type_of(loop_node)).to eq(t(:BasicObject))
+    end
+  end
+
+  describe 'Case' do
+    def case_when(conds, body)
+      ast::Case::When.new(conds, body)
+    end
+
+    it 'joins all when-arm body types with the else' do
+      # case x; when 1 then 1; when 2 then 1.5; else "s"; end
+      #   → LUB(Integer, Float, String) = LUB(Numeric, String) = Object
+      subj = ast::LocalVariableRead.new(:x, 0)
+      w1 = case_when([ast::IntegerLiteral.from(1)], ast::IntegerLiteral.from(1))
+      w2 = case_when([ast::IntegerLiteral.from(2)], ast::FloatLiteral.new(1.5))
+      body = ast::Case.new(subj, [w1, w2], ast::StringLiteral.from('s'))
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body)).to eq(t(:Object))
+    end
+
+    it 'no-else makes the result nullable (silent nil fall-through)' do
+      # case x; when 1 then 42; end  → Integer? (nullable)
+      subj = ast::LocalVariableRead.new(:x, 0)
+      w = case_when([ast::IntegerLiteral.from(1)], ast::IntegerLiteral.from(42))
+      body = ast::Case.new(subj, [w], nil)
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body)).to eq(t(:Integer, nullable: true))
+    end
+
+    it 'both arms same-typed → no widening (like If)' do
+      # case x; when 1 then 1; else 2; end  → Integer
+      subj = ast::LocalVariableRead.new(:x, 0)
+      w = case_when([ast::IntegerLiteral.from(1)], ast::IntegerLiteral.from(1))
+      body = ast::Case.new(subj, [w], ast::IntegerLiteral.from(2))
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body)).to eq(t(:Integer))
+    end
+
+    it 'subject-less case (case; when cond then …) still types correctly' do
+      # case; when true then 1; else 2.0; end  → LUB(Integer, Float) = Numeric
+      w = case_when([ast::TrueLiteral::TRUE], ast::IntegerLiteral.from(1))
+      body = ast::Case.new(nil, [w], ast::FloatLiteral.new(2.0))
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body)).to eq(t(:Numeric))
     end
   end
 

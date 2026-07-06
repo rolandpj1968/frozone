@@ -177,6 +177,7 @@ module Frozone
             when Ast::While              then transfer_while(node, ctx)
             when Ast::Until              then transfer_while(node, ctx)
             when Ast::ForLoop            then transfer_for_loop(node, ctx)
+            when Ast::Case               then transfer_case(node, ctx)
             when Ast::MethodCall         then transfer_method_call(node, ctx)
             when Ast::IntrinsicCall      then transfer_intrinsic_call(node, ctx)
             else
@@ -296,6 +297,22 @@ module Frozone
             ensure
               ctx.break_joins.pop
             end
+          end
+
+          # `case subj; when a, b then body_ab; when c then body_c; else e; end`
+          # — subject and all conditions are walked (their types cached
+          # even though we don't use them at Tier 1). The case's type
+          # is the join of every when-arm's body type with the else
+          # body's type — or nullable if there's no else, since a
+          # non-matching case with no else returns nil at runtime.
+          def transfer_case(node, ctx)
+            walk(node.subject_node, ctx) if node.subject_node
+            arms = (node.whens || []).map do |w|
+              (w.condition_nodes || []).each { |c| walk(c, ctx) }
+              walk(w.body_node, ctx)
+            end
+            else_type = node.else_node ? walk(node.else_node, ctx) : @lattice.nil_type
+            arms.reduce(else_type) { |acc, t| @lattice.join(acc, t) }
           end
 
           # Method-call return-type resolution. No distinction between
