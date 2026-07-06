@@ -192,6 +192,15 @@ module Frozone
             when Ast::AttributeWrite     then transfer_attribute_write(node, ctx)
             when Ast::ConstantWrite      then transfer_pass_through_value(node, ctx)
             when Ast::MultipleAssignment then transfer_pass_through_value(node, ctx)
+            when Ast::InstanceVariableWrite then transfer_pass_through_value(node, ctx)
+            when Ast::ClassVariableWrite    then transfer_pass_through_value(node, ctx)
+            when Ast::GlobalVariableWrite   then transfer_pass_through_value(node, ctx)
+            when Ast::SplatArg           then walk(node.value_node, ctx)
+            when Ast::BlockArg           then transfer_block_arg(node, ctx)
+            when Ast::MatchWrite         then transfer_children_typed(node, ctx, :Integer, nullable: true)
+            when Ast::DefinedExpr        then @lattice.concrete(:String, nullable: true)
+            when Ast::DefinedConstant    then @lattice.concrete(:String, nullable: true)
+            when Ast::FlipFlop           then transfer_children_typed(node, ctx, :__boolean__)
             when Ast::MethodAlias        then @lattice.nil_type
             when Ast::GlobalAlias        then @lattice.nil_type
             when Ast::ClassDef           then @lattice.top
@@ -329,6 +338,27 @@ module Frozone
             left_type = walk(node.left_node, ctx)
             right_type = walk(node.right_node, ctx)
             @lattice.join(left_type, right_type)
+          end
+
+          # `&proc_expr` in a call-site position. Transparent — the
+          # BlockArg's own type is the wrapped expression's type
+          # (usually Proc, sometimes Symbol via &:sym, sometimes nil).
+          # Not the ⊤ default because the block-arg wrapping is
+          # syntactic and TI can see through it.
+          def transfer_block_arg(node, ctx)
+            walk(node.value_node, ctx)
+          end
+
+          # Nodes whose subexpressions matter (walk their children so
+          # subtree types get cached) but whose own type is a fixed
+          # class annotation — MatchWrite (Regex match returns Integer
+          # or nil), FlipFlop (synthetic boolean state).
+          def transfer_children_typed(node, ctx, class_sym, nullable: false)
+            walk_children(node, ctx)
+            case class_sym
+            when :__boolean__ then @lattice.boolean_type(nullable: nullable)
+            else                   @lattice.concrete(class_sym, nullable: nullable)
+            end
           end
 
           # `obj.foo = val` and `obj.foo=(a, b, val)` — Ruby returns

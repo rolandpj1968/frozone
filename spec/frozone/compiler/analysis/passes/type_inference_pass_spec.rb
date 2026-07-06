@@ -45,6 +45,15 @@ require_relative '../../../../../lib/frozone/ast/multiple_assignment'
 require_relative '../../../../../lib/frozone/ast/index_op_write'
 require_relative '../../../../../lib/frozone/ast/constant_op_write'
 require_relative '../../../../../lib/frozone/ast/call_or_write'
+require_relative '../../../../../lib/frozone/ast/instance_variable_write'
+require_relative '../../../../../lib/frozone/ast/class_variable_write'
+require_relative '../../../../../lib/frozone/ast/global_variable_write'
+require_relative '../../../../../lib/frozone/ast/splat_arg'
+require_relative '../../../../../lib/frozone/ast/block_arg'
+require_relative '../../../../../lib/frozone/ast/match_write'
+require_relative '../../../../../lib/frozone/ast/defined_expr'
+require_relative '../../../../../lib/frozone/ast/defined_constant'
+require_relative '../../../../../lib/frozone/ast/flip_flop'
 
 RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
   let(:vm) { Frozone::Vm }
@@ -676,6 +685,62 @@ RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
       pass = run_pass(methods)
       expect(pass.type_of(body).top?).to be true
       expect(pass.type_of(val)).to eq(t(:Integer))
+    end
+  end
+
+  describe 'Wave-5 long tail' do
+    it 'InstanceVariableWrite returns the RHS' do
+      body = ast::InstanceVariableWrite.new(:@x, ast::IntegerLiteral.from(1))
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body)).to eq(t(:Integer))
+    end
+
+    it 'ClassVariableWrite returns the RHS' do
+      body = ast::ClassVariableWrite.new(:@@x, ast::FloatLiteral.new(1.5))
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body)).to eq(t(:Float))
+    end
+
+    it 'GlobalVariableWrite returns the RHS' do
+      body = ast::GlobalVariableWrite.new(:"$x", ast::IntegerLiteral.from(42))
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body)).to eq(t(:Integer))
+    end
+
+    it 'SplatArg is transparent to its value node' do
+      inner = ast::IntegerLiteral.from(42)
+      body = ast::SplatArg.new(inner)
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      # SplatArg passes through — Integer here (would actually be
+      # Array-of-ints at runtime, but Tier 1's job is to type the
+      # call-site view; splat handling is call-site's problem).
+      expect(pass.type_of(body)).to eq(t(:Integer))
+    end
+
+    it 'BlockArg is transparent to its value node' do
+      inner = ast::SymbolLiteral.from(:to_s)
+      body = ast::BlockArg.new(inner)
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body)).to eq(t(:Symbol))
+    end
+
+    it 'DefinedExpr types as nullable String' do
+      body = ast::DefinedExpr.new(:local, :x)
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body)).to eq(t(:String, nullable: true))
+    end
+
+    it 'DefinedConstant types as nullable String' do
+      body = ast::DefinedConstant.new(:Foo)
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body)).to eq(t(:String, nullable: true))
     end
   end
 
