@@ -180,6 +180,7 @@ module Frozone
             when Ast::Case               then transfer_case(node, ctx)
             when Ast::And                then transfer_and_or(node, ctx)
             when Ast::Or                 then transfer_and_or(node, ctx)
+            when Ast::Rescue             then transfer_rescue(node, ctx)
             when Ast::MethodCall         then transfer_method_call(node, ctx)
             when Ast::IntrinsicCall      then transfer_intrinsic_call(node, ctx)
             else
@@ -312,6 +313,27 @@ module Frozone
             left_type = walk(node.left_node, ctx)
             right_type = walk(node.right_node, ctx)
             @lattice.join(left_type, right_type)
+          end
+
+          # `begin; body; rescue A => e; a_body; rescue B; b_body; else e_body; ensure ens; end`
+          #
+          # Two ways to leave with a value:
+          #   1. No exception raised → body_type (or else_type if `else`
+          #      is present — else replaces body's contribution).
+          #   2. Any rescue clause matches → that clause's body_type.
+          # Ensure runs on every exit but its value is discarded (unless
+          # the ensure explicitly returns, which contributes to
+          # return_joins via the Return transfer as usual).
+          def transfer_rescue(node, ctx)
+            body_type = walk(node.body, ctx)
+            normal_type = node.else_node ? walk(node.else_node, ctx) : body_type
+            clause_types = (node.rescue_clauses || []).map do |clause|
+              (clause.exception_nodes || []).each { |ex| walk(ex, ctx) }
+              walk(clause.assign_node, ctx) if clause.assign_node
+              walk(clause.body, ctx)
+            end
+            walk(node.ensure_node, ctx) if node.ensure_node
+            clause_types.reduce(normal_type) { |acc, t| @lattice.join(acc, t) }
           end
 
           # `case subj; when a, b then body_ab; when c then body_c; else e; end`

@@ -26,6 +26,7 @@ require_relative '../../../../../lib/frozone/ast/array_literal'
 require_relative '../../../../../lib/frozone/ast/case'
 require_relative '../../../../../lib/frozone/ast/and'
 require_relative '../../../../../lib/frozone/ast/or'
+require_relative '../../../../../lib/frozone/ast/rescue'
 
 RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
   let(:vm) { Frozone::Vm }
@@ -429,6 +430,64 @@ RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
       methods = { [:Foo, :m] => make_method(body) }
       pass = run_pass(methods)
       expect(pass.type_of(body)).to eq(t(:Integer))
+    end
+  end
+
+  describe 'Rescue' do
+    def rescue_clause(exceptions, body, var_name: nil)
+      ast::RescueClause.new(exceptions, var_name, var_name ? 0 : nil, body)
+    end
+
+    it 'body-only (no rescue clauses) types as body' do
+      body = ast::IntegerLiteral.from(1)
+      rescued = ast::Rescue.new(body, [], nil, nil)
+      methods = { [:Foo, :m] => make_method(rescued) }
+      pass = run_pass(methods)
+      expect(pass.type_of(rescued)).to eq(t(:Integer))
+    end
+
+    it 'body + one rescue → LUB' do
+      # begin; 1; rescue; 1.5; end  →  Numeric
+      body = ast::IntegerLiteral.from(1)
+      clause = rescue_clause([], ast::FloatLiteral.new(1.5))
+      rescued = ast::Rescue.new(body, [clause], nil, nil)
+      methods = { [:Foo, :m] => make_method(rescued) }
+      pass = run_pass(methods)
+      expect(pass.type_of(rescued)).to eq(t(:Numeric))
+    end
+
+    it 'else replaces body contribution' do
+      # begin; 1; else "s"; rescue; 1.5; end  →  LUB("s", 1.5) = LUB(String, Float) = Object
+      body = ast::IntegerLiteral.from(1)
+      else_body = ast::StringLiteral.from('s')
+      clause = rescue_clause([], ast::FloatLiteral.new(1.5))
+      rescued = ast::Rescue.new(body, [clause], else_body, nil)
+      methods = { [:Foo, :m] => make_method(rescued) }
+      pass = run_pass(methods)
+      expect(pass.type_of(rescued)).to eq(t(:Object))
+    end
+
+    it 'multiple rescue clauses each contribute' do
+      # begin; 1; rescue A; "a"; rescue B; 1.5; end → LUB(Integer, String, Float)
+      body = ast::IntegerLiteral.from(1)
+      c1 = rescue_clause([ast::ConstantRead.new(:StandardError)], ast::StringLiteral.from('a'))
+      c2 = rescue_clause([ast::ConstantRead.new(:StandardError)], ast::FloatLiteral.new(1.5))
+      rescued = ast::Rescue.new(body, [c1, c2], nil, nil)
+      methods = { [:Foo, :m] => make_method(rescued) }
+      pass = run_pass(methods)
+      expect(pass.type_of(rescued)).to eq(t(:Object))
+    end
+
+    it 'ensure body is walked but does not contribute to type' do
+      # begin; 1; ensure "cleanup"; end  → Integer, not LUB(Integer, String)
+      body = ast::IntegerLiteral.from(1)
+      ens = ast::StringLiteral.from('cleanup')
+      rescued = ast::Rescue.new(body, [], nil, ens)
+      methods = { [:Foo, :m] => make_method(rescued) }
+      pass = run_pass(methods)
+      expect(pass.type_of(rescued)).to eq(t(:Integer))
+      # But ensure's subtree type is still cached.
+      expect(pass.type_of(ens)).to eq(t(:String))
     end
   end
 
