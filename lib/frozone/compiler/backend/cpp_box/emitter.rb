@@ -25,6 +25,8 @@ require_relative 'visibility_survey'
 require_relative '../../module_flattening'
 require_relative '../../reachability'
 require_relative '../../analysis/predicate_canonicity'
+require_relative '../../analysis/passes/type_inference_pass'
+require_relative '../../analysis/engine'
 
 module Frozone
   module Compiler
@@ -156,6 +158,42 @@ module Frozone
           ensure
             @outs[@stream] = saved_buf
             @indent = saved_indent
+          end
+
+          # Runs the same class-map assembly `generate` does — universe +
+          # user + reachability pruning — then feeds the resulting
+          # `{[cls_flat, mname] => Vm::Method}` set into TypeInferencePass
+          # and prints a summary. Skips every codegen stage. Triggered by
+          # FROZONE_TI_DUMP=1 from FrozoneCompile#evaluate.
+          def dump_type_inference(execute_block:, top_level_scope:, globals:, stub_file: nil)
+            @execute_block = execute_block
+            @top_level_scope = top_level_scope
+            @globals = globals
+            @stub_file = stub_file
+            @user_constants = collect_user_constants
+            @user_classes = collect_all_classes
+            universe_map = build_universe_class_map
+            all_classes = @user_classes.merge(universe_map)
+            methods = {}
+            all_classes.each do |flat, cls|
+              (cls.methods_table || {}).each do |mname, m|
+                next unless m.is_a?(Vm::Method) && m.body
+                methods[[flat, mname]] = m
+              end
+              eig = cls.respond_to?(:eigenclass) ? cls.eigenclass : nil
+              next unless eig
+              eig_flat = "#{flat}#{Reachability::EIG_SUFFIX}".to_sym
+              (eig.methods_table || {}).each do |mname, m|
+                next unless m.is_a?(Vm::Method) && m.body
+                methods[[eig_flat, mname]] = m
+              end
+            end
+            pass = Analysis::Passes::TypeInferencePass.new(
+              methods: methods, all_classes: all_classes, top_level_scope: top_level_scope,
+            )
+            engine = Analysis::Engine.new(pass)
+            engine.run
+            print_ti_summary(pass, engine, methods)
           end
 
           def generate(execute_block:, top_level_scope:, globals:, stub_file: nil)
@@ -3465,6 +3503,45 @@ module Frozone
             raise if ENV['FROZONE_BOX_HARD_FAIL'] == '1' && @strict_emit
             line "// skipped #{label}.iv_#{iv}: #{e.message.gsub('*/', '* /')}"
             $stderr.puts "[box-first] skip static-init #{label}.iv_#{iv}: #{e.message}" if ENV['FROZONE_BOX_DEBUG'] == '1'
+          end
+
+          # TI dump formatting: histogram + top-N + optional per-method
+          # listing. Reads env vars:
+          #   FROZONE_TI_DUMP_TOP=N   — show up to N most-common type shapes (default 25)
+          #   FROZONE_TI_DUMP_LIST=1  — dump every method-type line
+          #   FROZONE_TI_DUMP_LIST=user — dump only user-source methods
+          def print_ti_summary(pass, engine, methods)
+            top = (ENV['FROZONE_TI_DUMP_TOP'] || '25').to_i
+            list = ENV['FROZONE_TI_DUMP_LIST']
+            values = engine.values
+            method_node = Analysis::Passes::TypeInferencePass.method(:method_node)
+            hist = Hash.new(0)
+            user_hist = Hash.new(0)
+            core_hist = Hash.new(0)
+            rows = methods.map do |(cls_flat, mname), m|
+              t = values[method_node.call(cls_flat, mname)]
+              key = t ? t.to_s : '?'
+              hist[key] += 1
+              (user_source?(m.source_location) ? user_hist : core_hist)[key] += 1
+              [cls_flat, mname, key, m.source_location]
+            end
+            total = methods.size
+            $stderr.puts "[ti-dump] #{total} methods analyzed (#{user_hist.values.sum} user, #{core_hist.values.sum} core)"
+            $stderr.puts "[ti-dump] top return-type shapes:"
+            hist.sort_by { |_, c| -c }.first(top).each do |shape, c|
+              pct = (c * 100.0 / total).round(1)
+              $stderr.puts "  #{c.to_s.rjust(6)}  #{pct.to_s.rjust(5)}%  #{shape}"
+            end
+            precise = hist.reject { |k, _| k == '⊤' || k == '⊤?' || k == '?' || k == '⊥' }.values.sum
+            $stderr.puts "[ti-dump] concrete or bounded: #{precise}/#{total} (#{(precise * 100.0 / total).round(1)}%)"
+            if list == '1' || list == 'user'
+              $stderr.puts "[ti-dump] per-method:"
+              rows.each do |cls_flat, mname, key, loc|
+                next if list == 'user' && !user_source?(loc)
+                loc_s = loc.is_a?(Array) ? loc.join(':') : loc.to_s
+                $stderr.puts "  #{key.ljust(20)} #{cls_flat}##{mname}  (#{loc_s})"
+              end
+            end
           end
 
           # Top-level user methods (not on a class).

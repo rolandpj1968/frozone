@@ -37,6 +37,15 @@ module Frozone
         base = File.basename(src.to_s, '.rb')
         require_relative '../compiler/backend/cpp_box/emitter'
         emitter = Frozone::Compiler::Backend::CppBox::Emitter.new(base_name: base)
+        if ENV['FROZONE_TI_DUMP'] == '1'
+          emitter.dump_type_inference(
+            execute_block: @block_node,
+            top_level_scope: Vm::Core::OBJECT_CLASS,
+            globals: Vm::GLOBALS,
+            stub_file: stub_file
+          )
+          return Vm::NilObject::NIL
+        end
         source = emitter.generate(
           execute_block: @block_node,
           top_level_scope: Vm::Core::OBJECT_CLASS,
