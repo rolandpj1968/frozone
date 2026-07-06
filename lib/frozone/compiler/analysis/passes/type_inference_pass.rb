@@ -178,6 +178,8 @@ module Frozone
             when Ast::Until              then transfer_while(node, ctx)
             when Ast::ForLoop            then transfer_for_loop(node, ctx)
             when Ast::Case               then transfer_case(node, ctx)
+            when Ast::And                then transfer_and_or(node, ctx)
+            when Ast::Or                 then transfer_and_or(node, ctx)
             when Ast::MethodCall         then transfer_method_call(node, ctx)
             when Ast::IntrinsicCall      then transfer_intrinsic_call(node, ctx)
             else
@@ -297,6 +299,19 @@ module Frozone
             ensure
               ctx.break_joins.pop
             end
+          end
+
+          # `a && b` returns `a` when `a` is falsy, else `b`.
+          # `a || b` returns `a` when `a` is truthy, else `b`.
+          # Either way the result type is a subset of LUB(left, right)
+          # — Tier 1 uses the plain LUB and defers the "left cannot be
+          # falsy" precision refinement to Tier-2 narrowing, which
+          # needs a truthy/falsy carve-out on the lattice we haven't
+          # committed to yet.
+          def transfer_and_or(node, ctx)
+            left_type = walk(node.left_node, ctx)
+            right_type = walk(node.right_node, ctx)
+            @lattice.join(left_type, right_type)
           end
 
           # `case subj; when a, b then body_ab; when c then body_c; else e; end`

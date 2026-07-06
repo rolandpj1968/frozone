@@ -24,6 +24,8 @@ require_relative '../../../../../lib/frozone/ast/until'
 require_relative '../../../../../lib/frozone/ast/for_loop'
 require_relative '../../../../../lib/frozone/ast/array_literal'
 require_relative '../../../../../lib/frozone/ast/case'
+require_relative '../../../../../lib/frozone/ast/and'
+require_relative '../../../../../lib/frozone/ast/or'
 
 RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
   let(:vm) { Frozone::Vm }
@@ -394,6 +396,39 @@ RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
       methods = { [:Foo, :m] => make_method(body) }
       pass = run_pass(methods)
       expect(pass.type_of(body)).to eq(t(:Numeric))
+    end
+  end
+
+  describe 'And / Or' do
+    it 'And is LUB(left, right)' do
+      # 1 && 1.5  → LUB(Integer, Float) = Numeric
+      body = ast::And.new(ast::IntegerLiteral.from(1), ast::FloatLiteral.new(1.5))
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body)).to eq(t(:Numeric))
+    end
+
+    it 'Or is LUB(left, right)' do
+      # 1 || 1.5  → LUB(Integer, Float) = Numeric
+      body = ast::Or.new(ast::IntegerLiteral.from(1), ast::FloatLiteral.new(1.5))
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body)).to eq(t(:Numeric))
+    end
+
+    it 'Or of nil-typed left with Integer right → nullable Integer' do
+      # nil || 42  → NilClass ∪ Integer = Integer?
+      body = ast::Or.new(ast::NilLiteral::NIL, ast::IntegerLiteral.from(42))
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body)).to eq(t(:Integer, nullable: true))
+    end
+
+    it 'And of same-typed both arms → no widening' do
+      body = ast::And.new(ast::IntegerLiteral.from(1), ast::IntegerLiteral.from(2))
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body)).to eq(t(:Integer))
     end
   end
 
