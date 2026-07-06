@@ -161,13 +161,38 @@ RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
       expect(pass.type_of(r)).to eq(t(:Numeric))
     end
 
-    it 'defaults to top for a param' do
-      # method(:m, [:p]) => body is just `p`
+    it 'params of an unreached method stay at ⊥ (no callsite pushes)' do
+      # method(:m, [:p]) => body is just `p`. Nothing calls Foo#m, so
+      # its :p param node never gets a callsite push and stays at ⊥.
+      # (Under the new bipolar model this is what "unreached" looks
+      # like — an entry point / execute-block synthetic root is what
+      # elevates params to concrete values in real programs.)
       p_read = ast::LocalVariableRead.new(:p, 0)
       body = p_read
       methods = { [:Foo, :m] => make_method(body, required_params: [:p]) }
       pass = run_pass(methods)
-      expect(pass.type_of(p_read).top?).to be true
+      expect(pass.type_of(p_read).bottom?).to be true
+    end
+
+    it 'callsite pushes propagate a concrete type into the callee param' do
+      # def m(p); p; end;  def caller; m(42); end
+      # Round 1: caller pushes Integer to Foo#m's :p.
+      # Round 2: Foo#m returns Integer.
+      m_read = ast::LocalVariableRead.new(:p, 0)
+      m_body = m_read
+      call = ast::MethodCall.new(:m, ast::SelfLiteral::SELF, [ast::IntegerLiteral.from(42)], [])
+      caller_body = call
+      methods = {
+        [:Foo, :m]      => make_method(m_body, required_params: [:p]),
+        [:Foo, :caller] => make_method(caller_body),
+      }
+      pass = run_pass(methods)
+      # Callsite's push flows through: Foo#m's :p → Integer, so `p` reads Integer.
+      expect(pass.type_of(m_read)).to eq(t(:Integer))
+      # And Foo#m returns Integer.
+      key = described_class.method_node(:Foo, :m)
+      engine_value = Frozone::Compiler::Analysis::Engine.new(pass).tap { |e| e.run }.values[key]
+      expect(engine_value).to eq(t(:Integer))
     end
   end
 
@@ -292,15 +317,14 @@ RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
 
     it 'Break without break scope silently drops the value type (LocalJumpError at runtime)' do
       # No enclosing loop or block-catching frame — break_joins stack
-      # is empty, so nothing to push onto. Type-inference stays ⊥.
+      # is empty, so nothing to push onto. Method has no callers under
+      # this test's world, so its return stays at ⊥ (unreached).
       body = ast::Break.new(ast::IntegerLiteral.from(1))
       methods = { [:Foo, :m] => make_method(body) }
       pass = run_pass(methods)
-      # Method's return type: only the terminal (⊥) — collapses to ⊤
-      # per the "no-op divergent" rule.
       key = described_class.method_node(:Foo, :m)
       engine_value = Frozone::Compiler::Analysis::Engine.new(pass).tap { |e| e.run }.values[key]
-      expect(engine_value.top?).to be true
+      expect(engine_value.bottom?).to be true
     end
   end
 

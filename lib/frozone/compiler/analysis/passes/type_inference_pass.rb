@@ -65,6 +65,13 @@ module Frozone
             [:method, class_flat.to_sym, method_name.to_sym].freeze
           end
 
+          # Node-kind tag for method params. Populated by callsite pushes
+          # (arg type flows in) and consumed by the enclosing method's
+          # body transfer (env[pname] = lookup(param_node)).
+          def self.param_node(class_flat, method_name, param_name)
+            [:param, class_flat.to_sym, method_name.to_sym, param_name.to_sym].freeze
+          end
+
           # `methods` — Hash [class_flat, method_name] → Vm::Method for
           # EVERY reachable class with a walkable Ruby body — user classes
           # AND universe classes alike. Universe classes are not special
@@ -97,18 +104,60 @@ module Frozone
 
           def seed
             seeds = {}
-            @methods.each_key do |(cls_flat, mname)|
+            @methods.each do |(cls_flat, mname), m|
               seeds[self.class.method_node(cls_flat, mname)] = @lattice.bottom
+              each_pushable_param(m) do |pname|
+                seeds[self.class.param_node(cls_flat, mname, pname)] = @lattice.bottom
+              end
             end
             seeds
           end
 
           def transfer(node, _current, lookup)
-            return TransferResult::EMPTY unless node.is_a?(Array) && node[0] == :method
+            return TransferResult::EMPTY unless node.is_a?(Array)
+            case node[0]
+            when :method then transfer_method_node(node, lookup)
+            when :param  then transfer_param_node(node, lookup)
+            else              TransferResult::EMPTY
+            end
+          end
+
+          private
+
+          # Walk a method body → (return_type, pushes). Shared between
+          # the :method transfer (pull-side: publish return_type) and
+          # the :param transfer (push-side: bump owning :method when
+          # the param rises so it re-walks with the new env).
+          def transfer_method_node(node, lookup)
             _, cls_flat, mname = node
             method = @methods[[cls_flat, mname]]
             return TransferResult::EMPTY unless method
+            return_type, pushes = walk_method_body(cls_flat, mname, method, lookup)
+            TransferResult.both(self_value: return_type, pushes: pushes)
+          end
 
+          # When a callsite raises `:param C.m.pname`, the engine
+          # enqueues that param node. Its transfer here re-walks the
+          # owning method's body with the fresh env and pushes the
+          # (possibly-higher) return type to `:method C.m`. That's what
+          # forwards the "params changed, re-inspect me" signal to the
+          # engine — without it, the method's cached return stays stale
+          # until something else enqueues it.
+          def transfer_param_node(node, lookup)
+            _, cls_flat, mname, _pname = node
+            method = @methods[[cls_flat, mname]]
+            return TransferResult::EMPTY unless method
+            return_type, pushes = walk_method_body(cls_flat, mname, method, lookup)
+            # Merge our own return-type contribution into the pushes
+            # for `:method C.m` — that's what triggers a re-transfer
+            # via apply_update's monotone-rise check.
+            method_node = self.class.method_node(cls_flat, mname)
+            prev = pushes[method_node]
+            pushes[method_node] = prev ? @lattice.join(prev, return_type) : return_type
+            TransferResult.push(pushes)
+          end
+
+          def walk_method_body(cls_flat, mname, method, lookup)
             ctx = TransferCtx.new(
               class_flat: cls_flat,
               method_name: mname,
@@ -116,30 +165,64 @@ module Frozone
               return_joins: [],
               break_joins: [],
               lookup:      lookup,
+              pushes:      {},
             )
             seed_params(method, ctx)
             terminal_type = walk(method.body, ctx)
-            # Terminal expression + all explicit Return contributions
             return_type = ctx.return_joins.reduce(terminal_type) { |acc, t| @lattice.join(acc, t) }
-            return_type = @lattice.top if return_type.equal?(@lattice.bottom)
-            TransferResult.pull(return_type)
+            # A ⊥ result is legitimate under the bipolar model: the
+            # method hasn't been supplied any concrete param types yet
+            # OR its callers themselves haven't converged. Do NOT
+            # collapse to ⊤ — that would contaminate the return
+            # permanently (⊤ ∪ Integer = ⊤ under a monotone lattice)
+            # and defeat the whole point of callsite-driven refinement.
+            # Callers that read a ⊥ return handle it via the receiver-
+            # is-⊥ short-circuit in transfer_method_call.
+            [return_type, ctx.pushes]
           end
-
-          private
 
           # `break_joins` — stack of Arrays, one per enclosing break-catching
           # scope (Wave-1 loops; later, blocks). `Break` pushes its value
           # type onto the top array; the loop transfer pops and joins the
           # collected values into its own result (a plain while returns
           # nil, but `while true; break 42; end` returns Integer).
-          TransferCtx = Struct.new(:class_flat, :method_name, :env, :return_joins, :break_joins, :lookup, keyword_init: true)
+          TransferCtx = Struct.new(:class_flat, :method_name, :env, :return_joins, :break_joins, :lookup, :pushes, keyword_init: true)
 
-          # Parameters default to ⊤ under Tier 1 (no callsite-type
-          # propagation yet). Later: bidirectional inference will feed
-          # narrower params in from callsites.
+          # Params eligible for callsite propagation. First-cut
+          # constraint: no splat / kwargs / block-param, no optional
+          # defaults. Yields each required-param name in order. Other
+          # shapes still get env[pname] = ⊤ under seed_params.
+          def each_pushable_param(method)
+            return unless pushable_signature?(method)
+            (method.required_params || []).each { |name| yield name }
+          end
+
+          def pushable_signature?(method)
+            return false unless (method.required_params || []).all? { |p| p.is_a?(Symbol) }
+            return false unless (method.optional_params || []).empty?
+            return false if method.respond_to?(:rest_param) && method.rest_param
+            return false if method.respond_to?(:required_kw_params) && !(method.required_kw_params || []).empty?
+            return false if method.respond_to?(:optional_kw_params) && !(method.optional_kw_params || []).empty?
+            return false if method.respond_to?(:kw_rest_param) && method.kw_rest_param
+            return false if method.respond_to?(:block_param) && method.block_param
+            true
+          end
+
+          # Params on pushable-shape methods get their types from the
+          # engine — [:param, C, m, name] accumulates arg-type
+          # contributions from every reachable callsite (see
+          # push_param_types). Non-pushable-shape (splat/kwargs/block/
+          # optional-defaults) methods still default to ⊤ because the
+          # push-side can't safely attribute args to those slots.
           def seed_params(method, ctx)
-            (method.required_params || []).each { |name| ctx.env[name] = @lattice.top }
-            (method.optional_params || []).each { |(name, _default)| ctx.env[name] = @lattice.top }
+            if pushable_signature?(method)
+              (method.required_params || []).each do |name|
+                ctx.env[name] = ctx.lookup.call(self.class.param_node(ctx.class_flat, ctx.method_name, name))
+              end
+            else
+              (method.required_params || []).each { |name| ctx.env[name] = @lattice.top }
+              (method.optional_params || []).each { |(name, _default)| ctx.env[name] = @lattice.top }
+            end
             ctx.env[method.rest_param] = @lattice.concrete(:Array) if method.respond_to?(:rest_param) && method.rest_param
           end
 
@@ -508,11 +591,18 @@ module Frozone
               return t
             end
 
-            return @lattice.top if recv_type.top? || recv_type.bottom?
+            # Receiver is ⊥ → this callsite hasn't been reached in the
+            # current fixpoint iterate. Return ⊥ (not ⊤) so the call
+            # itself doesn't contribute to any join until a real
+            # receiver type arrives. Pushing ⊤ from an unreached
+            # callsite would permanently poison every param on the
+            # target method under monotone joins.
+            return @lattice.bottom if recv_type.bottom?
+            return @lattice.top if recv_type.top?
             recv_class = recv_type.concrete
             return @lattice.top if recv_class == :__boolean__
 
-            resolve_method_call_return(recv_class, node.name, ctx)
+            resolve_method_call_return(recv_class, node.name, ctx, arg_nodes: node.arg_nodes || [])
           end
 
           CLASS_VALUE_METHODS = %i[new allocate].freeze
@@ -577,14 +667,38 @@ module Frozone
           end
 
           # Walk the class-only ancestor chain from `recv_class` upward,
-          # returning the first hit's return-type node value.
-          def resolve_method_call_return(recv_class, method_name, ctx)
+          # returning the first hit's return-type node value. Also
+          # pushes call arg types to the resolved target's param nodes
+          # (via `arg_nodes`) so the callee's env picks them up on its
+          # next transfer.
+          def resolve_method_call_return(recv_class, method_name, ctx, arg_nodes: nil)
             chain = @lattice.ancestor_chains[recv_class] || [recv_class]
             chain.each do |cls|
               next unless @methods.key?([cls, method_name])
+              push_param_types(cls, method_name, arg_nodes, ctx) if arg_nodes
               return ctx.lookup.call(self.class.method_node(cls, method_name))
             end
             @lattice.top
+          end
+
+          # Push each positional-arg's inferred type into the target
+          # method's [:param, C, m, name] node. Guarded by
+          # pushable_signature? on the callee AND exact arity match:
+          # if the callsite's shape doesn't cleanly map arg[i] → param[i]
+          # for every required param, we skip — a mis-attributed push
+          # would silently widen every param on every subsequent call.
+          def push_param_types(cls, method_name, arg_nodes, ctx)
+            m = @methods[[cls, method_name]]
+            return unless m && pushable_signature?(m)
+            required = m.required_params || []
+            return unless arg_nodes.size == required.size
+            return if arg_nodes.any? { |a| a.is_a?(Ast::SplatArg) || a.is_a?(Ast::BlockArg) || a.is_a?(Ast::ForwardBlock) }
+            required.each_with_index do |pname, i|
+              arg_type = @per_node_types[arg_nodes[i]] || @lattice.top
+              node = self.class.param_node(cls, method_name, pname)
+              prev = ctx.pushes[node]
+              ctx.pushes[node] = prev ? @lattice.join(prev, arg_type) : arg_type
+            end
           end
 
           # `Intrinsics.foo(...)` — Frozone's Ruby↔C++ membrane. The

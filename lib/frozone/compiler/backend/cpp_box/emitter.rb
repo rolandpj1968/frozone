@@ -188,12 +188,36 @@ module Frozone
                 methods[[eig_flat, mname]] = m
               end
             end
+            # Synthetic entry method for the execute-block. Under the
+            # bipolar model, no param types flow into a callee unless
+            # some CALLER pushes them; the execute-block is the outermost
+            # caller and doesn't live in any class, so we wrap it as
+            # Object#__entry__ so its callsites push arg types into
+            # reachable methods' params like any other body.
+            if execute_block
+              entry_body = execute_block.respond_to?(:body) ? execute_block.body : execute_block
+              methods[[:Object, :__entry__]] = SyntheticEntryMethod.new(entry_body)
+            end
             pass = Analysis::Passes::TypeInferencePass.new(
               methods: methods, all_classes: all_classes, top_level_scope: top_level_scope,
             )
             engine = Analysis::Engine.new(pass)
             engine.run
             print_ti_summary(pass, engine, methods)
+          end
+
+          # Minimal shim to feed the execute-block into the analysis as
+          # a fake zero-arg method. TypeInferencePass reads params/body
+          # via duck-typing on Vm::Method's shape.
+          SyntheticEntryMethod = Struct.new(:body) do
+            def required_params = []
+            def optional_params = []
+            def rest_param = nil
+            def required_kw_params = []
+            def optional_kw_params = []
+            def kw_rest_param = nil
+            def block_param = nil
+            def source_location = nil
           end
 
           def generate(execute_block:, top_level_scope:, globals:, stub_file: nil)
