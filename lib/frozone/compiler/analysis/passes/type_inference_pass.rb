@@ -114,6 +114,7 @@ module Frozone
               method_name: mname,
               env:         {},
               return_joins: [],
+              break_joins: [],
               lookup:      lookup,
             )
             seed_params(method, ctx)
@@ -126,7 +127,12 @@ module Frozone
 
           private
 
-          TransferCtx = Struct.new(:class_flat, :method_name, :env, :return_joins, :lookup, keyword_init: true)
+          # `break_joins` — stack of Arrays, one per enclosing break-catching
+          # scope (Wave-1 loops; later, blocks). `Break` pushes its value
+          # type onto the top array; the loop transfer pops and joins the
+          # collected values into its own result (a plain while returns
+          # nil, but `while true; break 42; end` returns Integer).
+          TransferCtx = Struct.new(:class_flat, :method_name, :env, :return_joins, :break_joins, :lookup, keyword_init: true)
 
           # Parameters default to ⊤ under Tier 1 (no callsite-type
           # propagation yet). Later: bidirectional inference will feed
@@ -161,8 +167,13 @@ module Frozone
             when Ast::LocalVariableRead then ctx.env[node.name] || @lattice.top
             when Ast::ConstantRead      then transfer_constant_read(node)
             when Ast::LocalVariableWrite then transfer_local_write(node, ctx)
+            when Ast::Sequence           then transfer_sequence(node, ctx)
             when Ast::If                 then transfer_if(node, ctx)
             when Ast::Return             then transfer_return(node, ctx)
+            when Ast::Break              then transfer_break(node, ctx)
+            when Ast::Next               then transfer_next(node, ctx)
+            when Ast::Redo               then @lattice.bottom
+            when Ast::Retry              then @lattice.bottom
             when Ast::MethodCall         then transfer_method_call(node, ctx)
             when Ast::IntrinsicCall      then transfer_intrinsic_call(node, ctx)
             else
@@ -202,6 +213,46 @@ module Frozone
             ctx.return_joins << value_type
             # `return` diverges — the enclosing expression doesn't receive
             # this value.
+            @lattice.bottom
+          end
+
+          # A Sequence is `stmt1; stmt2; ...; stmtN`. Every child is
+          # walked (so their subtree types get cached) but the sequence's
+          # own type is the LAST child's type — that's the value the
+          # enclosing expression sees.
+          #
+          # Divergent trailing statements are correctly reflected: if
+          # stmtN is a Return/Break/etc., the sequence type is ⊥, and
+          # method-return joining takes the return_joins path instead.
+          # An empty sequence types as nil (Ruby's empty-block value).
+          def transfer_sequence(node, ctx)
+            last = @lattice.nil_type
+            (node.nodes || []).each { |child| last = walk(child, ctx) }
+            last
+          end
+
+          # `break value` — inside a loop or block-catching frame,
+          # contributes `value`'s type to the current break scope. The
+          # expression itself is divergent (⊥); loops pop their scope
+          # and join contributions into their own result type.
+          #
+          # If we're outside any break scope (bare Break in a method
+          # body) that's a LocalJumpError at runtime — the value never
+          # flows anywhere at compile time either, so ⊥ stands.
+          def transfer_break(node, ctx)
+            value_type = node.value_node ? walk(node.value_node, ctx) : @lattice.nil_type
+            top = ctx.break_joins.last
+            top << value_type if top
+            @lattice.bottom
+          end
+
+          # `next value` — skips to the next iteration. Value flows to
+          # the block's per-iteration return (relevant for `map` etc.)
+          # but never to the enclosing loop/method result. Tier 1
+          # doesn't type block returns yet, so drop the value; just
+          # diverge.
+          def transfer_next(node, ctx)
+            walk(node.value_node, ctx) if node.value_node
             @lattice.bottom
           end
 

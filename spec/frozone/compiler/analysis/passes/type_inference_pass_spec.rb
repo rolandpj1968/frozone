@@ -14,6 +14,11 @@ require_relative '../../../../../lib/frozone/ast/method_call'
 require_relative '../../../../../lib/frozone/ast/self_literal'
 require_relative '../../../../../lib/frozone/ast/intrinsic_call'
 require_relative '../../../../../lib/frozone/ast/constant_read'
+require_relative '../../../../../lib/frozone/ast/sequence'
+require_relative '../../../../../lib/frozone/ast/break'
+require_relative '../../../../../lib/frozone/ast/next'
+require_relative '../../../../../lib/frozone/ast/redo'
+require_relative '../../../../../lib/frozone/ast/retry'
 
 RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
   let(:vm) { Frozone::Vm }
@@ -172,6 +177,95 @@ RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
       key = described_class.method_node(:Foo, :m)
       engine_value = Frozone::Compiler::Analysis::Engine.new(pass).tap { |e| e.run }.values[key]
       expect(engine_value).to eq(t(:Integer))
+    end
+  end
+
+  describe 'Sequence' do
+    it 'types as the last child' do
+      # `_ = 1; 3.14` — result is Float
+      first = ast::IntegerLiteral.from(1)
+      last = ast::FloatLiteral.new(3.14)
+      body = ast::Sequence.new([first, last])
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body)).to eq(t(:Float))
+      # Both children are cached.
+      expect(pass.type_of(first)).to eq(t(:Integer))
+      expect(pass.type_of(last)).to eq(t(:Float))
+    end
+
+    it 'walks all children — writes in earlier statements feed later reads' do
+      # `x = 1; x` — env captures Integer at write, read returns Integer
+      write = ast::LocalVariableWrite.new(:x, 0, ast::IntegerLiteral.from(1))
+      read = ast::LocalVariableRead.new(:x, 0)
+      body = ast::Sequence.new([write, read])
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body)).to eq(t(:Integer))
+      expect(pass.type_of(read)).to eq(t(:Integer))
+    end
+
+    it 'empty sequence types as NilClass' do
+      body = ast::Sequence.new([])
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body)).to eq(t(:NilClass))
+    end
+
+    it 'trailing Return makes the sequence divergent but return_joins captures the value' do
+      # `x = 1; return 42` — sequence type = ⊥, method return = Integer.
+      body = ast::Sequence.new([
+        ast::LocalVariableWrite.new(:x, 0, ast::IntegerLiteral.from(1)),
+        ast::Return.new(ast::IntegerLiteral.from(42)),
+      ])
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body).bottom?).to be true
+      engine_value = Frozone::Compiler::Analysis::Engine.new(pass).tap { |e| e.run }.values[described_class.method_node(:Foo, :m)]
+      expect(engine_value).to eq(t(:Integer))
+    end
+  end
+
+  describe 'divergent jumps (Break/Next/Redo/Retry)' do
+    it 'Break diverges — expression type is ⊥' do
+      body = ast::Break.new(ast::IntegerLiteral.from(1))
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body).bottom?).to be true
+    end
+
+    it 'Next diverges — expression type is ⊥' do
+      body = ast::Next.new(ast::IntegerLiteral.from(1))
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body).bottom?).to be true
+    end
+
+    it 'Redo diverges — expression type is ⊥' do
+      body = ast::Redo.new
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body).bottom?).to be true
+    end
+
+    it 'Retry diverges — expression type is ⊥' do
+      body = ast::Retry.new
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body).bottom?).to be true
+    end
+
+    it 'Break without break scope silently drops the value type (LocalJumpError at runtime)' do
+      # No enclosing loop or block-catching frame — break_joins stack
+      # is empty, so nothing to push onto. Type-inference stays ⊥.
+      body = ast::Break.new(ast::IntegerLiteral.from(1))
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      # Method's return type: only the terminal (⊥) — collapses to ⊤
+      # per the "no-op divergent" rule.
+      key = described_class.method_node(:Foo, :m)
+      engine_value = Frozone::Compiler::Analysis::Engine.new(pass).tap { |e| e.run }.values[key]
+      expect(engine_value.top?).to be true
     end
   end
 
