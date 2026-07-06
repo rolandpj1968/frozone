@@ -39,6 +39,12 @@ require_relative '../../../../../lib/frozone/ast/module_def'
 require_relative '../../../../../lib/frozone/ast/singleton_class_def'
 require_relative '../../../../../lib/frozone/ast/method_alias'
 require_relative '../../../../../lib/frozone/ast/global_alias'
+require_relative '../../../../../lib/frozone/ast/attribute_write'
+require_relative '../../../../../lib/frozone/ast/constant_write'
+require_relative '../../../../../lib/frozone/ast/multiple_assignment'
+require_relative '../../../../../lib/frozone/ast/index_op_write'
+require_relative '../../../../../lib/frozone/ast/constant_op_write'
+require_relative '../../../../../lib/frozone/ast/call_or_write'
 
 RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
   let(:vm) { Frozone::Vm }
@@ -609,6 +615,67 @@ RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
       key = described_class.method_node(:Numeric, :m)
       engine_value = Frozone::Compiler::Analysis::Engine.new(pass).tap { |e| e.run }.values[key]
       expect(engine_value.top?).to be true
+    end
+  end
+
+  describe 'Assignments' do
+    it 'AttributeWrite returns the last arg (the RHS value)' do
+      # obj.foo = 42  →  Integer
+      recv = ast::SelfLiteral::SELF
+      body = ast::AttributeWrite.new(:foo=, recv, [ast::IntegerLiteral.from(42)], {})
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body)).to eq(t(:Integer))
+    end
+
+    it 'safe-nav AttributeWrite widens to nullable' do
+      # obj&.foo = 42  →  Integer? (nil when receiver is nil)
+      recv = ast::SelfLiteral::SELF
+      body = ast::AttributeWrite.new(:foo=, recv, [ast::IntegerLiteral.from(42)], {}, safe_nav: true)
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body)).to eq(t(:Integer, nullable: true))
+    end
+
+    it 'ConstantWrite returns the RHS value' do
+      # C = 3.14  →  Float
+      body = ast::ConstantWrite.new(:C, ast::FloatLiteral.new(3.14))
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body)).to eq(t(:Float))
+    end
+
+    it 'MultipleAssignment returns the RHS' do
+      # a, b = [1, 2]  →  Array (the raw RHS value_node)
+      arr = ast::ArrayLiteral.new([])
+      body = ast::MultipleAssignment.new([[:local, :a, 0], [:local, :b, 0]], arr)
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body)).to eq(t(:Array))
+    end
+
+    it 'IndexOperatorWrite falls through to ⊤ (unknown operator result)' do
+      # arr[i] += 1  — unknown existing arr[i] type × unknown +
+      recv = ast::SelfLiteral::SELF
+      idx = ast::IntegerLiteral.from(0)
+      val = ast::IntegerLiteral.from(1)
+      body = ast::IndexOperatorWrite.new(:+, recv, [idx], val)
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body).top?).to be true
+      # But its children get typed.
+      expect(pass.type_of(val)).to eq(t(:Integer))
+    end
+
+    it 'CallOrWrite falls through to ⊤' do
+      # obj.x ||= 42
+      recv = ast::SelfLiteral::SELF
+      val = ast::IntegerLiteral.from(42)
+      body = ast::CallOrWrite.new(:x, :x=, recv, val)
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body).top?).to be true
+      expect(pass.type_of(val)).to eq(t(:Integer))
     end
   end
 

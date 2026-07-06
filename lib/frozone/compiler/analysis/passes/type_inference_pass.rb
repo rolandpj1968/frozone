@@ -189,6 +189,9 @@ module Frozone
             when Ast::Yield              then transfer_yield(node, ctx)
             when Ast::Lambda             then @lattice.concrete(:Proc)
             when Ast::MethodDef          then @lattice.concrete(:Symbol)
+            when Ast::AttributeWrite     then transfer_attribute_write(node, ctx)
+            when Ast::ConstantWrite      then transfer_pass_through_value(node, ctx)
+            when Ast::MultipleAssignment then transfer_pass_through_value(node, ctx)
             when Ast::MethodAlias        then @lattice.nil_type
             when Ast::GlobalAlias        then @lattice.nil_type
             when Ast::ClassDef           then @lattice.top
@@ -326,6 +329,32 @@ module Frozone
             left_type = walk(node.left_node, ctx)
             right_type = walk(node.right_node, ctx)
             @lattice.join(left_type, right_type)
+          end
+
+          # `obj.foo = val` and `obj.foo=(a, b, val)` — Ruby returns
+          # the last value in the arg list regardless of what the
+          # setter itself returns. Safe-nav (`obj&.foo = val`) may
+          # return nil when the receiver is nil.
+          def transfer_attribute_write(node, ctx)
+            walk(node.receiver_node, ctx) if node.receiver_node
+            arg_types = (node.arg_nodes || []).map { |a| walk(a, ctx) }
+            (node.kw_arg_nodes || []).each do |pair|
+              # kw_arg_nodes is a list of [key_node, value_node] pairs.
+              Array(pair).each { |n| walk(n, ctx) if n.is_a?(Ast::Node) }
+            end
+            base = arg_types.last || @lattice.nil_type
+            node.instance_variable_get(:@safe_nav) ? @lattice.join(base, @lattice.nil_type) : base
+          end
+
+          # Assignments whose Ruby return value IS the RHS: ConstantWrite
+          # (`C = val`), MultipleAssignment (`a, b = rhs` returns rhs).
+          # walk() the value_node explicitly so we can return its type;
+          # `walk_children` handles any siblings (namespace nodes,
+          # target subtrees) so their types still land in the cache.
+          def transfer_pass_through_value(node, ctx)
+            value_type = walk(node.value_node, ctx)
+            walk_children(node, ctx)
+            value_type
           end
 
           # `super(args)` / `super` — resolves against the ancestor
