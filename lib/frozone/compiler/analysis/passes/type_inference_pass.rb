@@ -161,8 +161,12 @@ module Frozone
             when Ast::TrueLiteral       then @lattice.concrete(:TrueClass)
             when Ast::FalseLiteral      then @lattice.concrete(:FalseClass)
             when Ast::NilLiteral        then @lattice.concrete(:NilClass)
-            when Ast::ArrayLiteral      then @lattice.concrete(:Array)
-            when Ast::HashLiteral       then @lattice.concrete(:Hash)
+            when Ast::ArrayLiteral      then transfer_literal_children(node, ctx, :Array)
+            when Ast::HashLiteral       then transfer_literal_children(node, ctx, :Hash)
+            when Ast::RangeLiteral      then transfer_literal_children(node, ctx, :Range)
+            when Ast::RegexpLiteral     then @lattice.concrete(:Regexp)
+            when Ast::InterpolatedRegexpLiteral then transfer_literal_children(node, ctx, :Regexp)
+            when Ast::InterpolatedString then transfer_literal_children(node, ctx, :String)
             when Ast::SelfLiteral       then @lattice.concrete(ctx.class_flat)
             when Ast::LocalVariableRead then ctx.env[node.name] || @lattice.top
             when Ast::ConstantRead      then transfer_constant_read(node)
@@ -313,6 +317,14 @@ module Frozone
             left_type = walk(node.left_node, ctx)
             right_type = walk(node.right_node, ctx)
             @lattice.join(left_type, right_type)
+          end
+
+          # Composite literals whose value type is fixed (Range,
+          # Regexp, interpolated String) but whose subexpressions
+          # need walking so their own types land in the cache.
+          def transfer_literal_children(node, ctx, class_sym)
+            walk_children(node, ctx)
+            @lattice.concrete(class_sym)
           end
 
           # `begin; body; rescue A => e; a_body; rescue B; b_body; else e_body; ensure ens; end`

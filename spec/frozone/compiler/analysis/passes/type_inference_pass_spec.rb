@@ -27,6 +27,9 @@ require_relative '../../../../../lib/frozone/ast/case'
 require_relative '../../../../../lib/frozone/ast/and'
 require_relative '../../../../../lib/frozone/ast/or'
 require_relative '../../../../../lib/frozone/ast/rescue'
+require_relative '../../../../../lib/frozone/ast/range_literal'
+require_relative '../../../../../lib/frozone/ast/regexp_literal'
+require_relative '../../../../../lib/frozone/ast/interpolated_string'
 
 RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
   let(:vm) { Frozone::Vm }
@@ -488,6 +491,37 @@ RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
       expect(pass.type_of(rescued)).to eq(t(:Integer))
       # But ensure's subtree type is still cached.
       expect(pass.type_of(ens)).to eq(t(:String))
+    end
+  end
+
+  describe 'Range / Regexp / InterpolatedString literals' do
+    it 'RangeLiteral types as Range and walks endpoints' do
+      # (1..2)  → Range; child types cached
+      lo = ast::IntegerLiteral.from(1)
+      hi = ast::IntegerLiteral.from(2)
+      body = ast::RangeLiteral.new(lo, hi, false)
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body)).to eq(t(:Range))
+      expect(pass.type_of(lo)).to eq(t(:Integer))
+      expect(pass.type_of(hi)).to eq(t(:Integer))
+    end
+
+    it 'RegexpLiteral types as Regexp' do
+      body = ast::RegexpLiteral.new('foo', 0)
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body)).to eq(t(:Regexp))
+    end
+
+    it 'InterpolatedString types as String and walks interpolated parts' do
+      # "#{42}" → String
+      interp = ast::IntegerLiteral.from(42)
+      body = ast::InterpolatedString.new([interp])
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body)).to eq(t(:String))
+      expect(pass.type_of(interp)).to eq(t(:Integer))
     end
   end
 
