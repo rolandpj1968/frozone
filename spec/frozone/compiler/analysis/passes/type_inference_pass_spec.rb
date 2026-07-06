@@ -30,6 +30,15 @@ require_relative '../../../../../lib/frozone/ast/rescue'
 require_relative '../../../../../lib/frozone/ast/range_literal'
 require_relative '../../../../../lib/frozone/ast/regexp_literal'
 require_relative '../../../../../lib/frozone/ast/interpolated_string'
+require_relative '../../../../../lib/frozone/ast/super'
+require_relative '../../../../../lib/frozone/ast/yield'
+require_relative '../../../../../lib/frozone/ast/lambda'
+require_relative '../../../../../lib/frozone/ast/method_def'
+require_relative '../../../../../lib/frozone/ast/class_def'
+require_relative '../../../../../lib/frozone/ast/module_def'
+require_relative '../../../../../lib/frozone/ast/singleton_class_def'
+require_relative '../../../../../lib/frozone/ast/method_alias'
+require_relative '../../../../../lib/frozone/ast/global_alias'
 
 RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
   let(:vm) { Frozone::Vm }
@@ -522,6 +531,84 @@ RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
       pass = run_pass(methods)
       expect(pass.type_of(body)).to eq(t(:String))
       expect(pass.type_of(interp)).to eq(t(:Integer))
+    end
+  end
+
+  describe 'Yield / Lambda / definitions' do
+    it 'Yield types as ⊤ and walks args' do
+      # yield 42 — block return not typed at Tier 1
+      arg = ast::IntegerLiteral.from(42)
+      body = ast::Yield.new([arg])
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body).top?).to be true
+      expect(pass.type_of(arg)).to eq(t(:Integer))
+    end
+
+    it 'Lambda types as Proc' do
+      lam_body = ast::IntegerLiteral.from(1)
+      body = ast::Lambda.new([], [], nil, [], [], [], nil, nil, [], lam_body)
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body)).to eq(t(:Proc))
+    end
+
+    it 'MethodDef types as Symbol' do
+      # def m; end  →  :m
+      body = ast::MethodDef.new(:m, nil, [], [], nil, [], [], [], nil, nil, [], ast::NilLiteral::NIL)
+      methods = { [:Foo, :outer] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body)).to eq(t(:Symbol))
+    end
+
+    it 'ClassDef types as ⊤ (last-expression-of-body, unknown at Tier 1)' do
+      body = ast::ClassDef.new(:C, [], nil, ast::NilLiteral::NIL)
+      methods = { [:Foo, :outer] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body).top?).to be true
+    end
+
+    it 'ModuleDef types as ⊤' do
+      body = ast::ModuleDef.new(:M, [], ast::NilLiteral::NIL)
+      methods = { [:Foo, :outer] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body).top?).to be true
+    end
+
+    it 'MethodAlias types as NilClass' do
+      body = ast::MethodAlias.new(:new_name, :old_name)
+      methods = { [:Foo, :outer] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body)).to eq(t(:NilClass))
+    end
+  end
+
+  describe 'Super' do
+    it 'resolves via the ancestor chain from ONE class up' do
+      # class Numeric; def m; 42; end; end
+      # class Integer < Numeric; def m; super; end; end
+      # Integer#m calls super → Numeric#m which returns Integer.
+      parent_body = ast::IntegerLiteral.from(42)
+      super_body = ast::Super.new([], nil, forwarding: false)
+      methods = {
+        [:Numeric, :m] => make_method(parent_body),
+        [:Integer, :m] => make_method(super_body),
+      }
+      pass = run_pass(methods)
+      # Integer#m return type = Numeric#m return type = Integer.
+      key = described_class.method_node(:Integer, :m)
+      engine_value = Frozone::Compiler::Analysis::Engine.new(pass).tap { |e| e.run }.values[key]
+      expect(engine_value).to eq(t(:Integer))
+    end
+
+    it 'returns ⊤ when there is no matching method above' do
+      # Numeric#m has no ancestor with :m defined (Object/BasicObject don't have :m)
+      super_body = ast::Super.new([], nil, forwarding: false)
+      methods = { [:Numeric, :m] => make_method(super_body) }
+      pass = run_pass(methods)
+      key = described_class.method_node(:Numeric, :m)
+      engine_value = Frozone::Compiler::Analysis::Engine.new(pass).tap { |e| e.run }.values[key]
+      expect(engine_value.top?).to be true
     end
   end
 

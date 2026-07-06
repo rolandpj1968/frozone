@@ -185,6 +185,15 @@ module Frozone
             when Ast::And                then transfer_and_or(node, ctx)
             when Ast::Or                 then transfer_and_or(node, ctx)
             when Ast::Rescue             then transfer_rescue(node, ctx)
+            when Ast::Super              then transfer_super(node, ctx)
+            when Ast::Yield              then transfer_yield(node, ctx)
+            when Ast::Lambda             then @lattice.concrete(:Proc)
+            when Ast::MethodDef          then @lattice.concrete(:Symbol)
+            when Ast::MethodAlias        then @lattice.nil_type
+            when Ast::GlobalAlias        then @lattice.nil_type
+            when Ast::ClassDef           then @lattice.top
+            when Ast::ModuleDef          then @lattice.top
+            when Ast::SingletonClassDef  then @lattice.top
             when Ast::MethodCall         then transfer_method_call(node, ctx)
             when Ast::IntrinsicCall      then transfer_intrinsic_call(node, ctx)
             else
@@ -317,6 +326,35 @@ module Frozone
             left_type = walk(node.left_node, ctx)
             right_type = walk(node.right_node, ctx)
             @lattice.join(left_type, right_type)
+          end
+
+          # `super(args)` / `super` — resolves against the ancestor
+          # chain starting from the class ABOVE the current method's
+          # defining class (skips this class's own definition). Same
+          # lookup mechanism as method_call, just seeded one step up.
+          # No class above → ⊤ (BasicObject#foo super would raise
+          # NoMethodError at runtime; TI stays conservative).
+          def transfer_super(node, ctx)
+            (node.arg_nodes || []).each { |a| walk(a, ctx) }
+            walk(node.block_node, ctx) if node.block_node
+            chain = @lattice.ancestor_chains[ctx.class_flat] || [ctx.class_flat]
+            parent_chain = chain.drop(1)
+            return @lattice.top if parent_chain.empty?
+            parent_chain.each do |cls|
+              next unless @methods.key?([cls, ctx.method_name])
+              return ctx.lookup.call(self.class.method_node(cls, ctx.method_name))
+            end
+            @lattice.top
+          end
+
+          # `yield args` — dispatches to the block passed to the
+          # enclosing method. Tier 1 doesn't track block bodies, so
+          # the result is ⊤. Args still walked so their subtree types
+          # get cached.
+          def transfer_yield(node, ctx)
+            (node.arg_nodes || []).each { |a| walk(a, ctx) }
+            (node.kw_arg_nodes || {}).each_value { |v| walk(v, ctx) if v.is_a?(Ast::Node) }
+            @lattice.top
           end
 
           # Composite literals whose value type is fixed (Range,
