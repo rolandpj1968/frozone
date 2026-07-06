@@ -19,6 +19,10 @@ require_relative '../../../../../lib/frozone/ast/break'
 require_relative '../../../../../lib/frozone/ast/next'
 require_relative '../../../../../lib/frozone/ast/redo'
 require_relative '../../../../../lib/frozone/ast/retry'
+require_relative '../../../../../lib/frozone/ast/while'
+require_relative '../../../../../lib/frozone/ast/until'
+require_relative '../../../../../lib/frozone/ast/for_loop'
+require_relative '../../../../../lib/frozone/ast/array_literal'
 
 RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
   let(:vm) { Frozone::Vm }
@@ -266,6 +270,82 @@ RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
       key = described_class.method_node(:Foo, :m)
       engine_value = Frozone::Compiler::Analysis::Engine.new(pass).tap { |e| e.run }.values[key]
       expect(engine_value.top?).to be true
+    end
+  end
+
+  describe 'While / Until' do
+    it 'plain while returns NilClass' do
+      # while true; end  — no break, no body
+      body = ast::While.new(ast::TrueLiteral::TRUE, ast::NilLiteral::NIL)
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body)).to eq(t(:NilClass))
+    end
+
+    it 'while with break-with-value joins NilClass and the break value' do
+      # while true; break 42; end  → nil ∪ Integer → Integer? (nullable Integer)
+      brk = ast::Break.new(ast::IntegerLiteral.from(42))
+      body = ast::While.new(ast::TrueLiteral::TRUE, brk)
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body)).to eq(t(:Integer, nullable: true))
+    end
+
+    it 'until behaves the same as while (nil-return, break-joined)' do
+      brk = ast::Break.new(ast::FloatLiteral.new(1.5))
+      body = ast::Until.new(ast::FalseLiteral::FALSE, brk)
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body)).to eq(t(:Float, nullable: true))
+    end
+
+    it 'multiple break values are joined into their LUB' do
+      # while true; if cond; break 1; else break 1.5; end; end
+      brk_a = ast::Break.new(ast::IntegerLiteral.from(1))
+      brk_b = ast::Break.new(ast::FloatLiteral.new(1.5))
+      if_body = ast::If.new(ast::TrueLiteral::TRUE, brk_a, brk_b)
+      body = ast::While.new(ast::TrueLiteral::TRUE, if_body)
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      # Break contribs: Integer, Float → LUB = Numeric. Loop join: nil
+      # ∪ Numeric = Numeric?.
+      expect(pass.type_of(body)).to eq(t(:Numeric, nullable: true))
+    end
+
+    it 'nested loops: inner break contributes to inner scope only' do
+      # while true; while true; break 42; end; end
+      #   inner loop → Integer? ; outer loop → nil (no break there)
+      inner_brk = ast::Break.new(ast::IntegerLiteral.from(42))
+      inner = ast::While.new(ast::TrueLiteral::TRUE, inner_brk)
+      outer = ast::While.new(ast::TrueLiteral::TRUE, inner)
+      methods = { [:Foo, :m] => make_method(outer) }
+      pass = run_pass(methods)
+      expect(pass.type_of(inner)).to eq(t(:Integer, nullable: true))
+      expect(pass.type_of(outer)).to eq(t(:NilClass))
+    end
+  end
+
+  describe 'ForLoop' do
+    it 'returns the collection type when there is no break' do
+      # for x in [1,2,3]; x; end  →  Array
+      arr = ast::ArrayLiteral.new([])
+      body = ast::LocalVariableRead.new(:x, 0)
+      loop_node = ast::ForLoop.new([:local, :x], arr, body)
+      methods = { [:Foo, :m] => make_method(loop_node) }
+      pass = run_pass(methods)
+      expect(pass.type_of(loop_node)).to eq(t(:Array))
+    end
+
+    it 'joins collection type with break-with-value' do
+      # for x in [1]; break "s"; end  →  Array ∪ String → BasicObject
+      # under this spec's hierarchy (Array not in the class map, so the
+      # LUB walk falls all the way to BasicObject).
+      arr = ast::ArrayLiteral.new([])
+      brk = ast::Break.new(ast::StringLiteral.from('s'))
+      loop_node = ast::ForLoop.new([:local, :x], arr, brk)
+      methods = { [:Foo, :m] => make_method(loop_node) }
+      pass = run_pass(methods)
+      expect(pass.type_of(loop_node)).to eq(t(:BasicObject))
     end
   end
 

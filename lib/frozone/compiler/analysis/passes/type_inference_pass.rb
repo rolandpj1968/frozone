@@ -174,6 +174,9 @@ module Frozone
             when Ast::Next               then transfer_next(node, ctx)
             when Ast::Redo               then @lattice.bottom
             when Ast::Retry              then @lattice.bottom
+            when Ast::While              then transfer_while(node, ctx)
+            when Ast::Until              then transfer_while(node, ctx)
+            when Ast::ForLoop            then transfer_for_loop(node, ctx)
             when Ast::MethodCall         then transfer_method_call(node, ctx)
             when Ast::IntrinsicCall      then transfer_intrinsic_call(node, ctx)
             else
@@ -254,6 +257,45 @@ module Frozone
           def transfer_next(node, ctx)
             walk(node.value_node, ctx) if node.value_node
             @lattice.bottom
+          end
+
+          # `while cond; body; end` and `until cond; body; end` both
+          # return nil when they fall out normally. If the body breaks
+          # with a value, that value becomes the loop's result — so we
+          # push a fresh break scope, walk cond+body, then join nil
+          # with the collected break contributions.
+          def transfer_while(node, ctx)
+            walk(node.condition_node, ctx)
+            with_break_scope(ctx) do |contribs|
+              walk(node.body_node, ctx)
+              contribs.reduce(@lattice.nil_type) { |acc, t| @lattice.join(acc, t) }
+            end
+          end
+
+          # `for x in collection; body; end` — Ruby returns the
+          # collection when the loop completes normally, or the break
+          # value if body breaks. The collection's own type is our
+          # best result for the completed case; join in any break
+          # contributions.
+          def transfer_for_loop(node, ctx)
+            coll_type = walk(node.collection_node, ctx)
+            with_break_scope(ctx) do |contribs|
+              walk(node.body_node, ctx)
+              contribs.reduce(coll_type) { |acc, t| @lattice.join(acc, t) }
+            end
+          end
+
+          # Push a fresh break_joins scope, run the block with the
+          # empty contributions array, pop when done. Yields the
+          # contributions to the block so it can compute the result.
+          def with_break_scope(ctx)
+            contribs = []
+            ctx.break_joins.push(contribs)
+            begin
+              yield contribs
+            ensure
+              ctx.break_joins.pop
+            end
           end
 
           # Method-call return-type resolution. No distinction between
