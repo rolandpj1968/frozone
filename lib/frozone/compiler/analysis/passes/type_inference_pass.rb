@@ -92,7 +92,7 @@ module Frozone
             @top_level_scope = top_level_scope
             @lattice = TypeLattice.new(all_classes)
             @per_node_types = {}
-            @methods = ENV['FROZONE_TI_SPLAT'] == '1' ? eager_splat(methods) : methods
+            @methods = %w[1 2].include?(ENV['FROZONE_TI_SPLAT']) ? eager_splat(methods) : methods
           end
 
           # Splat every ancestor-defined method down to each concrete
@@ -112,9 +112,17 @@ module Frozone
           # Object/BasicObject cones can be hundreds of classes so this may
           # produce ~10x growth in the method-node count. Measured on fib.rb
           # to decide next-step filter design.
+          #
+          # `FROZONE_TI_SPLAT=2` runs the tier-1 syntactic classifier:
+          # skip splatting method bodies where TI's answer provably can't
+          # depend on class_flat. Filter is conservative — over-splat
+          # rather than under-splat, so miss cases are wasted work not
+          # missed precision.
           def eager_splat(methods)
+            use_classifier = ENV['FROZONE_TI_SPLAT'] == '2'
             extended = methods.dup
             methods.each do |(cls_flat, mname), m|
+              next if use_classifier && !class_flat_dependent?(m)
               descs = @lattice.descendants[cls_flat]
               next unless descs
               descs.each do |leaf|
@@ -125,6 +133,47 @@ module Frozone
               end
             end
             extended
+          end
+
+          # Tier-1 syntactic classifier: does this method's body have any
+          # node whose TI result plausibly depends on `ctx.class_flat`?
+          # If NO, splatting produces identical per-leaf results — the
+          # copies are wasted work. Signals that make a body class_flat-
+          # dependent:
+          #
+          #   - SelfLiteral (its TI type = ctx.class_flat)
+          #   - Implicit-receiver MethodCall (dispatches through class_flat's
+          #     descendant cone)
+          #   - Ivar/cvar read (per-class storage; type varies by class)
+          #   - Super (resolves via ctx.class_flat's chain)
+          #   - Yield (block passed to enclosing self, class-parametric)
+          #
+          # Conservative — over-approximates. `Intrinsics.foo(self)` is
+          # counted as dependent (SelfLiteral present) even though a
+          # fixed-annotation intrinsic gives uniform results across cone;
+          # the oracle report (uniform vs diverse) captures those cases
+          # as filter false-positives to eyeball.
+          def class_flat_dependent?(method)
+            return false unless method&.body
+            @class_flat_dep_cache ||= {}
+            return @class_flat_dep_cache[method] if @class_flat_dep_cache.key?(method)
+            @class_flat_dep_cache[method] = body_has_class_flat_dep?(method.body)
+          end
+
+          def body_has_class_flat_dep?(root)
+            stack = [root]
+            until stack.empty?
+              node = stack.pop
+              next if node.nil?
+              return true if node.is_a?(Ast::SelfLiteral)
+              return true if node.is_a?(Ast::InstanceVariableRead) || node.is_a?(Ast::InstanceVariableWrite)
+              return true if node.is_a?(Ast::ClassVariableRead) || node.is_a?(Ast::ClassVariableWrite)
+              return true if node.is_a?(Ast::Super) || node.is_a?(Ast::Yield)
+              return true if node.is_a?(Ast::MethodCall) && node.receiver_node.nil?
+              next unless node.respond_to?(:children)
+              (node.children || []).each { |c| stack << c if c.is_a?(Ast::Node) }
+            end
+            false
           end
 
           def lattice = @lattice
