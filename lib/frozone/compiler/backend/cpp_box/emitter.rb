@@ -3543,21 +3543,80 @@ module Frozone
             values = engine.values
             method_node = Analysis::Passes::TypeInferencePass.method(:method_node)
             param_node  = Analysis::Passes::TypeInferencePass.method(:param_node)
+            # Pass's actual @methods hash — includes any splatted per-
+            # leaf entries populated by eager_splat (FROZONE_TI_SPLAT).
+            # `methods` arg is the emitter's pre-splat view; use it to
+            # distinguish original definitions from splatted copies.
+            original_keys = methods.keys.to_set
+            full_methods = pass.methods
             hist = Hash.new(0)
             status_hist = Hash.new(0)
             user_hist = Hash.new(0)
             core_hist = Hash.new(0)
-            rows = methods.map do |(cls_flat, mname), m|
-              t = values[method_node.call(cls_flat, mname)]
+            splat_reached_hist = Hash.new(0)
+            splat_total = 0
+            splat_reached = 0
+            rows = full_methods.map do |(cls_flat, mname), m|
+              node = method_node.call(cls_flat, mname)
+              t = values[node]
               key = t ? t.to_s : '?'
               hist[key] += 1
               status = classify_method_status(t, cls_flat, mname, m, values, param_node)
               status_hist[status] += 1
               (user_source?(m.source_location) ? user_hist : core_hist)[key] += 1
-              [cls_flat, mname, key, m.source_location, status]
+              is_splat = !original_keys.include?([cls_flat, mname])
+              if is_splat
+                splat_total += 1
+                deps = engine.deps[node]
+                if deps && !deps.empty?
+                  splat_reached += 1
+                  splat_reached_hist[key] += 1
+                end
+              end
+              [cls_flat, mname, key, m.source_location, status, is_splat]
             end
-            total = methods.size
-            $stderr.puts "[ti-dump] #{total} methods analyzed (#{user_hist.values.sum} user, #{core_hist.values.sum} core)"
+            total = full_methods.size
+            $stderr.puts "[ti-dump] #{total} methods analyzed (#{user_hist.values.sum} user, #{core_hist.values.sum} core; #{splat_total} splatted, #{original_keys.size} original)"
+            if splat_total > 0
+              pct = (splat_reached * 100.0 / splat_total).round(1)
+              $stderr.puts "[ti-dump] splatted reachability: #{splat_reached}/#{splat_total} (#{pct}%) had ≥1 dispatch reader"
+              $stderr.puts "[ti-dump] top splat-reached return shapes:"
+              splat_reached_hist.sort_by { |_, c| -c }.first(10).each do |shape, c|
+                $stderr.puts "  #{c.to_s.rjust(6)}  #{shape}"
+              end
+              # Classifier oracle: for each source method definition (D, m),
+              # collect the TI return-type strings across ALL its splatted
+              # copies (self + descendants). If they collapse to a single
+              # value, this method is a BAD splat candidate — per-class
+              # specialization discovered no new info; the leaf copies were
+              # wasted transfer work. If they span 2+ distinct values, at
+              # least one leaf actually specialized differently → GOOD splat
+              # candidate. This is the ground-truth oracle any proposed
+              # syntactic classifier must approximate.
+              groups = full_methods.group_by { |k, m| [m.object_id, k[1]] }
+              uniform = 0
+              diverse = 0
+              diverse_samples = []
+              groups.each do |(_, mname), entries|
+                next if entries.size < 2  # not splatted or single-def
+                unique_keys = entries.map { |k, _| values[method_node.call(k[0], k[1])].to_s }.uniq
+                if unique_keys.size == 1
+                  uniform += 1
+                else
+                  diverse += 1
+                  diverse_samples << [entries.first[1], mname, entries.size, unique_keys]
+                end
+              end
+              $stderr.puts "[ti-dump] classifier oracle across #{uniform + diverse} splatted method families:"
+              $stderr.puts "  uniform (bad splat candidate — all copies same TI): #{uniform}"
+              $stderr.puts "  diverse (good splat candidate — ≥1 copy differs):   #{diverse}"
+              $stderr.puts "[ti-dump] diverse-splat samples (up to 20):"
+              diverse_samples.first(20).each do |m, mname, n_copies, keys|
+                loc = m.source_location
+                loc_s = loc.is_a?(Array) ? loc.join(':') : loc.to_s
+                $stderr.puts "  #{mname}  ×#{n_copies} copies → #{keys.inspect}  (#{loc_s})"
+              end
+            end
             $stderr.puts "[ti-dump] top return-type shapes:"
             hist.sort_by { |_, c| -c }.first(top).each do |shape, c|
               pct = (c * 100.0 / total).round(1)

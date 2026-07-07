@@ -128,6 +128,7 @@ module Frozone
           end
 
           def lattice = @lattice
+          def methods = @methods
 
           # Type accessor for callers (emitter, tests). Nil for AST nodes
           # the pass never visited (unreachable methods, or nodes outside

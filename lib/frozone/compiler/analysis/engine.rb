@@ -96,7 +96,7 @@ module Frozone
         #                  both modes on the same input. The ratio
         #                  (transfer_calls / rounds) is the average
         #                  per-round work, a useful diagnostic.
-        attr_reader :values, :rounds, :transfer_calls
+        attr_reader :values, :rounds, :transfer_calls, :deps
 
         def initialize(pass, mode: :eager)
           unless VALID_MODES.include?(mode)
