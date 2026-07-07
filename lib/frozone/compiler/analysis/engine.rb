@@ -113,6 +113,16 @@ module Frozone
           # FIFO when we iterate. Replaces an Array + on_worklist
           # Hash combo with one stdlib structure.
           @worklist = Set.new
+          # Dep map: `target_node → Set[dependent_nodes]`. Populated
+          # every time a transfer calls `lookup.call(target_node)` —
+          # the dependent is the node currently being transferred.
+          # When `apply_update` raises `target_node`, every dependent
+          # is re-enqueued so their transfers re-read with the new
+          # value. Without this the fixpoint is order-dependent:
+          # transfers that ran BEFORE their callee's return-value
+          # rose don't see the updated value, so their result stays
+          # stale unless something else happens to re-enqueue them.
+          @deps = Hash.new { |h, k| h[k] = Set.new }
           @rounds = 0
           @transfer_calls = 0
         end
@@ -188,8 +198,16 @@ module Frozone
         def process_round(source:, target:)
           batch = @worklist
           @worklist = Set.new
-          lookup = ->(n) { source[n] }
           batch.each do |node|
+            # Wrap lookup per iteration so it captures THIS node as
+            # the current dependent. Every `lookup.call(target)` from
+            # inside pass.transfer records `target → node` in @deps —
+            # when `target`'s value later rises, apply_update re-enqueues
+            # `node` for another transfer.
+            lookup = ->(n) {
+              @deps[n] << node
+              source[n]
+            }
             value = source[node]
             @transfer_calls += 1
             result = @pass.transfer(node, value, lookup)
@@ -227,6 +245,13 @@ module Frozone
           into[node] = joined
           # Set's << is idempotent — no need to check for membership.
           @worklist << node
+          # Cross-node dep propagation: every transfer that READ this
+          # node (recorded via the wrapped lookup in process_round)
+          # must re-run so it can see the new value. Without this the
+          # fixpoint is order-dependent and both engine modes reach
+          # different local approximations (task #248).
+          deps = @deps[node]
+          @worklist.merge(deps) if deps && !deps.empty?
         end
       end
     end
