@@ -939,17 +939,16 @@ module Frozone
               push_param_types(cls, method_name, arg_nodes, ctx) if arg_nodes
               return ctx.lookup.call(self.class.method_node(cls, method_name))
             end
-            resolve_missing_method(chain)
+            resolve_missing_method(chain, ctx)
           end
 
           # Not found on the ancestor chain — Ruby routes to
           # method_missing on the same receiver. Two cases:
           #
           # 1. A user class in the chain (non-BasicObject) overrides
-          #    method_missing. Its return could be anything → ⊤ (safe
-          #    fallback; the engine's cross-method dep tracking isn't
-          #    fine-grained enough to reliably fixpoint through
-          #    `lookup.call(:method_missing)` under eager mode).
+          #    method_missing. Its analyzed return type propagates via
+          #    `ctx.lookup` — the dep-tracking (#248) fires on rise so
+          #    this transfer re-runs as the mm's fixpoint tightens.
           #
           # 2. Otherwise the resolution falls through to
           #    BasicObject#method_missing, whose canonical body is
@@ -958,12 +957,12 @@ module Frozone
           #
           # The barf-on-hard-override machinery (#230) doesn't cover
           # method_missing yet — a user could shadow it with a returning
-          # body and get their override handled as ⊤ here. That's the
-          # over-approximate but sound fallback.
-          def resolve_missing_method(chain)
+          # body. We take that override's return type at face value.
+          def resolve_missing_method(chain, ctx)
             chain.each do |cls|
               next if cls == :BasicObject
-              return @lattice.top if @methods.key?([cls, :method_missing])
+              next unless @methods.key?([cls, :method_missing])
+              return ctx.lookup.call(self.class.method_node(cls, :method_missing))
             end
             @lattice.noreturn
           end
