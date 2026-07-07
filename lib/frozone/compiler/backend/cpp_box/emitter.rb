@@ -201,8 +201,10 @@ module Frozone
             pass = Analysis::Passes::TypeInferencePass.new(
               methods: methods, all_classes: all_classes, top_level_scope: top_level_scope,
             )
-            engine = Analysis::Engine.new(pass)
+            mode = (ENV['FROZONE_TI_MODE'] || 'eager').to_sym
+            engine = Analysis::Engine.new(pass, mode: mode)
             engine.run
+            $stderr.puts "[ti-dump] engine mode: #{mode}; rounds: #{engine.rounds}; transfer_calls: #{engine.transfer_calls}"
             print_ti_summary(pass, engine, methods)
           end
 
