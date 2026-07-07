@@ -240,13 +240,130 @@ admits the call shape:
   union dramatically.
 - `obj.send(name)` zero-arg → almost no filter. Stays a union.
 
-Structurally similar to the existing NA per-(name, arity)
+Structurally similar to the existing NA per(-name, arity)
 eligibility tables; same precompute pass, just extended with
 required-kwarg sets.
 
 **Watch-outs**: `*args` / `**kwargs` absorb everything;
 `method_missing` accepts any shape (still in the union if
 reachable); `define_method` at execute phase breaks the universe.
+
+### 4.6.1 Value-constrained lattice for Symbol-dispatched sends
+The coerce protocol motivates a lattice extension that goes
+beyond shape filtering. Empirical driver:
+
+```ruby
+class Integer
+  def +(v) = v.is_a?(Integer) ? Intrinsics.integer__plus_(self, v)
+                              : __coerce_op__(v, :+)
+  def -(v) = v.is_a?(Integer) ? Intrinsics.integer__minus_(self, v)
+                              : __coerce_op__(v, :-)
+  # ...
+end
+
+class Numeric
+  private
+  def __coerce_op__(other, op)
+    a, b = other.coerce(self)
+    a.send(op, b)  # ← polymorphic, TI stuck at ⊤
+  end
+end
+```
+
+TI at Tier 1 flow-insensitive lands at ⊤ for every arithmetic
+method, because the else-branch's `__coerce_op__` calls
+`.send(op, b)` with an opaque `op`.
+
+**Extension**: extend the lattice with a *value constraint* on
+`Type(concrete, nullable)`:
+
+```
+Type(concrete, nullable, value_set?)
+```
+
+Where `value_set` is either:
+- A small `Set` of specific Symbol values (`{:+, :-, :*, :/}`), or
+- ⊤_value (unconstrained; the normal case).
+
+Callsite propagation: `SymbolLiteral(:+)` pushes
+`{Symbol, {:+}}` (singleton) to the callee's param. Multiple
+callers with different literals join to a union set:
+`LUB({:+}, {:-}, {:*}) = {Symbol, {:+, :-, :*}}`.
+Collapse to ⊤_value when the set grows past a threshold or
+merges with an unconstrained Symbol.
+
+Consumer at `.send(op, args)`:
+- If `op`'s value_set is a singleton `{:+}` → rewrite AST-level
+  to `recv.+(args)`. Normal TI runs on the direct call.
+- If `op` is a small set → unfold into one call per possible
+  symbol, LUB the return types.
+- If ⊤_value → fall back to today's shape-filter approach or
+  stay at ⊤.
+
+**The receiver-type catch.** Even with `op = {:+, :-}`,
+`a.send(op, b)` still needs `a` to have a resolvable type.
+Under the coerce protocol, `a` is one of Integer/Float/Rational/
+Complex — a *sum* over Numeric subclasses. Numeric itself has
+no `.+`, so the send-unfold on `op` alone doesn't close the
+loop without either:
+- Sum types over class hierarchies (Integer|Float|Rational|
+  Complex), unfold the send twice (per receiver × per symbol);
+- Or a narrower return-type annotation on `Numeric#coerce` that
+  says "returns a matched-subclass pair".
+
+Value-constrained Symbol is orthogonal to but complementary
+with sum types.
+
+**Wider applicability**. Same lattice extension covers other
+Symbol-driven patterns Ruby leans on:
+- `throw`/`catch` with tagged Symbols
+- `case x; when :foo; ...` on Symbols
+- `respond_to?(:name)` with literal Symbol
+- `attr_reader :name` at define time
+- Struct accessors
+
+**Relationship with 1-CFA**. Under 0-CFA (flow-insensitive,
+context-insensitive), the value_set at `__coerce_op__`'s
+:op param is the *union* across every caller — so `{:+, :-,
+:*, :/, :%, ...}`. Sound but imprecise: send unfolds to a
+LUB across all those.
+
+Under 1-CFA context sensitivity, each callsite of
+`__coerce_op__` has its own analysis context; the :op param
+is a *singleton* per context. Then send rewrites to a direct
+call with the exact symbol, and TI produces the concrete
+return per-context.
+
+1-CFA at codegen time forces a specialization decision:
+- **Clone-and-specialize**: emit `__coerce_op___plus`,
+  `__coerce_op___minus`, etc. — one C++ symbol per context.
+  Callers dispatch directly to the specialization.
+- **Keep universal**: emit one body with the ⊤-value union
+  (accept the LUB precision).
+
+The **inlining route is redundant with LTO** — once
+`.send(literal, ...)` is rewritten to `.literal(...)` at
+codegen, LTO handles physical inlining based on the callee's
+static-type visibility. AOT specialization pays off only
+when 1-CFA context is genuinely needed to keep the value_set
+singleton per site.
+
+**Layering with predicate narrowing**. Value-constrained
+lattice and predicate narrowing (Tier-2 `is_a?` splits) are
+orthogonal. Predicate narrowing alone gets fib to Integer
+because the truthy branch is Integer and the caller never
+reaches the else-branch under a typed argument. Value
+constraints add precision for the send-heavy patterns where
+narrowing doesn't apply. Suggested order:
+1. Predicate narrowing (unblocks the immediate `is_a?`-guarded
+   arithmetic on typed callsites).
+2. Value-constrained Symbol lattice + `.send(literal, ...)`
+   rewrite (unblocks coerce and other symbol-tag patterns).
+3. Sum types over Numeric subclasses (closes the coerce-return
+   loop, generalises union results).
+4. 1-CFA + specialization emit (per-callsite context; needed
+   only where 0-CFA leaves a set that we want to keep
+   singleton).
 
 ### 4.7 Blocks
 For inline non-escaping blocks (the dominant case): polymorphic
