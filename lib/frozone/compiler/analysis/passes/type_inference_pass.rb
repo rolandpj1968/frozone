@@ -847,22 +847,28 @@ module Frozone
           end
 
           # The set of concrete classes a receiver's static type could
-          # bind to at runtime under closed-world.
+          # bind to at runtime under closed-world. Every non-⊤, non-
+          # <boolean> class expands via the lattice-precomputed descendant
+          # set (which includes the class itself) so a receiver typed as
+          # `Numeric` covers Integer + Float + Rational + Complex, etc.
+          # Under closed-world this is bounded and cheap — the lattice
+          # freezes the inversion of ancestor_chains once at pass init.
           def receiver_type_cone(recv_type)
             if recv_type.top?
               # ⊤ = BasicObject — every class in the reachable set.
               @lattice.ancestor_chains.keys
             elsif recv_type.boolean_synth?
-              # <boolean> = TrueClass | FalseClass.
+              # <boolean> = TrueClass ∪ FalseClass. Neither has
+              # descendants in Frozone, so plain expansion suffices.
               %i[TrueClass FalseClass]
             else
-              # Concrete class T + descendants of T that override any
-              # method. Tier 1 doesn't precompute descendants — most
-              # Frozone core classes are effectively final under the
-              # reachable set, so the single-class cone is a safe
-              # approximation. TODO: extend to full descendant set
-              # once TI needs precise polymorphic-user-class results.
-              [recv_type.concrete]
+              # Concrete C → C + every descendant of C in the reachable
+              # set. `descendants[C]` includes C itself by construction.
+              # Fallback to a single-element cone if C isn't in the map
+              # (synthetic types, non-class metadata) — the resolution
+              # path handles unknown classes as a lattice.top result.
+              descs = @lattice.descendants[recv_type.concrete]
+              descs && !descs.empty? ? descs.to_a : [recv_type.concrete]
             end
           end
 

@@ -82,7 +82,7 @@ module Frozone
         BOOLEAN_CLASSES = [:TrueClass, :FalseClass].freeze
         NIL_CLASS       = :NilClass
 
-        attr_reader :ancestor_chains
+        attr_reader :ancestor_chains, :descendants
 
         # `all_classes` — Hash(flat_name Symbol → Vm::ClassObject/ModuleObject)
         # produced by the emitter. Only entries whose value is a
@@ -91,6 +91,7 @@ module Frozone
         def initialize(all_classes)
           @all_classes = all_classes
           @ancestor_chains = precompute_ancestor_chains
+          @descendants = precompute_descendants
           @lub_cache = {}
         end
 
@@ -250,6 +251,26 @@ module Frozone
             current = current.superclass
           end
           chain
+        end
+
+        # Invert `ancestor_chains` into a "descendants of X" map. For
+        # every class D and every ancestor A in D's chain, D is a
+        # descendant of A. The class itself is INCLUDED in its own
+        # descendant set (self ⊑ self) so type-cone consumers can
+        # just iterate `descendants[T]` and get T + all subclasses.
+        # Frozen at build time so consumers can hash-key it safely.
+        def precompute_descendants
+          descs = Hash.new { |h, k| h[k] = Set.new }
+          @ancestor_chains.each do |d, chain|
+            chain.each { |a| descs[a] << d }
+          end
+          # Drop the default proc — reading unknown classes on the
+          # frozen map must return nil, not fire the block and try
+          # to mutate a frozen hash. Consumers explicitly handle
+          # the nil case (fallback to a single-element cone).
+          descs.default_proc = nil
+          descs.each_value(&:freeze)
+          descs.freeze
         end
       end
     end
