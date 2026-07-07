@@ -123,6 +123,9 @@ module Frozone
           # rose don't see the updated value, so their result stays
           # stale unless something else happens to re-enqueue them.
           @deps = Hash.new { |h, k| h[k] = Set.new }
+          # Nodes whose value rose during the current round. Used by
+          # snapshot mode's end-of-round sweep — see `sweep_rose_deps`.
+          @rose_this_round = Set.new
           @rounds = 0
           @transfer_calls = 0
         end
@@ -185,8 +188,27 @@ module Frozone
             @rounds += 1
             new_values = @values.dup
             new_values.default_proc = ->(_, _) { @lattice.bottom }
+            @rose_this_round.clear
             process_round(source: @values, target: new_values)
             @values = new_values
+            # End-of-round sweep. Snapshot's Achilles heel: within a
+            # round, dependent Y might record its dep on target X only
+            # AFTER X's apply_update ran, so X's write never enqueued Y.
+            # Since deps accumulate persistently across rounds, Y's dep
+            # IS now on record — enqueue anything that reads a node
+            # that rose this round. Eager doesn't need this: writes are
+            # visible immediately to same-round readers via source == @values.
+            sweep_rose_deps
+          end
+        end
+
+        # Re-enqueue every recorded dependent of a node that rose in
+        # this round. Cheap — one set-merge per rose node, bounded by
+        # the total dep-graph size which is finite.
+        def sweep_rose_deps
+          @rose_this_round.each do |node|
+            deps = @deps[node]
+            @worklist.merge(deps) if deps && !deps.empty?
           end
         end
 
@@ -258,6 +280,10 @@ module Frozone
           # different local approximations (task #248).
           deps = @deps[node]
           @worklist.merge(deps) if deps && !deps.empty?
+          # Also note it as "rose this round" so snapshot's end-of-round
+          # sweep re-enqueues deps recorded LATER in the same round.
+          # Harmless in eager mode (@rose_this_round isn't consulted).
+          @rose_this_round << node
         end
       end
     end
