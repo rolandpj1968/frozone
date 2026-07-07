@@ -349,7 +349,29 @@ module Frozone
             else_type = with_narrowed(ctx, fact, :falsy) do
               node.else_node ? walk(node.else_node, ctx) : @lattice.nil_type
             end
+            # Early-exit narrowing: if exactly one arm's terminal type
+            # is divergent (⊥ or noreturn — Return / raise / etc.), the
+            # code AFTER this If proceeds with the OTHER arm's narrowed
+            # env. Install it now so downstream reads see it.
+            install_surviving_narrowing(ctx, fact, then_type, else_type) if fact
             @lattice.join(then_type, else_type)
+          end
+
+          # After both arms walk, if exactly one arm is divergent, mutate
+          # ctx.narrowings so the surviving arm's per-If-fact narrowing
+          # persists. Both-diverge or both-survive: leave ctx.narrowings
+          # at the pre-If snapshot (already restored by with_narrowed).
+          #
+          # `return if x.nil?; use_x` pattern: truthy arm is Return
+          # (divergent), falsy arm survives with `x` narrowed to the
+          # stripped-nullable type. Post-If we install that so `use_x`
+          # sees the narrowed x.
+          def install_surviving_narrowing(ctx, fact, then_type, else_type)
+            truthy_diverges = then_type.divergent?
+            falsy_diverges  = else_type.divergent?
+            return if truthy_diverges == falsy_diverges  # both or neither
+            surviving = truthy_diverges ? fact.falsy_type : fact.truthy_type
+            ctx.narrowings[fact.target_name] = surviving
           end
 
           # Extract a NarrowingFact from a predicate expression, or nil

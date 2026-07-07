@@ -392,6 +392,111 @@ RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
     end
   end
 
+  describe 'early-exit narrowing (surviving-arm env persists past the If)' do
+    it 'return-if-nil? — post-If x is non-nullable' do
+      # def m(x); return "no" if x.nil?; x; end
+      # (with x arriving as Integer? from mixed callers)
+      then_body = ast::Return.new(ast::StringLiteral.from('no'))
+      post_read = ast::LocalVariableRead.new(:x, 0)
+      m_body = ast::Sequence.new([
+        ast::If.new(
+          ast::MethodCall.new(:nil?, ast::LocalVariableRead.new(:x, 0), [], []),
+          then_body,
+          nil,   # implicit-nil else
+        ),
+        post_read,
+      ])
+      # Two callers so x's param joins Integer ∪ NilClass = Integer?.
+      c1 = ast::MethodCall.new(:m, ast::SelfLiteral::SELF, [ast::IntegerLiteral.from(1)], [])
+      c2 = ast::MethodCall.new(:m, ast::SelfLiteral::SELF, [ast::NilLiteral::NIL], [])
+      methods = {
+        [:Foo, :m]  => make_method(m_body, required_params: [:x]),
+        [:Foo, :c1] => make_method(c1),
+        [:Foo, :c2] => make_method(c2),
+      }
+      pass = run_pass(methods)
+      # Truthy arm (Return) is divergent (⊥). Falsy arm survives with
+      # x narrowed to non-nullable Integer. install_surviving_narrowing
+      # keeps that on ctx.narrowings for post-If code.
+      expect(pass.type_of(post_read)).to eq(t(:Integer))
+    end
+
+    it 'raise-if-not-integer — post-If x is Integer' do
+      # def m(x); raise unless x.is_a?(Integer); x; end
+      # `unless` desugars to `if !`, but the parser might use a different
+      # AST shape. Test with: if x.is_a?(Integer); else raise; end;
+      raise_call = ast::IntrinsicCall.new(:kernel_raise, [
+        ast::NilLiteral::NIL, ast::NilLiteral::NIL, ast::NilLiteral::NIL,
+        ast::NilLiteral::NIL, ast::NilLiteral::NIL,
+      ])
+      post_read = ast::LocalVariableRead.new(:x, 0)
+      m_body = ast::Sequence.new([
+        ast::If.new(
+          ast::MethodCall.new(:is_a?, ast::LocalVariableRead.new(:x, 0), [ast::ConstantRead.new(:Integer)], []),
+          ast::NilLiteral::NIL,  # truthy: no-op
+          raise_call,             # falsy: raise (noreturn)
+        ),
+        post_read,
+      ])
+      caller_body = ast::MethodCall.new(:m, ast::SelfLiteral::SELF, [ast::IntegerLiteral.from(1)], [])
+      methods = {
+        [:Foo, :m]      => make_method(m_body, required_params: [:x]),
+        [:Foo, :caller] => make_method(caller_body),
+      }
+      pass = run_pass(methods)
+      # Truthy arm: nil (survives).
+      # Falsy arm: raise (noreturn — divergent).
+      # Install: truthy narrowing (x is Integer per is_a?) persists post-If.
+      # post_read: x is Integer.
+      expect(pass.type_of(post_read)).to eq(t(:Integer))
+    end
+
+    it 'both arms survive → pre-If narrowings restored' do
+      # def m(x); if x.nil?; nil; else; nil; end; x; end
+      # Both arms non-divergent → no early-exit narrowing.
+      # Post-If: x still has pre-If type (Integer? here).
+      post_read = ast::LocalVariableRead.new(:x, 0)
+      m_body = ast::Sequence.new([
+        ast::If.new(
+          ast::MethodCall.new(:nil?, ast::LocalVariableRead.new(:x, 0), [], []),
+          ast::NilLiteral::NIL,
+          ast::NilLiteral::NIL,
+        ),
+        post_read,
+      ])
+      c1 = ast::MethodCall.new(:m, ast::SelfLiteral::SELF, [ast::IntegerLiteral.from(1)], [])
+      c2 = ast::MethodCall.new(:m, ast::SelfLiteral::SELF, [ast::NilLiteral::NIL], [])
+      methods = {
+        [:Foo, :m]  => make_method(m_body, required_params: [:x]),
+        [:Foo, :c1] => make_method(c1),
+        [:Foo, :c2] => make_method(c2),
+      }
+      pass = run_pass(methods)
+      # Nothing installed post-If. post_read sees env's Integer?.
+      expect(pass.type_of(post_read)).to eq(t(:Integer, nullable: true))
+    end
+
+    it 'both arms diverge → nothing installed (pre-If env restored)' do
+      # def m(x); if x.nil?; return "a"; else return "b"; end; end
+      # Both arms Return → both divergent. No survivor. Nothing to install.
+      m_body = ast::If.new(
+        ast::MethodCall.new(:nil?, ast::LocalVariableRead.new(:x, 0), [], []),
+        ast::Return.new(ast::StringLiteral.from('a')),
+        ast::Return.new(ast::StringLiteral.from('b')),
+      )
+      caller_body = ast::MethodCall.new(:m, ast::SelfLiteral::SELF, [ast::IntegerLiteral.from(1)], [])
+      methods = {
+        [:Foo, :m]      => make_method(m_body, required_params: [:x]),
+        [:Foo, :caller] => make_method(caller_body),
+      }
+      pass = run_pass(methods)
+      # Both Returns contribute String → method returns String.
+      key = described_class.method_node(:Foo, :m)
+      engine_value = Frozone::Compiler::Analysis::Engine.new(pass).tap { |e| e.run }.values[key]
+      expect(engine_value).to eq(t(:String))
+    end
+  end
+
   describe 'Return' do
     it 'contributes to the method return type' do
       # `return 42` at top level of body — walk returns ⊥ for the
