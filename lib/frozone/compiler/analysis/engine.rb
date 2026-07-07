@@ -204,8 +204,14 @@ module Frozone
             # inside pass.transfer records `target → node` in @deps —
             # when `target`'s value later rises, apply_update re-enqueues
             # `node` for another transfer.
+            # Explicit local rebind — Ruby's block-parameter scope
+            # can share the outer `node` binding across iterations of
+            # certain iterators, so closures over the block param see
+            # the LAST iteration's value instead of their own. Copying
+            # to `current_node` forces a fresh local per iteration.
+            current_node = node
             lookup = ->(n) {
-              @deps[n] << node
+              @deps[n] << current_node
               source[n]
             }
             value = source[node]
