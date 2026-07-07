@@ -74,13 +74,24 @@ module Frozone
 
         BOTTOM           = Type.new(:__bottom__,   false).freeze
         TOP              = Type.new(:__top__,      false).freeze
-        TOP_NULLABLE     = Type.new(:__top__,      true).freeze
+        # ⊤? == ⊤ (nil is a member of the ⊤ universe); alias for
+        # backwards-compat with callers that construct explicit
+        # nullable TOPs. join() and factories collapse to TOP.
+        TOP_NULLABLE     = TOP
         BOOLEAN          = Type.new(:__boolean__,  false).freeze
         BOOLEAN_NULLABLE = Type.new(:__boolean__,  true).freeze
         NORETURN         = Type.new(:__noreturn__, false).freeze
 
         BOOLEAN_CLASSES = [:TrueClass, :FalseClass].freeze
         NIL_CLASS       = :NilClass
+
+        # Concrete classes for which `T?` is set-theoretically identical
+        # to `T` because NilClass ⊑ T. Nullable adds no information; the
+        # `?` bit is normalized away at construction time. Under the
+        # Frozone hierarchy NilClass < Object < BasicObject, and ⊤ is
+        # BasicObject-equivalent, so the set is fixed at four elements.
+        NIL_SUPERTYPES = %i[NilClass Object BasicObject __top__].freeze
+        private_constant :NIL_SUPERTYPES
 
         attr_reader :ancestor_chains, :descendants
 
@@ -112,8 +123,9 @@ module Frozone
 
           nullable = a.nullable || b.nullable
 
-          # ⊤ absorbs everything
-          return nullable ? TOP_NULLABLE : TOP if a.top? || b.top?
+          # ⊤ absorbs everything. Nullable bit is meaningless on ⊤
+          # (NilClass ⊑ ⊤ set-theoretically), so it's dropped.
+          return TOP if a.top? || b.top?
 
           # NilClass narrows away — the null-ness moves onto the
           # `nullable` bit and the concrete becomes the OTHER side
@@ -122,15 +134,15 @@ module Frozone
             return a
           end
           if a.concrete == NIL_CLASS
-            return b.nullable ? b : Type.new(b.concrete, true).freeze
+            return b.nullable ? b : make(b.concrete, true)
           end
           if b.concrete == NIL_CLASS
-            return a.nullable ? a : Type.new(a.concrete, true).freeze
+            return a.nullable ? a : make(a.concrete, true)
           end
 
           # Same concrete → merge nullable only
           if a.concrete == b.concrete
-            return a.nullable == b.nullable ? a : Type.new(a.concrete, true).freeze
+            return a.nullable == b.nullable ? a : make(a.concrete, true)
           end
 
           # Boolean carve-out: TrueClass ∨ FalseClass ∨ <boolean> stay
@@ -140,7 +152,7 @@ module Frozone
           end
 
           # Concrete class + concrete class → LUB in the class hierarchy.
-          Type.new(class_lub(a.concrete, b.concrete), nullable).freeze
+          make(class_lub(a.concrete, b.concrete), nullable)
         end
 
         # `a ⊑ b` — a is at or below b in the lattice.
@@ -176,9 +188,9 @@ module Frozone
         def concrete(class_sym, nullable: false)
           return BOTTOM if class_sym == :__bottom__
           return NORETURN if class_sym == :__noreturn__
-          return nullable ? TOP_NULLABLE : TOP if class_sym == :__top__
+          return TOP if class_sym == :__top__
           return nullable ? BOOLEAN_NULLABLE : BOOLEAN if class_sym == :__boolean__
-          Type.new(class_sym, nullable).freeze
+          make(class_sym, nullable)
         end
 
         def noreturn = NORETURN
@@ -199,6 +211,16 @@ module Frozone
         end
 
         private
+
+        # Canonicalizing Type factory. Whenever `nullable` is requested
+        # for a class C where NilClass ⊑ C, the nullable bit is dropped
+        # because C already includes nil in its extension. Keeps the
+        # lattice's canonical form thin — every Type value has a unique
+        # representation regardless of how it was constructed.
+        def make(class_sym, nullable)
+          nullable = false if nullable && NIL_SUPERTYPES.include?(class_sym)
+          Type.new(class_sym, nullable).freeze
+        end
 
         def boolean_element?(t)
           t.concrete == :__boolean__ || BOOLEAN_CLASSES.include?(t.concrete)
