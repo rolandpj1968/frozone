@@ -1168,13 +1168,16 @@ RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
       expect(pass.type_of(call)).to eq(t(:Integer))
     end
 
-    it 'yields top for a method call with unknown receiver' do
-      # `some_var.foo` where some_var was never written → ⊤
+    it 'unknown receiver → LUB across all classes for method_name' do
+      # `some_var.foo` where some_var is ⊤. Under receiver-cone dispatch,
+      # this is the LUB across every class's :foo. No class in this
+      # spec's hierarchy has :foo → routes to method_missing → noreturn.
+      # Noreturn is join-identity, so LUB = noreturn.
       recv = ast::LocalVariableRead.new(:x, 0)  # x is undefined → ⊤
       call = ast::MethodCall.new(:foo, recv, [], [])
       methods = { [:Foo, :m] => make_method(call) }
       pass = run_pass(methods)
-      expect(pass.type_of(call).top?).to be true
+      expect(pass.type_of(call).noreturn?).to be true
     end
   end
 
@@ -1332,35 +1335,35 @@ RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
 
     it 'falls through to normal dispatch when receiver isn`t a ConstantRead' do
       # cls = Foo; cls.new — LocalVariableRead receiver, no peek.
+      # No :new registered on any class in this spec's hierarchy →
+      # missing-method fallback → noreturn.
       w = ast::LocalVariableWrite.new(:cls, 0, ast::ConstantRead.new(:Foo))
       r = ast::LocalVariableRead.new(:cls, 0)
       call = ast::MethodCall.new(:new, r, [], [])
       body = ast::MethodCall.new(:noop, nil, [w, call], [])
       methods = { [:Bar, :make] => make_method(body) }
       pass = run_pass(methods)
-      # Falls through: no annotation for Class#new in our test @methods,
-      # ancestor walk on receiver's TYPE (which is ⊤ since ConstantRead
-      # types as ⊤ until we add ConstantRead handling) → ⊤.
-      expect(pass.type_of(call).top?).to be true
+      expect(pass.type_of(call).noreturn?).to be true
     end
 
     it 'does not peek for methods other than .new / .allocate' do
       # Foo.some_class_method — receiver is a ConstantRead but the
-      # method isn't a class-value primitive, so no peek. Falls through
-      # to ancestor walk (⊤ here since no method registered).
+      # method isn't a class-value primitive, so no peek. No class has
+      # :some_class_method → noreturn via missing-method fallback.
       body = ast::MethodCall.new(:some_class_method, ast::ConstantRead.new(:Foo), [], [])
       methods = { [:Bar, :make] => make_method(body) }
       pass = run_pass(methods)
-      expect(pass.type_of(body).top?).to be true
+      expect(pass.type_of(body).noreturn?).to be true
     end
 
     it 'does not peek when the ConstantRead name is unknown' do
       # NoSuchClass.new — receiver is a ConstantRead but the name
-      # doesn't match any class we know about → no peek, fall through.
+      # doesn't match any class we know about → no peek, fall through
+      # to normal dispatch. No :new registered → noreturn.
       body = ast::MethodCall.new(:new, ast::ConstantRead.new(:NoSuchClass), [], [])
       methods = { [:Bar, :make] => make_method(body) }
       pass = run_pass(methods)
-      expect(pass.type_of(body).top?).to be true
+      expect(pass.type_of(body).noreturn?).to be true
     end
   end
 

@@ -820,11 +820,50 @@ module Frozone
             # permanently poison every param on the target under
             # monotone joins.
             return recv_type if recv_type.divergent?
-            return @lattice.top if recv_type.top?
-            recv_class = recv_type.concrete
-            return @lattice.top if recv_class == :__boolean__
 
-            resolve_method_call_return(recv_class, node.name, ctx, arg_nodes: node.arg_nodes || [])
+            # Receiver-cone dispatch: the receiver's static type covers
+            # a set of possible dynamic classes (⊤ = all classes,
+            # <boolean> = TrueClass ∪ FalseClass, concrete C = C plus
+            # descendants of C in the closed-world reachable set). The
+            # call's return is the LUB across every class in the cone
+            # of that class's resolution of `method_name`. Under
+            # closed-world this is bounded — bo.nil? types as <boolean>
+            # because every class's nil? returns TrueClass or FalseClass,
+            # bo.to_s types as String, etc. — not ⊤.
+            dispatch_across_cone(recv_type, node.name, ctx, node.arg_nodes || [])
+          end
+
+          # Compute LUB of `method_name`'s resolutions across the
+          # receiver's type cone. Under closed-world every ctx.lookup
+          # call inside also records a dep, so per-target rises re-
+          # enqueue this transfer for a fresh LUB.
+          def dispatch_across_cone(recv_type, method_name, ctx, arg_nodes)
+            cone = receiver_type_cone(recv_type)
+            return @lattice.top if cone.empty?
+            cone.reduce(@lattice.bottom) do |acc, cls_flat|
+              t = resolve_method_call_return(cls_flat, method_name, ctx, arg_nodes: arg_nodes)
+              @lattice.join(acc, t)
+            end
+          end
+
+          # The set of concrete classes a receiver's static type could
+          # bind to at runtime under closed-world.
+          def receiver_type_cone(recv_type)
+            if recv_type.top?
+              # ⊤ = BasicObject — every class in the reachable set.
+              @lattice.ancestor_chains.keys
+            elsif recv_type.boolean_synth?
+              # <boolean> = TrueClass | FalseClass.
+              %i[TrueClass FalseClass]
+            else
+              # Concrete class T + descendants of T that override any
+              # method. Tier 1 doesn't precompute descendants — most
+              # Frozone core classes are effectively final under the
+              # reachable set, so the single-class cone is a safe
+              # approximation. TODO: extend to full descendant set
+              # once TI needs precise polymorphic-user-class results.
+              [recv_type.concrete]
+            end
           end
 
           CLASS_VALUE_METHODS = %i[new allocate].freeze
