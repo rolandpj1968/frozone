@@ -379,8 +379,25 @@ module Frozone
           # predicate barf on the emitter path guarantees these method
           # names carry their canonical semantics whenever they resolve
           # via ancestor lookup.
+          #
+          # Supports:
+          # - Simple: `x.is_a?(K)` / `x.kind_of?(K)` / `x.instance_of?(K)`
+          #   / `x.nil?` — direct narrowing.
+          # - Compound And: `p && q` — truthy narrowing = meet of both
+          #   subfacts' truthy narrowings (only when both narrow the
+          #   same target). Falsy: no reliable narrowing (Tier 2 skips).
+          # - Compound Or: `p || q` — falsy narrowing = meet of both
+          #   subfacts' falsy narrowings (only when both narrow the
+          #   same target). Truthy: no reliable narrowing.
           def narrowing_fact(pred_node, ctx)
-            return nil unless pred_node.is_a?(Ast::MethodCall)
+            case pred_node
+            when Ast::MethodCall then narrowing_from_call(pred_node, ctx)
+            when Ast::And        then narrowing_from_and(pred_node, ctx)
+            when Ast::Or         then narrowing_from_or(pred_node, ctx)
+            end
+          end
+
+          def narrowing_from_call(pred_node, ctx)
             recv = pred_node.receiver_node
             return nil unless recv.is_a?(Ast::LocalVariableRead)
             target = recv.name
@@ -396,6 +413,49 @@ module Frozone
               return nil unless args.empty?
               build_nil_narrow(target, ctx)
             end
+          end
+
+          def narrowing_from_and(node, ctx)
+            left = narrowing_fact(node.left_node, ctx)
+            right = narrowing_fact(node.right_node, ctx)
+            combine_compound(left, right, side: :truthy, ctx: ctx)
+          end
+
+          def narrowing_from_or(node, ctx)
+            left = narrowing_fact(node.left_node, ctx)
+            right = narrowing_fact(node.right_node, ctx)
+            combine_compound(left, right, side: :falsy, ctx: ctx)
+          end
+
+          # Combine two per-side narrowings on the SAME target. If they
+          # disagree on the target, we skip (Tier-2 lattice can't
+          # represent multi-target narrowings from one Fact yet).
+          # `side` = :truthy for And (both must hold when compound is
+          # truthy) or :falsy for Or (both must hold when compound is
+          # falsy). The OTHER side gets `current` — no compound info.
+          def combine_compound(left, right, side:, ctx:)
+            return nil unless left && right
+            return nil unless left.target_name == right.target_name
+            target = left.target_name
+            current = read_local(target, ctx)
+            left_side  = side == :truthy ? left.truthy_type  : left.falsy_type
+            right_side = side == :truthy ? right.truthy_type : right.falsy_type
+            combined = lattice_meet(left_side, right_side)
+            if side == :truthy
+              NarrowingFact.new(target, combined, current)
+            else
+              NarrowingFact.new(target, current, combined)
+            end
+          end
+
+          # Tier-1 meet primitive: greatest lower bound of two types.
+          # If either subsumes the other, that's the meet. Otherwise
+          # the intersection is empty → ⊥ (the compound is unsatisfiable
+          # and this arm is unreachable).
+          def lattice_meet(a, b)
+            return a if @lattice.subsumes?(a, b)
+            return b if @lattice.subsumes?(b, a)
+            @lattice.bottom
           end
 
           # Only trust the class argument if it's a bare ConstantRead
@@ -663,14 +723,46 @@ module Frozone
           # is the join of every when-arm's body type with the else
           # body's type — or nullable if there's no else, since a
           # non-matching case with no else returns nil at runtime.
+          #
+          # Tier-2 narrowing: when the subject is a local variable and
+          # each when's conditions are all bare class references, each
+          # when-arm body walks with the subject narrowed to the LUB of
+          # those class types. Else-arm doesn't narrow (Tier-1 has no
+          # negative narrow).
           def transfer_case(node, ctx)
             walk(node.subject_node, ctx) if node.subject_node
+            target = case_narrow_target(node)
             arms = (node.whens || []).map do |w|
               (w.condition_nodes || []).each { |c| walk(c, ctx) }
-              walk(w.body_node, ctx)
+              fact = case_arm_narrowing(target, w.condition_nodes, ctx)
+              with_narrowed(ctx, fact, :truthy) { walk(w.body_node, ctx) }
             end
             else_type = node.else_node ? walk(node.else_node, ctx) : @lattice.nil_type
             arms.reduce(else_type) { |acc, t| @lattice.join(acc, t) }
+          end
+
+          # The subject of `case subj` must be a bare LocalVariableRead
+          # to narrow. Subject-less case (`case; when cond then …`) has
+          # no receiver to narrow.
+          def case_narrow_target(node)
+            subj = node.subject_node
+            return nil unless subj.is_a?(Ast::LocalVariableRead)
+            subj.name
+          end
+
+          # Build a NarrowingFact for a single when-arm's body. Requires
+          # ALL of the arm's conditions to be bare class references
+          # (LUB'd together to form the truthy narrowing). Otherwise nil.
+          def case_arm_narrowing(target, conditions, ctx)
+            return nil unless target
+            return nil if (conditions || []).empty?
+            class_types = conditions.map { |c| class_arg_flat_name(c) }
+            return nil unless class_types.all?
+            narrow = class_types.map { |sym| @lattice.concrete(sym) }
+                                .reduce { |acc, t| @lattice.join(acc, t) }
+            current = read_local(target, ctx)
+            truthy = @lattice.subsumes?(current, narrow) ? current : narrow
+            NarrowingFact.new(target, truthy, current)
           end
 
           # Method-call return-type resolution. No distinction between

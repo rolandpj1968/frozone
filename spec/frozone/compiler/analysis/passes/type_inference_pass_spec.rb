@@ -392,6 +392,117 @@ RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
     end
   end
 
+  describe 'And/Or/Case narrowing (compound predicates)' do
+    it 'And of two same-target facts: truthy arm sees meet of narrowings' do
+      # def m(x); if x.is_a?(Integer) && x.is_a?(Numeric); use_x; end; end
+      # Both narrow x to their respective classes. Truthy narrow = meet.
+      # Integer ⊑ Numeric → meet = Integer.
+      x_read = ast::LocalVariableRead.new(:x, 0)
+      pred = ast::And.new(
+        ast::MethodCall.new(:is_a?, ast::LocalVariableRead.new(:x, 0), [ast::ConstantRead.new(:Integer)], []),
+        ast::MethodCall.new(:is_a?, ast::LocalVariableRead.new(:x, 0), [ast::ConstantRead.new(:Numeric)], []),
+      )
+      m_body = ast::If.new(pred, x_read, ast::NilLiteral::NIL)
+      caller = ast::MethodCall.new(:m, ast::SelfLiteral::SELF, [ast::IntegerLiteral.from(1)], [])
+      methods = {
+        [:Foo, :m]      => make_method(m_body, required_params: [:x]),
+        [:Foo, :caller] => make_method(caller),
+      }
+      pass = run_pass(methods)
+      expect(pass.type_of(x_read)).to eq(t(:Integer))
+    end
+
+    it 'Or of two same-target nil?/is_a?: falsy arm sees meet of falsy narrowings' do
+      # def m(x); if x.nil? || x.is_a?(String); nil; else; x; end; end
+      # Truthy: no narrowing (either could be truthy).
+      # Falsy: NOT nil? AND NOT is_a?(String) → x is neither nil nor String.
+      #   nil?.falsy = strip_nullable(x). is_a?.falsy = current (Tier-1 no negative).
+      #   meet(strip_nullable, current) = strip_nullable (more precise).
+      x_read = ast::LocalVariableRead.new(:x, 0)
+      pred = ast::Or.new(
+        ast::MethodCall.new(:nil?, ast::LocalVariableRead.new(:x, 0), [], []),
+        ast::MethodCall.new(:is_a?, ast::LocalVariableRead.new(:x, 0), [ast::ConstantRead.new(:String)], []),
+      )
+      m_body = ast::If.new(pred, ast::NilLiteral::NIL, x_read)
+      c1 = ast::MethodCall.new(:m, ast::SelfLiteral::SELF, [ast::IntegerLiteral.from(1)], [])
+      c2 = ast::MethodCall.new(:m, ast::SelfLiteral::SELF, [ast::NilLiteral::NIL], [])
+      methods = {
+        [:Foo, :m]  => make_method(m_body, required_params: [:x]),
+        [:Foo, :c1] => make_method(c1),
+        [:Foo, :c2] => make_method(c2),
+      }
+      pass = run_pass(methods)
+      # Falsy arm: nullable-bit stripped. x's pre-If type = Integer? →
+      # falsy = Integer.
+      expect(pass.type_of(x_read)).to eq(t(:Integer))
+    end
+
+    it 'And of different-target facts: no compound narrowing (Tier-1 lattice limit)' do
+      # def m(x, y); if x.is_a?(Integer) && y.is_a?(String); x; end; end
+      # Two different targets — narrowing_fact returns nil for the And.
+      # So x doesn't get narrowed. But since caller pushes Integer for x
+      # anyway, the read is still Integer via env.
+      x_read = ast::LocalVariableRead.new(:x, 0)
+      pred = ast::And.new(
+        ast::MethodCall.new(:is_a?, ast::LocalVariableRead.new(:x, 0), [ast::ConstantRead.new(:Integer)], []),
+        ast::MethodCall.new(:is_a?, ast::LocalVariableRead.new(:y, 0), [ast::ConstantRead.new(:String)], []),
+      )
+      m_body = ast::If.new(pred, x_read, ast::NilLiteral::NIL)
+      caller = ast::MethodCall.new(:m, ast::SelfLiteral::SELF,
+        [ast::IntegerLiteral.from(1), ast::StringLiteral.from('s')], [])
+      methods = {
+        [:Foo, :m]      => make_method(m_body, required_params: %i[x y]),
+        [:Foo, :caller] => make_method(caller),
+      }
+      pass = run_pass(methods)
+      # x is Integer via callsite push (env), no compound narrowing.
+      expect(pass.type_of(x_read)).to eq(t(:Integer))
+    end
+
+    it 'Case with class-ref when: each arm narrows the subject' do
+      # def m(x); case x; when Integer; x; when String; x; end; end
+      # x's callsite: mixed (Integer + String). Case-arms narrow x per when.
+      arm1_read = ast::LocalVariableRead.new(:x, 0)
+      arm2_read = ast::LocalVariableRead.new(:x, 0)
+      subj = ast::LocalVariableRead.new(:x, 0)
+      w1 = ast::Case::When.new([ast::ConstantRead.new(:Integer)], arm1_read)
+      w2 = ast::Case::When.new([ast::ConstantRead.new(:String)], arm2_read)
+      m_body = ast::Case.new(subj, [w1, w2], nil)
+      # Mixed callers so x's param joins Integer ∪ String = Object.
+      c1 = ast::MethodCall.new(:m, ast::SelfLiteral::SELF, [ast::IntegerLiteral.from(1)], [])
+      c2 = ast::MethodCall.new(:m, ast::SelfLiteral::SELF, [ast::StringLiteral.from('s')], [])
+      methods = {
+        [:Foo, :m]  => make_method(m_body, required_params: [:x]),
+        [:Foo, :c1] => make_method(c1),
+        [:Foo, :c2] => make_method(c2),
+      }
+      pass = run_pass(methods)
+      expect(pass.type_of(arm1_read)).to eq(t(:Integer))
+      expect(pass.type_of(arm2_read)).to eq(t(:String))
+    end
+
+    it 'Case with multi-class when: LUB of the classes' do
+      # def m(x); case x; when Integer, Float; x; end; end
+      # Arm's condition: [Integer, Float] → LUB = Numeric. x is Numeric here.
+      arm_read = ast::LocalVariableRead.new(:x, 0)
+      subj = ast::LocalVariableRead.new(:x, 0)
+      w1 = ast::Case::When.new(
+        [ast::ConstantRead.new(:Integer), ast::ConstantRead.new(:Float)],
+        arm_read,
+      )
+      m_body = ast::Case.new(subj, [w1], nil)
+      c1 = ast::MethodCall.new(:m, ast::SelfLiteral::SELF, [ast::IntegerLiteral.from(1)], [])
+      c2 = ast::MethodCall.new(:m, ast::SelfLiteral::SELF, [ast::FloatLiteral.new(1.5)], [])
+      methods = {
+        [:Foo, :m]  => make_method(m_body, required_params: [:x]),
+        [:Foo, :c1] => make_method(c1),
+        [:Foo, :c2] => make_method(c2),
+      }
+      pass = run_pass(methods)
+      expect(pass.type_of(arm_read)).to eq(t(:Numeric))
+    end
+  end
+
   describe 'early-exit narrowing (surviving-arm env persists past the If)' do
     it 'return-if-nil? — post-If x is non-nullable' do
       # def m(x); return "no" if x.nil?; x; end
