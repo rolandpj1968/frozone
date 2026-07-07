@@ -1262,6 +1262,58 @@ RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
       pass = run_pass(methods)
       expect(pass.type_of(call)).to eq(t(:Integer))
     end
+
+    it 'nullable receiver adds NilClass to the dispatch cone' do
+      # x : Integer? (via `cond ? int : nil`). Integer#bar returns
+      # Integer; NilClass#bar returns String. Dispatch cone must LUB
+      # both — result is the class LUB of Integer + String = Object.
+      # Without the nullable-cone fix, only Integer#bar would be
+      # consulted and the call would type as Integer, silently missing
+      # the nil path.
+      integer_bar_body = ast::IntegerLiteral.from(1)
+      nil_bar_body     = ast::StringLiteral.from('nope')
+
+      # x = cond ? some_int : nil  →  Integer?
+      int_expr = ast::IntrinsicCall.new(:integer__plus_,
+                                        [ast::IntegerLiteral.from(1),
+                                         ast::IntegerLiteral.from(2)])
+      w = ast::LocalVariableWrite.new(:x, 0,
+        ast::If.new(ast::TrueLiteral::TRUE, int_expr, ast::NilLiteral::NIL))
+      r = ast::LocalVariableRead.new(:x, 0)
+      call = ast::MethodCall.new(:bar, r, [], [])
+      body = ast::MethodCall.new(:noop, nil, [w, call], [])
+
+      methods = {
+        [:Integer, :bar]  => make_method(integer_bar_body),
+        [:NilClass, :bar] => make_method(nil_bar_body),
+        [:Foo, :m]        => make_method(body),
+      }
+      pass = run_pass(methods)
+      expect(pass.type_of(call)).to eq(t(:Object))
+    end
+
+    it 'nullable receiver: missing method on NilClass side contributes noreturn (absorbed)' do
+      # x : Integer?. Integer#bar returns Integer; NilClass has no bar
+      # (falls through to method_missing → noreturn). LUB(Integer,
+      # noreturn) = Integer. Observable proof that the NilClass side
+      # was actually consulted: swap Integer#bar out (leaving only
+      # NilClass path) and the result becomes noreturn.
+      integer_bar_body = ast::IntegerLiteral.from(1)
+      int_expr = ast::IntrinsicCall.new(:integer__plus_,
+                                        [ast::IntegerLiteral.from(1),
+                                         ast::IntegerLiteral.from(2)])
+      w = ast::LocalVariableWrite.new(:x, 0,
+        ast::If.new(ast::TrueLiteral::TRUE, int_expr, ast::NilLiteral::NIL))
+      r = ast::LocalVariableRead.new(:x, 0)
+      call = ast::MethodCall.new(:bar, r, [], [])
+      body = ast::MethodCall.new(:noop, nil, [w, call], [])
+      methods = {
+        [:Integer, :bar] => make_method(integer_bar_body),
+        [:Foo, :m]       => make_method(body),
+      }
+      pass = run_pass(methods)
+      expect(pass.type_of(call)).to eq(t(:Integer))
+    end
   end
 
   describe 'IntrinsicCall — annotated return type via INTRINSIC_RETURN_TYPES' do

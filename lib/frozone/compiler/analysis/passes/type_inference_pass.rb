@@ -891,22 +891,22 @@ module Frozone
           # `Numeric` covers Integer + Float + Rational + Complex, etc.
           # Under closed-world this is bounded and cheap — the lattice
           # freezes the inversion of ancestor_chains once at pass init.
+          #
+          # Nullable receivers (T?, <boolean>?) add NilClass — at runtime
+          # the receiver might be nil, in which case dispatch resolves
+          # on NilClass. Without this, `x&.foo` and even naive `x.foo`
+          # on a nullable would ignore the nil path — usually noreturn
+          # (NoMethodError), but sometimes concrete (nil.nil? → true).
+          # ⊤ already covers NilClass so nullable-⊤ is a no-op.
           def receiver_type_cone(recv_type)
             if recv_type.top?
-              # ⊤ = BasicObject — every class in the reachable set.
               @lattice.ancestor_chains.keys
             elsif recv_type.boolean_synth?
-              # <boolean> = TrueClass ∪ FalseClass. Neither has
-              # descendants in Frozone, so plain expansion suffices.
-              %i[TrueClass FalseClass]
+              recv_type.nullable ? %i[TrueClass FalseClass NilClass] : %i[TrueClass FalseClass]
             else
-              # Concrete C → C + every descendant of C in the reachable
-              # set. `descendants[C]` includes C itself by construction.
-              # Fallback to a single-element cone if C isn't in the map
-              # (synthetic types, non-class metadata) — the resolution
-              # path handles unknown classes as a lattice.top result.
               descs = @lattice.descendants[recv_type.concrete]
-              descs && !descs.empty? ? descs.to_a : [recv_type.concrete]
+              base = descs && !descs.empty? ? descs.to_a : [recv_type.concrete]
+              recv_type.nullable ? base + [:NilClass] : base
             end
           end
 
