@@ -225,6 +225,105 @@ RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
     end
   end
 
+  describe 'predicate narrowing on If' do
+    # Helper: def m(x); if x.<pred>(...); then_expr; else else_expr; end; end
+    # + a caller that pushes a specific type for x so the param arrives at a
+    # useful starting point.
+    def narrow_scenario(pred_call, then_expr, else_expr, caller_arg_type:)
+      # caller sets up: def caller; m(<value of caller_arg_type>); end
+      caller_arg =
+        case caller_arg_type
+        when :Integer then ast::IntegerLiteral.from(42)
+        when :String  then ast::StringLiteral.from('s')
+        when :NilClass then ast::NilLiteral::NIL
+        end
+      caller_body = ast::MethodCall.new(:m, ast::SelfLiteral::SELF, [caller_arg], [])
+      m_body = ast::If.new(pred_call, then_expr, else_expr)
+      {
+        [:Foo, :m]      => make_method(m_body, required_params: [:x]),
+        [:Foo, :caller] => make_method(caller_body),
+      }
+    end
+
+    it 'x.is_a?(Integer) narrows x to Integer in the truthy arm' do
+      x_read = ast::LocalVariableRead.new(:x, 0)
+      is_a = ast::MethodCall.new(:is_a?, ast::LocalVariableRead.new(:x, 0), [ast::ConstantRead.new(:Integer)], [])
+      then_expr = x_read                                # x here should type as Integer
+      else_expr = ast::NilLiteral::NIL
+      methods = narrow_scenario(is_a, then_expr, else_expr, caller_arg_type: :Integer)
+      pass = run_pass(methods)
+      expect(pass.type_of(then_expr)).to eq(t(:Integer))
+    end
+
+    it 'kind_of? behaves the same as is_a?' do
+      x_read = ast::LocalVariableRead.new(:x, 0)
+      pred = ast::MethodCall.new(:kind_of?, ast::LocalVariableRead.new(:x, 0), [ast::ConstantRead.new(:Integer)], [])
+      methods = narrow_scenario(pred, x_read, ast::NilLiteral::NIL, caller_arg_type: :Integer)
+      pass = run_pass(methods)
+      expect(pass.type_of(x_read)).to eq(t(:Integer))
+    end
+
+    it 'nil? — truthy arm narrows to NilClass, falsy strips nullable' do
+      # def m(x); if x.nil?; then_read; else else_read; end; end
+      # caller pushes NilClass (nullable NilClass, technically NilClass literal),
+      # so x arrives as NilClass. But to make the narrow observable we want a
+      # nullable receiver — use two callers, one pushing Integer, one pushing nil.
+      then_read = ast::LocalVariableRead.new(:x, 0)
+      else_read = ast::LocalVariableRead.new(:x, 0)
+      pred = ast::MethodCall.new(:nil?, ast::LocalVariableRead.new(:x, 0), [], [])
+      m_body = ast::If.new(pred, then_read, else_read)
+      # Two callers so x's param joins Integer ∪ NilClass = Integer?.
+      c1 = ast::MethodCall.new(:m, ast::SelfLiteral::SELF, [ast::IntegerLiteral.from(1)], [])
+      c2 = ast::MethodCall.new(:m, ast::SelfLiteral::SELF, [ast::NilLiteral::NIL], [])
+      methods = {
+        [:Foo, :m]  => make_method(m_body, required_params: [:x]),
+        [:Foo, :c1] => make_method(c1),
+        [:Foo, :c2] => make_method(c2),
+      }
+      pass = run_pass(methods)
+      # Truthy arm: x narrowed to NilClass.
+      expect(pass.type_of(then_read)).to eq(t(:NilClass))
+      # Falsy arm: x narrowed to Integer (nullable bit stripped).
+      expect(pass.type_of(else_read)).to eq(t(:Integer))
+    end
+
+    it 'nil? on a non-nullable receiver — falsy is unchanged' do
+      # Single caller pushes Integer (non-nullable) → falsy arm keeps Integer.
+      else_read = ast::LocalVariableRead.new(:x, 0)
+      pred = ast::MethodCall.new(:nil?, ast::LocalVariableRead.new(:x, 0), [], [])
+      methods = narrow_scenario(pred, ast::NilLiteral::NIL, else_read, caller_arg_type: :Integer)
+      pass = run_pass(methods)
+      expect(pass.type_of(else_read)).to eq(t(:Integer))
+    end
+
+    it 'non-narrowing predicate (e.g. a bare method call not on a local) leaves the arm untouched' do
+      # `foo?` in an If pred — no narrowing.
+      x_read = ast::LocalVariableRead.new(:x, 0)
+      pred = ast::MethodCall.new(:foo?, ast::SelfLiteral::SELF, [], [])
+      methods = narrow_scenario(pred, x_read, ast::NilLiteral::NIL, caller_arg_type: :Integer)
+      pass = run_pass(methods)
+      # Whatever x's env-type is, no narrowing applied — still Integer here
+      # because the caller pushed Integer.
+      expect(pass.type_of(x_read)).to eq(t(:Integer))
+    end
+
+    it 'a write inside the narrowed arm invalidates the narrowing for subsequent reads' do
+      # def m(x); if x.is_a?(Integer); x = "s"; second_read; end; end
+      # First read (implicit — the write's LHS access) shouldn't come up.
+      # After x = "s", second_read should see the env's joined type, not
+      # the stale Integer narrowing.
+      write = ast::LocalVariableWrite.new(:x, 0, ast::StringLiteral.from('s'))
+      second_read = ast::LocalVariableRead.new(:x, 0)
+      then_body = ast::Sequence.new([write, second_read])
+      pred = ast::MethodCall.new(:is_a?, ast::LocalVariableRead.new(:x, 0), [ast::ConstantRead.new(:Integer)], [])
+      methods = narrow_scenario(pred, then_body, ast::NilLiteral::NIL, caller_arg_type: :Integer)
+      pass = run_pass(methods)
+      # env after write: join(Integer, String) = Object.
+      # Narrowing was deleted by the write, so second_read sees env → Object.
+      expect(pass.type_of(second_read)).to eq(t(:Object))
+    end
+  end
+
   describe 'Return' do
     it 'contributes to the method return type' do
       # `return 42` at top level of body — walk returns ⊥ for the

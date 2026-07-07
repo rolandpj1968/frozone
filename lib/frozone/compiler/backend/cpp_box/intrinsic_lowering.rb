@@ -845,6 +845,31 @@ module Frozone
           # `nil` when there's no declaration — callers (TI) treat that
           # as `⊤` under their lattice's own convention.
           def return_type_of(name) = INTRINSIC_RETURN_TYPES[name.to_sym]
+
+          # Predicates that produce a Tier-2 NarrowingFact when TI can
+          # tie the receiver back to a local variable. Sibling of
+          # INTRINSIC_RETURN_TYPES; consumed by branch transfers
+          # (If/Case/And/Or/Ternary) inside TypeInferencePass.
+          #
+          # Value shape:
+          #   { kind: :subclass_narrow,   class_arg_idx: N }
+          #   { kind: :exact_class_narrow, class_arg_idx: N }
+          #   { kind: :nil_narrow }
+          #
+          # class_arg_idx is the index into the intrinsic's positional
+          # args of the class value (0-based; N=1 because arg 0 is
+          # typically the receiver-as-first-arg).
+          #
+          # Guarded by the hard-predicate barf on the emitter path:
+          # user-class overrides of is_a?/kind_of?/instance_of?/nil?
+          # are rejected at compile time, so these annotations can be
+          # trusted whenever TI resolves through the canonical body.
+          INTRINSIC_NARROWERS = {
+            object_is_a:         { kind: :subclass_narrow,   class_arg_idx: 1 },
+            object_instance_of:  { kind: :exact_class_narrow, class_arg_idx: 1 },
+          }.freeze
+
+          def narrower_of(name) = INTRINSIC_NARROWERS[name.to_sym]
         end
       end
     end

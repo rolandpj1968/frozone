@@ -166,6 +166,7 @@ module Frozone
               break_joins: [],
               lookup:      lookup,
               pushes:      {},
+              narrowings:  {},
             )
             seed_params(method, ctx)
             terminal_type = walk(method.body, ctx)
@@ -186,7 +187,17 @@ module Frozone
           # type onto the top array; the loop transfer pops and joins the
           # collected values into its own result (a plain while returns
           # nil, but `while true; break 42; end` returns Integer).
-          TransferCtx = Struct.new(:class_flat, :method_name, :env, :return_joins, :break_joins, :lookup, :pushes, keyword_init: true)
+          #
+          # `narrowings` — active predicate narrowings by local-var name.
+          # Reads consult this overlay first, falling back to env. Writes
+          # invalidate any active narrowing on the written var (a write
+          # changes what we know about it). Branch transfers push a fresh
+          # narrowing on entry and restore the pre-branch snapshot on
+          # exit — env accumulates writes normally either way, so flow-
+          # insensitive semantics on writes is preserved.
+          TransferCtx = Struct.new(:class_flat, :method_name, :env, :return_joins, :break_joins, :lookup, :pushes, :narrowings, keyword_init: true)
+
+          NarrowingFact = Struct.new(:target_name, :truthy_type, :falsy_type)
 
           # Params eligible for callsite propagation. First-cut
           # constraint: no splat / kwargs / block-param, no optional
@@ -251,7 +262,7 @@ module Frozone
             when Ast::InterpolatedRegexpLiteral then transfer_literal_children(node, ctx, :Regexp)
             when Ast::InterpolatedString then transfer_literal_children(node, ctx, :String)
             when Ast::SelfLiteral       then @lattice.concrete(ctx.class_flat)
-            when Ast::LocalVariableRead then ctx.env[node.name] || @lattice.top
+            when Ast::LocalVariableRead then read_local(node.name, ctx)
             when Ast::ConstantRead      then transfer_constant_read(node)
             when Ast::LocalVariableWrite then transfer_local_write(node, ctx)
             when Ast::Sequence           then transfer_sequence(node, ctx)
@@ -311,16 +322,112 @@ module Frozone
             # Flow-insensitive join: every write to this var contributes.
             prev = ctx.env[node.name]
             ctx.env[node.name] = prev ? @lattice.join(prev, rhs_type) : rhs_type
+            # A write invalidates any active predicate narrowing on this
+            # var — subsequent reads inside the branch should see the
+            # flow-insensitive env, not the stale narrow.
+            ctx.narrowings.delete(node.name)
             rhs_type
           end
 
+          # Reads see the narrowings overlay first (flow-sensitive branch
+          # view) and fall back to env (flow-insensitive join of writes).
+          def read_local(name, ctx)
+            return ctx.narrowings[name] if ctx.narrowings.key?(name)
+            ctx.env[name] || @lattice.top
+          end
+
           def transfer_if(node, ctx)
-            # Predicate type isn't used at Tier 1 (no branch narrowing) —
-            # but walk it so its subtree gets cached.
+            # Walk the predicate for its subtree types + return value.
             walk(node.pred_node, ctx)
-            then_type = walk(node.then_node, ctx)
-            else_type = node.else_node ? walk(node.else_node, ctx) : @lattice.nil_type
+            # Tier-2 narrowing: if the predicate is a canonical is_a? /
+            # kind_of? / instance_of? / nil? call on a local variable,
+            # its truthy and falsy arms see different types for that
+            # local. The predicate-canonicity barf (#230) guarantees
+            # these methods keep their standard semantics.
+            fact = narrowing_fact(node.pred_node, ctx)
+            then_type = with_narrowed(ctx, fact, :truthy) { walk(node.then_node, ctx) }
+            else_type = with_narrowed(ctx, fact, :falsy) do
+              node.else_node ? walk(node.else_node, ctx) : @lattice.nil_type
+            end
             @lattice.join(then_type, else_type)
+          end
+
+          # Extract a NarrowingFact from a predicate expression, or nil
+          # if the shape isn't recognisable. AST-level match — the hard-
+          # predicate barf on the emitter path guarantees these method
+          # names carry their canonical semantics whenever they resolve
+          # via ancestor lookup.
+          def narrowing_fact(pred_node, ctx)
+            return nil unless pred_node.is_a?(Ast::MethodCall)
+            recv = pred_node.receiver_node
+            return nil unless recv.is_a?(Ast::LocalVariableRead)
+            target = recv.name
+            case pred_node.name
+            when :is_a?, :kind_of?, :instance_of?
+              args = pred_node.arg_nodes || []
+              return nil unless args.size == 1
+              class_sym = class_arg_flat_name(args[0])
+              return nil unless class_sym
+              build_class_narrow(target, class_sym, ctx)
+            when :nil?
+              args = pred_node.arg_nodes || []
+              return nil unless args.empty?
+              build_nil_narrow(target, ctx)
+            end
+          end
+
+          # Only trust the class argument if it's a bare ConstantRead
+          # naming a class in our lattice. Anything else (variable
+          # reference, ConstantPath we haven't peeked through, arbitrary
+          # expression) yields no fact — sound conservative fallback.
+          def class_arg_flat_name(node)
+            return nil unless node.is_a?(Ast::ConstantRead)
+            name = node.name.to_sym
+            @lattice.ancestor_chains.key?(name) ? name : nil
+          end
+
+          def build_class_narrow(target, class_sym, ctx)
+            current = read_local(target, ctx)
+            k_type = @lattice.concrete(class_sym)
+            # Truthy: pick the more precise of (current, K). If current
+            # is already-narrower than K, keep it. Else K.
+            truthy = @lattice.subsumes?(current, k_type) ? current : k_type
+            # Tier-1 lattice has no "not-K" — the falsy arm keeps
+            # current unchanged. Refinement waits for negative narrowing.
+            NarrowingFact.new(target, truthy, current)
+          end
+
+          def build_nil_narrow(target, ctx)
+            current = read_local(target, ctx)
+            truthy = @lattice.nil_type
+            falsy =
+              if current.concrete == TypeLattice::NIL_CLASS && !current.nullable
+                # Already exactly NilClass → falsy is unreachable.
+                @lattice.bottom
+              elsif current.nullable
+                # Strip the nullable bit.
+                @lattice.concrete(current.concrete, nullable: false)
+              else
+                # Non-nullable, non-nil concrete → falsy stays as is.
+                current
+              end
+            NarrowingFact.new(target, truthy, falsy)
+          end
+
+          # Save narrowings, install the fact's per-arm type, run the
+          # block, restore. Env writes made inside the block accumulate
+          # to ctx.env unaffected — flow-insensitive semantics preserved
+          # for reachability outside the arm.
+          def with_narrowed(ctx, fact, arm)
+            return yield unless fact
+            saved = ctx.narrowings.dup
+            new_type = arm == :truthy ? fact.truthy_type : fact.falsy_type
+            ctx.narrowings[fact.target_name] = new_type
+            begin
+              yield
+            ensure
+              ctx.narrowings = saved
+            end
           end
 
           def transfer_return(node, ctx)
