@@ -89,10 +89,42 @@ module Frozone
           #                    resolution. Optional; defaults to no scope
           #                    (all ConstantRead types as ⊤).
           def initialize(methods:, all_classes:, top_level_scope: nil)
-            @methods = methods
             @top_level_scope = top_level_scope
             @lattice = TypeLattice.new(all_classes)
             @per_node_types = {}
+            @methods = ENV['FROZONE_TI_SPLAT'] == '1' ? eager_splat(methods) : methods
+          end
+
+          # Splat every ancestor-defined method down to each concrete
+          # descendant class. Under closed-world dispatch, resolving
+          # `m` on receiver class C_leaf yields the first-hit definition
+          # via ancestor walk — currently this is a SHARED node keyed
+          # by the defining ancestor D, so every leaf's transfer runs
+          # with `class_flat = D` and `self` types as D. Splatting adds
+          # per-leaf entries `[C_leaf, m] → D.method`, so each leaf's
+          # transfer runs with `class_flat = C_leaf` and self typing
+          # captures per-class refinement (e.g. `self * self` in
+          # Numeric#abs2 dispatches through Integer's `*` when the
+          # analysis is running as `[:method, :Integer, :abs2]`).
+          #
+          # YOLO version: no classifier — every splat-candidate materialized.
+          # Expected blast is bounded by |direct methods| × avg-descendant-cone;
+          # Object/BasicObject cones can be hundreds of classes so this may
+          # produce ~10x growth in the method-node count. Measured on fib.rb
+          # to decide next-step filter design.
+          def eager_splat(methods)
+            extended = methods.dup
+            methods.each do |(cls_flat, mname), m|
+              descs = @lattice.descendants[cls_flat]
+              next unless descs
+              descs.each do |leaf|
+                next if leaf == cls_flat
+                key = [leaf, mname]
+                next if extended.key?(key)
+                extended[key] = m
+              end
+            end
+            extended
           end
 
           def lattice = @lattice
