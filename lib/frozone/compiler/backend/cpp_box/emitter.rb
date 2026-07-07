@@ -3539,15 +3539,19 @@ module Frozone
             list = ENV['FROZONE_TI_DUMP_LIST']
             values = engine.values
             method_node = Analysis::Passes::TypeInferencePass.method(:method_node)
+            param_node  = Analysis::Passes::TypeInferencePass.method(:param_node)
             hist = Hash.new(0)
+            status_hist = Hash.new(0)
             user_hist = Hash.new(0)
             core_hist = Hash.new(0)
             rows = methods.map do |(cls_flat, mname), m|
               t = values[method_node.call(cls_flat, mname)]
               key = t ? t.to_s : '?'
               hist[key] += 1
+              status = classify_method_status(t, cls_flat, mname, m, values, param_node)
+              status_hist[status] += 1
               (user_source?(m.source_location) ? user_hist : core_hist)[key] += 1
-              [cls_flat, mname, key, m.source_location]
+              [cls_flat, mname, key, m.source_location, status]
             end
             total = methods.size
             $stderr.puts "[ti-dump] #{total} methods analyzed (#{user_hist.values.sum} user, #{core_hist.values.sum} core)"
@@ -3558,12 +3562,79 @@ module Frozone
             end
             precise = hist.reject { |k, _| k == '⊤' || k == '⊤?' || k == '?' || k == '⊥' }.values.sum
             $stderr.puts "[ti-dump] concrete or bounded: #{precise}/#{total} (#{(precise * 100.0 / total).round(1)}%)"
+            print_status_breakdown(status_hist, total)
             if list == '1' || list == 'user'
               $stderr.puts "[ti-dump] per-method:"
-              rows.each do |cls_flat, mname, key, loc|
+              rows.each do |cls_flat, mname, key, loc, _|
                 next if list == 'user' && !user_source?(loc)
                 loc_s = loc.is_a?(Array) ? loc.join(':') : loc.to_s
                 $stderr.puts "  #{key.ljust(20)} #{cls_flat}##{mname}  (#{loc_s})"
+              end
+            end
+            print_status_examples(rows, ENV['FROZONE_TI_DUMP_STATUS_SAMPLES'].to_i)
+          end
+
+          # Cross the method's return-value Type with its param values to
+          # produce a `MethodStatus` label. Distinguishes the two flavours
+          # of `⊥`: "no callsite pushed to any param" (unreached_by_ti)
+          # vs "params were pushed but body still returns ⊥" (some path
+          # discovered but the return never rose — typically always-throws
+          # without our noreturn annotations covering it).
+          def classify_method_status(t, cls_flat, mname, m, values, param_node)
+            return :missing if t.nil?
+            return :noreturn if t.respond_to?(:noreturn?) && t.noreturn?
+            if t.bottom?
+              # Was any param bumped past ⊥? Only meaningful for
+              # pushable-signature methods — others always get params
+              # seeded at ⊤ so this check doesn't apply.
+              params = (m.respond_to?(:required_params) ? m.required_params : nil) || []
+              any_pushed = params.any? do |pname|
+                v = values[param_node.call(cls_flat, mname, pname)]
+                v && !v.bottom?
+              end
+              return any_pushed ? :always_throws_undetected : :unreached_by_ti
+            end
+            return :returns_top if t.top?
+            return :returns_boolean if t.boolean_synth?
+            return :returns_nullable if t.nullable
+            :returns_concrete
+          end
+
+          STATUS_ORDER = %i[
+            returns_concrete returns_nullable returns_boolean
+            noreturn unreached_by_ti always_throws_undetected
+            returns_top missing
+          ].freeze
+
+          def print_status_breakdown(status_hist, total)
+            $stderr.puts "[ti-dump] MethodStatus breakdown:"
+            STATUS_ORDER.each do |s|
+              c = status_hist[s]
+              next if c.zero?
+              pct = (c * 100.0 / total).round(1)
+              $stderr.puts "  #{c.to_s.rjust(6)}  #{pct.to_s.rjust(5)}%  #{s}"
+            end
+            # Positive-info total: everything that isn't returns_top or
+            # missing tells codegen something actionable (concrete type,
+            # divergence, or unreachability).
+            positive = status_hist.reject { |k, _| %i[returns_top missing].include?(k) }
+                                  .values.sum
+            $stderr.puts "[ti-dump] positive info: #{positive}/#{total} (#{(positive * 100.0 / total).round(1)}%)"
+          end
+
+          # Optional: with FROZONE_TI_DUMP_STATUS_SAMPLES=N, print up to
+          # N example methods per non-empty status bucket. Handy for
+          # spot-checking the always_throws_undetected pile.
+          def print_status_examples(rows, n)
+            return if n < 1
+            by_status = rows.group_by { |r| r[4] }
+            STATUS_ORDER.each do |s|
+              examples = by_status[s]
+              next if examples.nil? || examples.empty?
+              $stderr.puts "[ti-dump] #{s} — up to #{n} samples:"
+              examples.first(n).each do |cls_flat, mname, key, loc, _|
+                loc_s = loc.is_a?(Array) ? loc.join(':') : loc.to_s
+                $stderr.puts "  #{key.ljust(16)} #{cls_flat}##{mname}  (#{loc_s})"
               end
             end
           end
