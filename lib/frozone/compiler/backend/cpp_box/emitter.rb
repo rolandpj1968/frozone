@@ -201,7 +201,7 @@ module Frozone
             pass = Analysis::Passes::TypeInferencePass.new(
               methods: methods, all_classes: all_classes, top_level_scope: top_level_scope,
             )
-            mode = (ENV['FROZONE_TI_MODE'] || 'eager').to_sym
+            mode = (ENV['FROZONE_TI_MODE'] || 'snapshot').to_sym
             engine = Analysis::Engine.new(pass, mode: mode)
             engine.run
             $stderr.puts "[ti-dump] engine mode: #{mode}; rounds: #{engine.rounds}; transfer_calls: #{engine.transfer_calls}"
@@ -3587,7 +3587,7 @@ module Frozone
           # diffs the two engines' method-node return-types per method.
           # Prints top divergence patterns + up to N samples per pattern.
           def print_ti_mode_diff(methods, all_classes, top_level_scope, primary_engine)
-            primary_mode = (ENV['FROZONE_TI_MODE'] || 'eager').to_sym
+            primary_mode = (ENV['FROZONE_TI_MODE'] || 'snapshot').to_sym
             other_mode = primary_mode == :eager ? :snapshot : :eager
             other_pass = Analysis::Passes::TypeInferencePass.new(
               methods: methods, all_classes: all_classes, top_level_scope: top_level_scope,
