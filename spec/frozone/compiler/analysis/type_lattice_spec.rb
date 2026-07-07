@@ -236,4 +236,47 @@ RSpec.describe Frozone::Compiler::Analysis::TypeLattice do
       expect(lattice.widen(t(:Integer), t(:Float))).to eq(t(:Float))
     end
   end
+
+  describe 'NORETURN — provably-diverges lattice element' do
+    it 'is exposed via lattice.noreturn' do
+      expect(lattice.noreturn.noreturn?).to be true
+      expect(lattice.noreturn.divergent?).to be true
+      # bottom is also divergent but a distinct element.
+      expect(lattice.bottom.divergent?).to be true
+      expect(lattice.bottom.noreturn?).to be false
+    end
+
+    it 'LUB(NORETURN, x) = x for every non-BOTTOM x' do
+      %i[Integer String NilClass].each do |c|
+        expect(lattice.join(lattice.noreturn, t(c))).to eq(t(c))
+        expect(lattice.join(t(c), lattice.noreturn)).to eq(t(c))
+      end
+      expect(lattice.join(lattice.noreturn, lattice.top)).to eq(lattice.top)
+    end
+
+    it 'LUB(NORETURN, BOTTOM) = NORETURN (NORETURN is strictly above BOTTOM)' do
+      expect(lattice.join(lattice.noreturn, lattice.bottom)).to eq(lattice.noreturn)
+      expect(lattice.join(lattice.bottom, lattice.noreturn)).to eq(lattice.noreturn)
+    end
+
+    it 'NORETURN ⊑ every non-BOTTOM type; BOTTOM ⊑ NORETURN; NORETURN NOT ⊑ BOTTOM' do
+      %i[Integer String Object].each do |c|
+        expect(lattice.subsumes?(lattice.noreturn, t(c))).to be true
+      end
+      expect(lattice.subsumes?(lattice.noreturn, lattice.top)).to be true
+      expect(lattice.subsumes?(lattice.bottom, lattice.noreturn)).to be true
+      # NORETURN is a stronger positive statement than BOTTOM, so
+      # NORETURN NOT ⊑ BOTTOM. This is what lets apply_update recognise
+      # the BOTTOM → NORETURN transition as progress.
+      expect(lattice.subsumes?(lattice.noreturn, lattice.bottom)).to be false
+    end
+
+    it 'concrete factory returns NORETURN for :__noreturn__' do
+      expect(lattice.concrete(:__noreturn__)).to eq(lattice.noreturn)
+    end
+
+    it 'renders as "noreturn"' do
+      expect(lattice.noreturn.to_s).to eq('noreturn')
+    end
+  end
 end

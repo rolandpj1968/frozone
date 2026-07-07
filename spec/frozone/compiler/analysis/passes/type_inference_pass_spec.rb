@@ -225,6 +225,74 @@ RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
     end
   end
 
+  describe 'noreturn — divergent intrinsics and missing methods' do
+    it 'kernel_raise is annotated :__noreturn__ → callers type as noreturn' do
+      # def m; Intrinsics.kernel_raise(nil, nil, nil, nil, nil); end
+      call = ast::IntrinsicCall.new(:kernel_raise, [
+        ast::NilLiteral::NIL, ast::NilLiteral::NIL, ast::NilLiteral::NIL,
+        ast::NilLiteral::NIL, ast::NilLiteral::NIL,
+      ])
+      methods = { [:Foo, :m] => make_method(call) }
+      pass = run_pass(methods)
+      expect(pass.type_of(call).noreturn?).to be true
+    end
+
+    it 'missing method with no user-override method_missing types as noreturn' do
+      # def m(x); x.no_such_method_defined_anywhere; end
+      # No class in x's ancestor chain has a method_missing override.
+      # Falls through to canonical BasicObject#method_missing which
+      # raises → noreturn.
+      no_such = ast::MethodCall.new(:no_such_method_defined_anywhere,
+                                    ast::LocalVariableRead.new(:x, 0), [], [])
+      caller = ast::MethodCall.new(:m, ast::SelfLiteral::SELF, [ast::IntegerLiteral.from(1)], [])
+      methods = {
+        [:Foo, :m]      => make_method(no_such, required_params: [:x]),
+        [:Foo, :caller] => make_method(caller),
+      }
+      pass = run_pass(methods)
+      expect(pass.type_of(no_such).noreturn?).to be true
+    end
+
+    it 'missing method routes through method_missing when defined on the chain (noreturn body)' do
+      # Set up: BasicObject#method_missing → noreturn intrinsic.
+      mm_call = ast::IntrinsicCall.new(:basic_object_method_missing, [
+        ast::SelfLiteral::SELF, ast::NilLiteral::NIL, ast::NilLiteral::NIL,
+        ast::NilLiteral::NIL,
+      ])
+      # def m(x); x.no_such_method; end
+      no_such = ast::MethodCall.new(:no_such_method,
+                                    ast::LocalVariableRead.new(:x, 0), [], [])
+      caller_body = ast::MethodCall.new(:m, ast::SelfLiteral::SELF, [ast::IntegerLiteral.from(1)], [])
+      methods = {
+        [:BasicObject, :method_missing] => make_method(mm_call),
+        [:Foo, :m]      => make_method(no_such, required_params: [:x]),
+        [:Foo, :caller] => make_method(caller_body),
+      }
+      pass = run_pass(methods)
+      # The call routes through method_missing → BasicObject#method_missing
+      # → basic_object_method_missing intrinsic (noreturn). So the call
+      # types as noreturn.
+      expect(pass.type_of(no_such).noreturn?).to be true
+    end
+
+    it 'method call on a noreturn receiver stays noreturn (short-circuit)' do
+      # x = raise "err"; x.foo  — after the raise, x is noreturn; x.foo
+      # inherits noreturn (receiver never has a real value at runtime).
+      raise_call = ast::IntrinsicCall.new(:kernel_raise, [
+        ast::NilLiteral::NIL, ast::NilLiteral::NIL, ast::NilLiteral::NIL,
+        ast::NilLiteral::NIL, ast::NilLiteral::NIL,
+      ])
+      x_write = ast::LocalVariableWrite.new(:x, 0, raise_call)
+      x_foo = ast::MethodCall.new(:foo, ast::LocalVariableRead.new(:x, 0), [], [])
+      body = ast::Sequence.new([x_write, x_foo])
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      # x's env-type = noreturn. x.foo's receiver walk returns noreturn,
+      # transfer_method_call short-circuits, x.foo is noreturn.
+      expect(pass.type_of(x_foo).noreturn?).to be true
+    end
+  end
+
   describe 'predicate narrowing on If' do
     # Helper: def m(x); if x.<pred>(...); then_expr; else else_expr; end; end
     # + a caller that pushes a specific type for x so the param arrives at a
@@ -942,8 +1010,9 @@ RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
       expect(pass.type_of(call)).to eq(t(:Integer))
     end
 
-    it 'returns ⊤ when the method is not found anywhere on the ancestor chain' do
-      # No `unknown_method` defined anywhere.
+    it 'returns noreturn when the method is not found anywhere on the ancestor chain' do
+      # No `unknown_method` defined anywhere → routes to canonical
+      # BasicObject#method_missing which raises → noreturn.
       recv = ast::LocalVariableWrite.new(:x, 0,
         ast::IntrinsicCall.new(:integer__plus_, [
           ast::IntegerLiteral.from(1), ast::IntegerLiteral.from(2)
@@ -952,7 +1021,7 @@ RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
       body = ast::MethodCall.new(:noop, nil, [recv, call], [])
       methods = { [:Foo, :m] => make_method(body) }
       pass = run_pass(methods)
-      expect(pass.type_of(call).top?).to be true
+      expect(pass.type_of(call).noreturn?).to be true
     end
 
     it 'a universe class (e.g. Integer) is not special — its methods walk the same way' do

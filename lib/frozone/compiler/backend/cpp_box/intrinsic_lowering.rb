@@ -830,6 +830,14 @@ module Frozone
             kernel_float:   :Float,
             kernel_puts:    :NilClass,
             kernel_print:   :NilClass,
+            # Divergent intrinsics — TI treats these as `noreturn` so
+            # any expression that terminates in them types as noreturn,
+            # and joins with a return path collapse away (noreturn is
+            # join-identity, so `A ∪ noreturn = A`).
+            kernel_raise:                :__noreturn__,
+            kernel_throw:                :__noreturn__,
+            kernel_exit:                 :__noreturn__,
+            basic_object_method_missing: :__noreturn__,
 
             # ---- Process / Time -------------------------------------
             process_pid:       :Integer,

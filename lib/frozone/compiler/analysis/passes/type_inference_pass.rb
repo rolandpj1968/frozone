@@ -698,13 +698,14 @@ module Frozone
               return t
             end
 
-            # Receiver is ⊥ → this callsite hasn't been reached in the
-            # current fixpoint iterate. Return ⊥ (not ⊤) so the call
-            # itself doesn't contribute to any join until a real
-            # receiver type arrives. Pushing ⊤ from an unreached
-            # callsite would permanently poison every param on the
-            # target method under monotone joins.
-            return @lattice.bottom if recv_type.bottom?
+            # Receiver is ⊥ or noreturn → the receiver expression itself
+            # doesn't produce a value in the current iterate (either
+            # unreached, or provably diverges). The call inherits the
+            # same divergent state — no downstream code sees a return.
+            # Pushing ⊤ from an unreached/divergent callsite would
+            # permanently poison every param on the target under
+            # monotone joins.
+            return recv_type if recv_type.divergent?
             return @lattice.top if recv_type.top?
             recv_class = recv_type.concrete
             return @lattice.top if recv_class == :__boolean__
@@ -785,7 +786,33 @@ module Frozone
               push_param_types(cls, method_name, arg_nodes, ctx) if arg_nodes
               return ctx.lookup.call(self.class.method_node(cls, method_name))
             end
-            @lattice.top
+            resolve_missing_method(chain)
+          end
+
+          # Not found on the ancestor chain — Ruby routes to
+          # method_missing on the same receiver. Two cases:
+          #
+          # 1. A user class in the chain (non-BasicObject) overrides
+          #    method_missing. Its return could be anything → ⊤ (safe
+          #    fallback; the engine's cross-method dep tracking isn't
+          #    fine-grained enough to reliably fixpoint through
+          #    `lookup.call(:method_missing)` under eager mode).
+          #
+          # 2. Otherwise the resolution falls through to
+          #    BasicObject#method_missing, whose canonical body is
+          #    `Intrinsics.basic_object_method_missing(...)` — annotated
+          #    :__noreturn__. Short-circuit directly to noreturn.
+          #
+          # The barf-on-hard-override machinery (#230) doesn't cover
+          # method_missing yet — a user could shadow it with a returning
+          # body and get their override handled as ⊤ here. That's the
+          # over-approximate but sound fallback.
+          def resolve_missing_method(chain)
+            chain.each do |cls|
+              next if cls == :BasicObject
+              return @lattice.top if @methods.key?([cls, :method_missing])
+            end
+            @lattice.noreturn
           end
 
           # Push each positional-arg's inferred type into the target
@@ -826,9 +853,10 @@ module Frozone
             case annotation
             when Symbol
               case annotation
-              when :__top__     then @lattice.top
-              when :__boolean__ then @lattice.boolean_type
-              else                    @lattice.concrete(annotation)
+              when :__top__      then @lattice.top
+              when :__boolean__  then @lattice.boolean_type
+              when :__noreturn__ then @lattice.noreturn
+              else                     @lattice.concrete(annotation)
               end
             when Array
               # [Symbol, nullable: true] tail-hash-arg form

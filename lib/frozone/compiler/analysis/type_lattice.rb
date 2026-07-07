@@ -45,15 +45,26 @@ module Frozone
         # keep `==` cheap (Struct falls back to field-eq) and to
         # make caching sound (map keys never mutate under us).
         Type = Struct.new(:concrete, :nullable) do
-          def bottom? = concrete == :__bottom__
-          def top?    = concrete == :__top__
+          def bottom?   = concrete == :__bottom__
+          def top?      = concrete == :__top__
+          def noreturn? = concrete == :__noreturn__
           def boolean_synth? = concrete == :__boolean__
+
+          # NORETURN and BOTTOM are BOTH join-identity, but the two
+          # convey different facts:
+          #   BOTTOM   — "no data yet; may rise as the fixpoint runs"
+          #   NORETURN — "provably always diverges" (raise / throw /
+          #              exit / infinite loop) — a positive statement.
+          # For lattice math they behave the same; consumers that care
+          # about the distinction check `.noreturn?` explicitly.
+          def divergent? = bottom? || noreturn?
 
           def to_s
             base = case concrete
-                   when :__bottom__ then '⊥'
-                   when :__top__ then '⊤'
-                   when :__boolean__ then '<boolean>'
+                   when :__bottom__   then '⊥'
+                   when :__top__      then '⊤'
+                   when :__boolean__  then '<boolean>'
+                   when :__noreturn__ then 'noreturn'
                    else concrete.to_s
                    end
             nullable ? "#{base}?" : base
@@ -61,11 +72,12 @@ module Frozone
           alias_method :inspect, :to_s
         end
 
-        BOTTOM           = Type.new(:__bottom__, false).freeze
-        TOP              = Type.new(:__top__,    false).freeze
-        TOP_NULLABLE     = Type.new(:__top__,    true).freeze
-        BOOLEAN          = Type.new(:__boolean__, false).freeze
-        BOOLEAN_NULLABLE = Type.new(:__boolean__, true).freeze
+        BOTTOM           = Type.new(:__bottom__,   false).freeze
+        TOP              = Type.new(:__top__,      false).freeze
+        TOP_NULLABLE     = Type.new(:__top__,      true).freeze
+        BOOLEAN          = Type.new(:__boolean__,  false).freeze
+        BOOLEAN_NULLABLE = Type.new(:__boolean__,  true).freeze
+        NORETURN         = Type.new(:__noreturn__, false).freeze
 
         BOOLEAN_CLASSES = [:TrueClass, :FalseClass].freeze
         NIL_CLASS       = :NilClass
@@ -88,9 +100,14 @@ module Frozone
         def top    = TOP
 
         def join(a, b)
-          # ⊥ is identity for join
+          # ⊥ is join-identity: BOTTOM ⊑ every element, so LUB(⊥, x) = x.
           return b if a.bottom?
           return a if b.bottom?
+          # NORETURN sits strictly above BOTTOM but below every real
+          # (potentially-inhabited) type. LUB(NORETURN, x) = x for any
+          # non-bottom x. Ordering: BOTTOM ⊑ NORETURN ⊑ everything-else.
+          return b if a.noreturn?
+          return a if b.noreturn?
 
           nullable = a.nullable || b.nullable
 
@@ -126,11 +143,16 @@ module Frozone
         end
 
         # `a ⊑ b` — a is at or below b in the lattice.
+        # Ordering: BOTTOM ⊑ NORETURN ⊑ every real type ⊑ TOP.
         def subsumes?(a, b)
+          # BOTTOM is below everything.
           return true if a.bottom?
+          # NORETURN is below every non-BOTTOM element.
+          return !b.bottom? if a.noreturn?
+          # a is a real (or TOP) type. It's not ⊑ BOTTOM or NORETURN.
+          return false if b.bottom? || b.noreturn?
           return true if b.top?
-          return false if a.top? && !b.top?
-          return false if b.bottom? && !a.bottom?
+          return false if a.top?
           # Nullable dimension: a.nullable ⇒ b.nullable
           return false if a.nullable && !b.nullable
           return true if a.concrete == b.concrete
@@ -152,10 +174,13 @@ module Frozone
 
         def concrete(class_sym, nullable: false)
           return BOTTOM if class_sym == :__bottom__
+          return NORETURN if class_sym == :__noreturn__
           return nullable ? TOP_NULLABLE : TOP if class_sym == :__top__
           return nullable ? BOOLEAN_NULLABLE : BOOLEAN if class_sym == :__boolean__
           Type.new(class_sym, nullable).freeze
         end
+
+        def noreturn = NORETURN
 
         def nil_type = concrete(NIL_CLASS)
 
