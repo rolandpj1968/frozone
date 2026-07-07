@@ -241,13 +241,6 @@ class Rational < Numeric
 
   def marshal_dump = [@numerator, @denominator]
 
-  def __coerce_op__(other, op)
-    a, b = other.coerce(self)
-    a.send(op, b)
-  rescue NoMethodError
-    raise TypeError, "#{other.class} can't be coerced into Rational"
-  end
-
   def __simplest_rational__(lo, hi)
     return Rational(0, 1) if lo <= 0 && hi >= 0
     return -__simplest_rational__(-hi, -lo) if hi < 0

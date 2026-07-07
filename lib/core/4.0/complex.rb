@@ -100,11 +100,11 @@ class Complex
     else
       real_q = other.respond_to?(:real?) ? other.real? : nil
       if real_q == false
-        __coerce_binop__(other, :quo)
+        __coerce_op__(other, :quo)
       elsif other.is_a?(Numeric) || real_q
         Complex(@real.quo(other), @imaginary.quo(other))
       else
-        __coerce_binop__(other, :/)
+        __coerce_op__(other, :/)
       end
     end
   end
@@ -143,7 +143,7 @@ class Complex
       e_re = Math.exp(re)
       Complex(e_re * Math.cos(im), e_re * Math.sin(im))
     else
-      __coerce_binop__(other, :**)
+      __coerce_op__(other, :**)
     end
   end
 
@@ -254,24 +254,17 @@ class Complex
   def marshal_dump = [@real, @imaginary]
   def __ensure_real_strict__(type) = raise(RangeError, "can't convert #{inspect} into #{type}") unless !@imaginary.is_a?(Float) && @imaginary == 0
 
-  def __coerce_binop__(other, op)
-    a, b = other.coerce(self)
-    a.send(op, b)
-  rescue NoMethodError
-    raise TypeError, "#{other.class} can't be coerced into Complex"
-  end
-
   def __complex_coerce_op__(other, op)
     if other.is_a?(Complex)
       yield other
     else
       real_q = other.respond_to?(:real?) ? other.real? : nil
       if real_q == false
-        __coerce_binop__(other, op)
+        __coerce_op__(other, op)
       elsif other.is_a?(Numeric) || real_q
         yield other
       else
-        __coerce_binop__(other, op)
+        __coerce_op__(other, op)
       end
     end
   end

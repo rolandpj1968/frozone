@@ -291,4 +291,24 @@ class Numeric
       end
     end
   end
+
+  private
+
+  # Coercion protocol helpers shared by every Numeric subclass. `self.class`
+  # in the messages gives the concrete class name at dispatch time.
+  # Subclasses previously had four differently-named copies of this shape
+  # (Integer#__with_coercion__, Float#__coerce_op__, Complex#__coerce_binop__,
+  # Rational#__coerce_op__). Unified here.
+  def __coerce_op__(other, op)
+    a, b = other.coerce(self)
+    a.send(op, b)
+  rescue NoMethodError
+    raise TypeError, "#{other.class} can't be coerced into #{self.class}"
+  end
+
+  def __coerce_and_compare__(other, op)
+    __coerce_op__(other, op)
+  rescue TypeError, NoMethodError
+    raise ArgumentError, "comparison of #{self.class} with #{other.class} failed"
+  end
 end

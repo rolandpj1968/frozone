@@ -64,11 +64,11 @@ class Integer
   def between?(min, max) = self >= min && self <= max
   def ==(v) = v.is_a?(Integer) ? Intrinsics.integer__eq_(self, v) : !!(v == self rescue false)
   def ===(v) = v.is_a?(Integer) ? Intrinsics.integer__eq_(self, v) : !!(v == self rescue false)
-  def +(v) = v.is_a?(Integer) ? Intrinsics.integer__plus_(self, v) : __with_coercion__(v, :+)
-  def -(v) = v.is_a?(Integer) ? Intrinsics.integer__minus_(self, v) : __with_coercion__(v, :-)
-  def *(v) = v.is_a?(Integer) ? Intrinsics.integer__mul_(self, v) : __with_coercion__(v, :*)
-  def /(v) = v.is_a?(Integer) ? (v == 0 ? __raise_zero_division__ : Intrinsics.integer__div_(self, v)) : __with_coercion__(v, :/)
-  def %(v) = v.is_a?(Integer) ? (v == 0 ? __raise_zero_division__ : Intrinsics.integer__mod_(self, v)) : __with_coercion__(v, :%)
+  def +(v) = v.is_a?(Integer) ? Intrinsics.integer__plus_(self, v) : __coerce_op__(v, :+)
+  def -(v) = v.is_a?(Integer) ? Intrinsics.integer__minus_(self, v) : __coerce_op__(v, :-)
+  def *(v) = v.is_a?(Integer) ? Intrinsics.integer__mul_(self, v) : __coerce_op__(v, :*)
+  def /(v) = v.is_a?(Integer) ? (v == 0 ? __raise_zero_division__ : Intrinsics.integer__div_(self, v)) : __coerce_op__(v, :/)
+  def %(v) = v.is_a?(Integer) ? (v == 0 ? __raise_zero_division__ : Intrinsics.integer__mod_(self, v)) : __coerce_op__(v, :%)
   alias modulo %
   def <(v) = v.is_a?(Integer) ? Intrinsics.integer__lt_(self, v) : __compare__(v, :<)
   def <=(v) = v.is_a?(Integer) ? Intrinsics.integer__le_(self, v) : __compare__(v, :<=)
@@ -85,7 +85,7 @@ class Integer
   def anybits?(mask) = (self & __coerce_to_int__(mask)) != 0
   def nobits?(mask) = (self & __coerce_to_int__(mask)) == 0
   def ceildiv(n) = (q, r = divmod(n); r == 0 ? q : q + 1)
-  def divmod(n) = n.is_a?(Integer) ? [self / n, self % n] : __with_coercion__(n, :divmod)
+  def divmod(n) = n.is_a?(Integer) ? [self / n, self % n] : __coerce_op__(n, :divmod)
 
   def **(v)
     if v.is_a?(Integer)
@@ -102,7 +102,7 @@ class Integer
       return to_f ** v
     end
     __raise_zero_division__ if self == 0 && v.respond_to?(:negative?) && v.negative?
-    __with_coercion__(v, :**)
+    __coerce_op__(v, :**)
   end
 
   def <=>(v)
@@ -218,7 +218,7 @@ class Integer
       return self / n
     end
     __check_zero_divisor__(n) if n.is_a?(Float) # TODO: remove once Float#div(0.0) raises ZeroDivisionError
-    __with_coercion__(n, :div)
+    __coerce_op__(n, :div)
   end
 
   def remainder(n)
@@ -227,7 +227,7 @@ class Integer
       q, r = divmod(n)
       return r != 0 && (self < 0) != (n < 0) ? r - n : r
     end
-    __with_coercion__(n, :remainder)
+    __coerce_op__(n, :remainder)
   end
 
   def gcd(n)
@@ -341,14 +341,7 @@ class Integer
 
   def __bitwise_op__(n, op)
     raise TypeError, "no implicit conversion of Float into Integer" if n.is_a?(Float)
-    __with_coercion__(n, op)
-  end
-
-  def __with_coercion__(v, op)
-    a, b = v.send(:coerce, self)
-    a.send(op, b)
-  rescue NoMethodError
-    raise TypeError, "#{v.class} can't be coerced into Integer"
+    __coerce_op__(n, op)
   end
 
   def __step_enum__(n, step, &sz)
@@ -367,12 +360,6 @@ class Integer
     else
       __coerce_and_compare__(v, op)
     end
-  end
-
-  def __coerce_and_compare__(v, op)
-    __with_coercion__(v, op)
-  rescue TypeError
-    raise ArgumentError, "comparison of #{self.class} with #{v.class} failed"
   end
 
 end

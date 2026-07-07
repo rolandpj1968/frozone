@@ -197,20 +197,6 @@ class Float
 
   private
 
-  def __coerce_op__(other, op)
-    a, b = other.coerce(self)
-    a.send(op, b)
-  rescue NoMethodError
-    raise TypeError, "#{other.class} can't be coerced into Float"
-  end
-
-  def __coerce_and_compare__(other, op)
-    a, b = other.coerce(self)
-    a.send(op, b)
-  rescue TypeError, NoMethodError
-    raise ArgumentError, "comparison of #{self.class} with #{other.class} failed"
-  end
-
   # Returns [numerator, denominator] of the simplest rational in [lo, hi].
   # Both endpoints are non-negative Floats. Depth-bounded to bail on
   # pathological inputs (CF expansion is normally O(log denom)).
