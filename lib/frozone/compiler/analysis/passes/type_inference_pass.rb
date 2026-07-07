@@ -837,13 +837,51 @@ module Frozone
           # receiver's type cone. Under closed-world every ctx.lookup
           # call inside also records a dep, so per-target rises re-
           # enqueue this transfer for a fresh LUB.
+          #
+          # Naive form is O(|cone| × |chain|) — each S walks its full
+          # ancestor chain looking for `method_name` (and, if missing,
+          # walks again for `method_missing`). Under single-inheritance
+          # most S's in a cone SHARE their first-hit class (they all
+          # inherit T's method because none of them override) — so we
+          # dedup by first-hit class and lookup once per distinct hit.
+          #
+          # Three buckets per receiver S in cone:
+          #   direct  — some class C ∈ S's chain defines `method_name`;
+          #             resolution is C's return-type node.
+          #   mm      — no direct hit; some class M ∈ S's chain (non-
+          #             BasicObject) defines `method_missing`; resolution
+          #             is M's method_missing return.
+          #   noreturn — no direct hit AND no user mm on chain; falls
+          #              through to BasicObject#method_missing (annotated
+          #              :__noreturn__).
           def dispatch_across_cone(recv_type, method_name, ctx, arg_nodes)
             cone = receiver_type_cone(recv_type)
             return @lattice.top if cone.empty?
-            cone.reduce(@lattice.bottom) do |acc, cls_flat|
-              t = resolve_method_call_return(cls_flat, method_name, ctx, arg_nodes: arg_nodes)
-              @lattice.join(acc, t)
+
+            direct_hits    = Set.new
+            mm_hits        = Set.new
+            noreturn_falls = false
+            cone.each do |s|
+              chain = @lattice.ancestor_chains[s] || [s]
+              direct = chain.find { |c| @methods.key?([c, method_name]) }
+              if direct
+                direct_hits << direct
+              else
+                mm = chain.find { |c| c != :BasicObject && @methods.key?([c, :method_missing]) }
+                mm ? (mm_hits << mm) : (noreturn_falls = true)
+              end
             end
+
+            result = @lattice.bottom
+            direct_hits.each do |c|
+              push_param_types(c, method_name, arg_nodes, ctx) if arg_nodes
+              result = @lattice.join(result, ctx.lookup.call(self.class.method_node(c, method_name)))
+            end
+            mm_hits.each do |c|
+              result = @lattice.join(result, ctx.lookup.call(self.class.method_node(c, :method_missing)))
+            end
+            result = @lattice.join(result, @lattice.noreturn) if noreturn_falls
+            result
           end
 
           # The set of concrete classes a receiver's static type could
