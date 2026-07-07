@@ -206,6 +206,7 @@ module Frozone
             engine.run
             $stderr.puts "[ti-dump] engine mode: #{mode}; rounds: #{engine.rounds}; transfer_calls: #{engine.transfer_calls}"
             print_ti_summary(pass, engine, methods)
+            print_ti_mode_diff(methods, all_classes, top_level_scope, engine) if ENV['FROZONE_TI_DUMP_DIFF'] == '1'
           end
 
           # Minimal shim to feed the execute-block into the analysis as
@@ -3582,6 +3583,52 @@ module Frozone
           # vs "params were pushed but body still returns ⊥" (some path
           # discovered but the return never rose — typically always-throws
           # without our noreturn annotations covering it).
+          # Runs the second mode (whichever wasn't the primary) and
+          # diffs the two engines' method-node return-types per method.
+          # Prints top divergence patterns + up to N samples per pattern.
+          def print_ti_mode_diff(methods, all_classes, top_level_scope, primary_engine)
+            primary_mode = (ENV['FROZONE_TI_MODE'] || 'eager').to_sym
+            other_mode = primary_mode == :eager ? :snapshot : :eager
+            other_pass = Analysis::Passes::TypeInferencePass.new(
+              methods: methods, all_classes: all_classes, top_level_scope: top_level_scope,
+            )
+            other_engine = Analysis::Engine.new(other_pass, mode: other_mode)
+            other_engine.run
+            $stderr.puts "[ti-diff] #{other_mode}: rounds=#{other_engine.rounds} transfer_calls=#{other_engine.transfer_calls}"
+            method_node = Analysis::Passes::TypeInferencePass.method(:method_node)
+            same = 0
+            diffs = []
+            methods.each do |(cls_flat, mname), m|
+              node = method_node.call(cls_flat, mname)
+              a = primary_engine.values[node]
+              b = other_engine.values[node]
+              a_key = a.to_s
+              b_key = b.to_s
+              if a_key == b_key
+                same += 1
+              else
+                diffs << [cls_flat, mname, a_key, b_key, m.source_location]
+              end
+            end
+            $stderr.puts "[ti-diff] #{same}/#{methods.size} match; #{diffs.size} differ (#{primary_mode} → #{other_mode})"
+            patterns = diffs.group_by { |_, _, a, b, _| [a, b] }
+                            .transform_values(&:size)
+                            .sort_by { |_, c| -c }
+            $stderr.puts "[ti-diff] top divergence patterns:"
+            patterns.first(20).each do |(a, b), c|
+              $stderr.puts "  #{c.to_s.rjust(4)}  #{a.ljust(22)} → #{b}"
+            end
+            n_per = (ENV['FROZONE_TI_DUMP_DIFF_SAMPLES'] || '3').to_i
+            $stderr.puts "[ti-diff] samples per pattern (up to #{n_per}):"
+            diffs.group_by { |_, _, a, b, _| [a, b] }.each do |(a, b), rows|
+              $stderr.puts "  pattern: #{a} → #{b}"
+              rows.first(n_per).each do |cls_flat, mname, _, _, loc|
+                loc_s = loc.is_a?(Array) ? loc.join(':') : loc.to_s
+                $stderr.puts "    #{cls_flat}##{mname}  (#{loc_s})"
+              end
+            end
+          end
+
           def classify_method_status(t, cls_flat, mname, m, values, param_node)
             return :missing if t.nil?
             return :noreturn if t.respond_to?(:noreturn?) && t.noreturn?
