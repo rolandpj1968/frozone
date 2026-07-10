@@ -139,6 +139,14 @@ module Frozone
             # preserving useful 1-CFA precision on the ~4% of methods
             # that actually benefit (see splat oracle empirics).
             @method_contexts = Hash.new { |h, k| h[k] = Set.new }
+            # Diagnostic: trace every callee-context resolution.
+            # FROZONE_TI_1CFA_TRACE=1 to enable. Output is pipe-
+            # delimited (grep/sort friendly) to $stderr, capped at
+            # FROZONE_TI_1CFA_TRACE_CAP lines (default 200000) so a
+            # runaway loop doesn't fill the disk.
+            @trace_contexts = ENV['FROZONE_TI_1CFA_TRACE'] == '1'
+            @trace_cap = (ENV['FROZONE_TI_1CFA_TRACE_CAP'] || '200000').to_i
+            @trace_count = 0
           end
 
           def lattice = @lattice
@@ -784,7 +792,8 @@ module Frozone
             callee_context = [self_type, *arg_types].freeze
             parent_chain.each do |cls|
               next unless @methods.key?([cls, ctx.method_name])
-              cap_context = context_for_target(cls, ctx.method_name, callee_context)
+              cap_context, action = context_for_target(cls, ctx.method_name, callee_context)
+              trace_context(ctx, cls, ctx.method_name, callee_context, cap_context, action)
               push_param_types(cls, ctx.method_name, arg_nodes, ctx, cap_context)
               return dispatch_lookup(cls, ctx.method_name, cap_context, ctx)
             end
@@ -996,40 +1005,90 @@ module Frozone
           # cap yet) or UNIT (if we have). Registers the candidate on
           # first sight so subsequent identical callsites still use
           # it. Once the cap is hit, further NEW contexts fold to UNIT.
+          # Returns [result_context, action_tag] where action_tag is
+          # UNIT / REUSE / NEW / CAP-FOLD. Trace-friendly.
           def context_for_target(target_cls, target_method, candidate)
-            return candidate if candidate.equal?(UNIT_CONTEXT)
-            key = [target_cls, target_method]
-            seen = @method_contexts[key]
-            return candidate if seen.include?(candidate)
-            return UNIT_CONTEXT if seen.size >= PER_METHOD_CONTEXT_CAP
+            return [candidate, 'UNIT'] if candidate.equal?(UNIT_CONTEXT)
+            seen = @method_contexts[[target_cls, target_method]]
+            return [candidate, 'REUSE'] if seen.include?(candidate)
+            if seen.size >= PER_METHOD_CONTEXT_CAP
+              return [UNIT_CONTEXT, 'CAP-FOLD']
+            end
             seen << candidate
-            candidate
+            [candidate, 'NEW']
+          end
+
+          # Emit a pipe-delimited trace line for one context resolution.
+          # Shape:
+          #   ti1cfa|<seq>|<caller_cls>#<caller_m>|<target_cls>#<target_m>|<action>|<candidate>|<result>
+          # Enabled by FROZONE_TI_1CFA_TRACE=1. Capped by
+          # FROZONE_TI_1CFA_TRACE_CAP (default 200000).
+          def trace_context(ctx, target_cls, target_method, candidate, result, action)
+            return unless @trace_contexts
+            @trace_count += 1
+            return if @trace_count > @trace_cap
+            $stderr.puts "ti1cfa|#{@trace_count}|#{ctx.class_flat}##{ctx.method_name}|#{target_cls}##{target_method}|#{action}|#{candidate.inspect}|#{result.inspect}"
           end
 
           def dispatch_across_cone(recv_type, method_name, ctx, arg_nodes)
             cone = receiver_type_cone(recv_type)
             return @lattice.top if cone.empty?
-            arg_types = arg_nodes ? arg_nodes.map { |a| @per_node_types[a] || @lattice.top } : []
             widen = !ONE_CFA_ENABLED || cone.size > CONE_WIDEN_THRESHOLD
+            return dispatch_widened(cone, method_name, ctx, arg_nodes) if widen
+            arg_types = arg_nodes ? arg_nodes.map { |a| @per_node_types[a] || @lattice.top } : []
             result = @lattice.bottom
             cone.each do |s|
               chain = @lattice.ancestor_chains[s] || [s]
-              candidate = widen ? UNIT_CONTEXT : [@lattice.concrete(s), *arg_types].freeze
+              candidate = [@lattice.concrete(s), *arg_types].freeze
               direct = chain.find { |c| @methods.key?([c, method_name]) }
               if direct
-                callee_context = context_for_target(direct, method_name, candidate)
+                callee_context, action = context_for_target(direct, method_name, candidate)
+                trace_context(ctx, direct, method_name, candidate, callee_context, action)
                 push_param_types(direct, method_name, arg_nodes, ctx, callee_context) if arg_nodes
                 result = @lattice.join(result, dispatch_lookup(direct, method_name, callee_context, ctx))
               else
                 mm = chain.find { |c| c != :BasicObject && @methods.key?([c, :method_missing]) }
                 if mm
-                  mm_context = context_for_target(mm, :method_missing, candidate)
+                  mm_context, action = context_for_target(mm, :method_missing, candidate)
+                  trace_context(ctx, mm, :method_missing, candidate, mm_context, action)
                   result = @lattice.join(result, dispatch_lookup(mm, :method_missing, mm_context, ctx))
                 else
                   result = @lattice.join(result, @lattice.noreturn)
                 end
               end
             end
+            result
+          end
+
+          # Wide-cone / kill-switch path: dedup by defining class
+          # (0-CFA-style) so we only pay one dispatch per distinct
+          # target regardless of cone size. All lookups land at UNIT
+          # context. Reproduces the pre-1-CFA hot loop.
+          def dispatch_widened(cone, method_name, ctx, arg_nodes)
+            direct_hits    = Set.new
+            mm_hits        = Set.new
+            noreturn_falls = false
+            cone.each do |s|
+              chain = @lattice.ancestor_chains[s] || [s]
+              direct = chain.find { |c| @methods.key?([c, method_name]) }
+              if direct
+                direct_hits << direct
+              else
+                mm = chain.find { |c| c != :BasicObject && @methods.key?([c, :method_missing]) }
+                mm ? (mm_hits << mm) : (noreturn_falls = true)
+              end
+            end
+            result = @lattice.bottom
+            direct_hits.each do |c|
+              push_param_types(c, method_name, arg_nodes, ctx, UNIT_CONTEXT) if arg_nodes
+              trace_context(ctx, c, method_name, UNIT_CONTEXT, UNIT_CONTEXT, 'UNIT')
+              result = @lattice.join(result, dispatch_lookup(c, method_name, UNIT_CONTEXT, ctx))
+            end
+            mm_hits.each do |c|
+              trace_context(ctx, c, :method_missing, UNIT_CONTEXT, UNIT_CONTEXT, 'UNIT')
+              result = @lattice.join(result, dispatch_lookup(c, :method_missing, UNIT_CONTEXT, ctx))
+            end
+            result = @lattice.join(result, @lattice.noreturn) if noreturn_falls
             result
           end
 
