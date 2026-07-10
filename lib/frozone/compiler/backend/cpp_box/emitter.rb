@@ -198,6 +198,14 @@ module Frozone
               entry_body = execute_block.respond_to?(:body) ? execute_block.body : execute_block
               methods[[:Object, :__entry__]] = SyntheticEntryMethod.new(entry_body)
             end
+            # Method-level pruning: collect the set of method names
+            # reachable via MethodCall / AttributeWrite / SymbolLiteral
+            # through all bodies, seed from the entry body, iterate to
+            # fixpoint (calls in a method's body add its name if we've
+            # seen a call reaching it). Then drop methods map entries
+            # whose mname isn't in the reachable set. Optional — opt in
+            # via FROZONE_TI_PRUNE=1 while we validate; off by default.
+            methods = ti_prune_methods(methods) if ENV['FROZONE_TI_PRUNE'] == '1'
             pass = Analysis::Passes::TypeInferencePass.new(
               methods: methods, all_classes: all_classes, top_level_scope: top_level_scope,
             )
@@ -207,6 +215,57 @@ module Frozone
             $stderr.puts "[ti-dump] engine mode: #{mode}; rounds: #{engine.rounds}; transfer_calls: #{engine.transfer_calls}"
             print_ti_summary(pass, engine, methods)
             print_ti_mode_diff(methods, all_classes, top_level_scope, engine) if ENV['FROZONE_TI_DUMP_DIFF'] == '1'
+          end
+
+          # Prune the methods map to only those whose name is reachable
+          # via any MethodCall / AttributeWrite / literal Symbol in any
+          # already-reachable method body (or the entry body). Iterates
+          # to fixpoint: adding a body's calls can bring new names in
+          # which reach new bodies. Auto-generated dispatch surface
+          # (m_new, m_initialize, m_class, etc.) is always kept — those
+          # get invoked by the runtime regardless of source-visible
+          # call sites.
+          #
+          # This is the coarsest possible method-level reachability —
+          # by-name only, wide receiver assumed. Under-approximates
+          # dispatch via meta-programming (define_method,
+          # instance_variable_set to accessors, etc.) but for
+          # measurement purposes is a useful lower bound.
+          AUTO_KEPT_METHOD_NAMES = %i[
+            new initialize allocate class hash to_s inspect ==
+            eql? equal? method_missing respond_to? respond_to_missing?
+            __entry__
+          ].freeze
+
+          def ti_prune_methods(methods)
+            reachable_names = Set.new(AUTO_KEPT_METHOD_NAMES)
+            visited_bodies = Set.new
+            walk = lambda do |node|
+              return if node.nil?
+              return unless node.is_a?(Frozone::Ast::Node)
+              case node
+              when Frozone::Ast::MethodCall     then reachable_names << node.name if node.name
+              when Frozone::Ast::AttributeWrite then reachable_names << :"#{node.name}=" if node.name
+              when Frozone::Ast::Super          then reachable_names << :__super__
+              when Frozone::Ast::SymbolLiteral  then reachable_names << node.value if node.value.is_a?(Symbol)
+              end
+              (node.children || []).each { |c| walk.call(c) }
+            end
+            fixpoint = true
+            iterations = 0
+            while fixpoint
+              fixpoint = false
+              iterations += 1
+              methods.each do |(_, mname), m|
+                next unless reachable_names.include?(mname)
+                next unless visited_bodies.add?(m.body.object_id)
+                walk.call(m.body)
+                fixpoint = true
+              end
+            end
+            kept = methods.select { |(_, mname), _| reachable_names.include?(mname) }
+            $stderr.puts "[ti-prune] #{kept.size}/#{methods.size} methods kept after #{iterations} rounds; #{reachable_names.size} distinct names"
+            kept
           end
 
           # Minimal shim to feed the execute-block into the analysis as
