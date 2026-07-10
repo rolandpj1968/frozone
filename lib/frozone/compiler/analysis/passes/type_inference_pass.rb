@@ -276,10 +276,18 @@ module Frozone
 
           # Type of any AST expression. Result is memoised in the per-node
           # map both for the emitter's benefit and for cheap re-visits.
+          # Under 1-CFA the same AST node can be walked in multiple
+          # contexts as different callers trigger the enclosing method's
+          # transfer — LUB-merge into @per_node_types so type_of returns
+          # the sound-widened answer across all contexts. The current
+          # walk's own return value is `t` (not the LUB) so it doesn't
+          # contaminate the CURRENT context's transfer with unrelated
+          # contexts' contributions.
           def walk(node, ctx)
             return @lattice.top if node.nil?
             t = compute(node, ctx)
-            @per_node_types[node] = t
+            prev = @per_node_types[node]
+            @per_node_types[node] = prev ? @lattice.join(prev, t) : t
             t
           end
 
@@ -739,14 +747,19 @@ module Frozone
           # No class above → ⊤ (BasicObject#foo super would raise
           # NoMethodError at runtime; TI stays conservative).
           def transfer_super(node, ctx)
-            (node.arg_nodes || []).each { |a| walk(a, ctx) }
+            arg_nodes = node.arg_nodes || []
+            arg_nodes.each { |a| walk(a, ctx) }
             walk(node.block_node, ctx) if node.block_node
             chain = @lattice.ancestor_chains[ctx.class_flat] || [ctx.class_flat]
             parent_chain = chain.drop(1)
             return @lattice.top if parent_chain.empty?
+            arg_types = arg_nodes.map { |a| @per_node_types[a] || @lattice.top }
+            self_type = ctx.context.empty? ? @lattice.concrete(ctx.class_flat) : ctx.context.first
+            callee_context = [self_type, *arg_types].freeze
             parent_chain.each do |cls|
               next unless @methods.key?([cls, ctx.method_name])
-              return ctx.lookup.call(self.class.method_node(cls, ctx.method_name))
+              push_param_types(cls, ctx.method_name, arg_nodes, ctx, callee_context)
+              return dispatch_lookup(cls, ctx.method_name, callee_context, ctx)
             end
             @lattice.top
           end
@@ -927,34 +940,48 @@ module Frozone
           #   noreturn — no direct hit AND no user mm on chain; falls
           #              through to BasicObject#method_missing (annotated
           #              :__noreturn__).
+          # Under 1-CFA type-context each receiver in the cone forms its
+          # own callee context, so the 0-CFA-style dedup by defining
+          # class no longer applies — two receivers that inherit the
+          # same body still analyze it separately when their receiver
+          # types differ. Iterate the cone directly and construct
+          # callee_context per receiver.
           def dispatch_across_cone(recv_type, method_name, ctx, arg_nodes)
             cone = receiver_type_cone(recv_type)
             return @lattice.top if cone.empty?
-
-            direct_hits    = Set.new
-            mm_hits        = Set.new
-            noreturn_falls = false
+            arg_types = arg_nodes ? arg_nodes.map { |a| @per_node_types[a] || @lattice.top } : []
+            result = @lattice.bottom
             cone.each do |s|
               chain = @lattice.ancestor_chains[s] || [s]
+              callee_context = [@lattice.concrete(s), *arg_types].freeze
               direct = chain.find { |c| @methods.key?([c, method_name]) }
               if direct
-                direct_hits << direct
+                push_param_types(direct, method_name, arg_nodes, ctx, callee_context) if arg_nodes
+                result = @lattice.join(result, dispatch_lookup(direct, method_name, callee_context, ctx))
               else
                 mm = chain.find { |c| c != :BasicObject && @methods.key?([c, :method_missing]) }
-                mm ? (mm_hits << mm) : (noreturn_falls = true)
+                if mm
+                  result = @lattice.join(result, dispatch_lookup(mm, :method_missing, callee_context, ctx))
+                else
+                  result = @lattice.join(result, @lattice.noreturn)
+                end
               end
             end
-
-            result = @lattice.bottom
-            direct_hits.each do |c|
-              push_param_types(c, method_name, arg_nodes, ctx) if arg_nodes
-              result = @lattice.join(result, ctx.lookup.call(self.class.method_node(c, method_name)))
-            end
-            mm_hits.each do |c|
-              result = @lattice.join(result, ctx.lookup.call(self.class.method_node(c, :method_missing)))
-            end
-            result = @lattice.join(result, @lattice.noreturn) if noreturn_falls
             result
+          end
+
+          # Look up the callee's MethodNode return AND prime it with
+          # NORETURN so the specific-context transfer gets enqueued. Under
+          # 0-CFA the seed already enqueued MethodNode(C, m, UNIT); under
+          # 1-CFA a specific context is materialised on demand at this
+          # callsite and needs an explicit trigger. NORETURN is
+          # join-identity with any real type, so priming it doesn't
+          # contaminate the eventual return — the transfer's actual
+          # result replaces it monotonically.
+          def dispatch_lookup(cls, method_name, callee_context, ctx)
+            key = self.class.method_node(cls, method_name, callee_context)
+            ctx.pushes[key] ||= @lattice.noreturn
+            ctx.lookup.call(key)
           end
 
           # The set of concrete classes a receiver's static type could
@@ -1090,7 +1117,18 @@ module Frozone
           # if the callsite's shape doesn't cleanly map arg[i] → param[i]
           # for every required param, we skip — a mis-attributed push
           # would silently widen every param on every subsequent call.
-          def push_param_types(cls, method_name, arg_nodes, ctx)
+          # Double-push discipline: every callsite pushes into both its
+          # specific ParamNode(C, m, p, callee_context) and the UNIT
+          # ParamNode(C, m, p, ⊤_ctx). UNIT ParamNode accumulates the LUB
+          # of all specific pushes → its MethodNode transfer walks the
+          # body with widened params → MethodNode(C, m, UNIT) becomes
+          # the 0-CFA-equivalent widening summary. Consumers that don't
+          # know contexts (emitter, tests written pre-1-CFA) read UNIT
+          # and get the sound coarse answer; consumers that ask for a
+          # specific context get the 1-CFA precision. Cost: 2× analyses
+          # per method (specific + UNIT); acceptable for a first cut,
+          # can be trimmed later (widening cap, selective UNIT).
+          def push_param_types(cls, method_name, arg_nodes, ctx, callee_context = UNIT_CONTEXT)
             m = @methods[[cls, method_name]]
             return unless m && pushable_signature?(m)
             required = m.required_params || []
@@ -1098,10 +1136,15 @@ module Frozone
             return if arg_nodes.any? { |a| a.is_a?(Ast::SplatArg) || a.is_a?(Ast::BlockArg) || a.is_a?(Ast::ForwardBlock) }
             required.each_with_index do |pname, i|
               arg_type = @per_node_types[arg_nodes[i]] || @lattice.top
-              node = self.class.param_node(cls, method_name, pname)
-              prev = ctx.pushes[node]
-              ctx.pushes[node] = prev ? @lattice.join(prev, arg_type) : arg_type
+              push_one_param(cls, method_name, pname, arg_type, callee_context, ctx)
+              push_one_param(cls, method_name, pname, arg_type, UNIT_CONTEXT, ctx) unless callee_context.equal?(UNIT_CONTEXT)
             end
+          end
+
+          def push_one_param(cls, method_name, pname, arg_type, target_context, ctx)
+            node = self.class.param_node(cls, method_name, pname, target_context)
+            prev = ctx.pushes[node]
+            ctx.pushes[node] = prev ? @lattice.join(prev, arg_type) : arg_type
           end
 
           # `Intrinsics.foo(...)` — Frozone's Ruby↔C++ membrane. The
