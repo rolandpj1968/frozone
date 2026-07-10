@@ -132,6 +132,13 @@ module Frozone
             @top_level_scope = top_level_scope
             @lattice = TypeLattice.new(all_classes)
             @per_node_types = {}
+            # Widening tracker — per (class_flat, method_name), the set
+            # of contexts materialized so far. Once a method exceeds
+            # PER_METHOD_CONTEXT_CAP, further callsites fold to UNIT
+            # for that target. Bounds combinatorial blowup while
+            # preserving useful 1-CFA precision on the ~4% of methods
+            # that actually benefit (see splat oracle empirics).
+            @method_contexts = Hash.new { |h, k| h[k] = Set.new }
           end
 
           def lattice = @lattice
@@ -777,8 +784,9 @@ module Frozone
             callee_context = [self_type, *arg_types].freeze
             parent_chain.each do |cls|
               next unless @methods.key?([cls, ctx.method_name])
-              push_param_types(cls, ctx.method_name, arg_nodes, ctx, callee_context)
-              return dispatch_lookup(cls, ctx.method_name, callee_context, ctx)
+              cap_context = context_for_target(cls, ctx.method_name, callee_context)
+              push_param_types(cls, ctx.method_name, arg_nodes, ctx, cap_context)
+              return dispatch_lookup(cls, ctx.method_name, cap_context, ctx)
             end
             @lattice.top
           end
@@ -965,22 +973,58 @@ module Frozone
           # same body still analyze it separately when their receiver
           # types differ. Iterate the cone directly and construct
           # callee_context per receiver.
+          #
+          # Widening cap: if the cone is wider than CONE_WIDEN_THRESHOLD
+          # (e.g. an Object receiver → hundreds of descendants) the
+          # per-receiver contexts would explode combinatorially. Fall
+          # back to UNIT context for the callsite — all cone entries
+          # share the UNIT MethodNode/ParamNode, joining LUB-style
+          # (0-CFA behavior). Loses the receiver-class precision on
+          # wide-cone dispatches but keeps termination and cost
+          # bounded. Small cones (Integer + a handful of descendants,
+          # tap/dup receivers) stay per-context precise.
+          CONE_WIDEN_THRESHOLD = 8
+          PER_METHOD_CONTEXT_CAP = 6
+          # Env-var kill-switch: FROZONE_TI_1CFA=0 forces UNIT context
+          # at every callsite (pure 0-CFA). Useful for debugging blowup
+          # and for A/B measurement against 1-CFA under identical
+          # analysis. Default on (1-CFA).
+          ONE_CFA_ENABLED = ENV['FROZONE_TI_1CFA'] != '0'
+
+          # Pick a context for calling (target_cls, target_method) —
+          # either the candidate (if we haven't blown the per-method
+          # cap yet) or UNIT (if we have). Registers the candidate on
+          # first sight so subsequent identical callsites still use
+          # it. Once the cap is hit, further NEW contexts fold to UNIT.
+          def context_for_target(target_cls, target_method, candidate)
+            return candidate if candidate.equal?(UNIT_CONTEXT)
+            key = [target_cls, target_method]
+            seen = @method_contexts[key]
+            return candidate if seen.include?(candidate)
+            return UNIT_CONTEXT if seen.size >= PER_METHOD_CONTEXT_CAP
+            seen << candidate
+            candidate
+          end
+
           def dispatch_across_cone(recv_type, method_name, ctx, arg_nodes)
             cone = receiver_type_cone(recv_type)
             return @lattice.top if cone.empty?
             arg_types = arg_nodes ? arg_nodes.map { |a| @per_node_types[a] || @lattice.top } : []
+            widen = !ONE_CFA_ENABLED || cone.size > CONE_WIDEN_THRESHOLD
             result = @lattice.bottom
             cone.each do |s|
               chain = @lattice.ancestor_chains[s] || [s]
-              callee_context = [@lattice.concrete(s), *arg_types].freeze
+              candidate = widen ? UNIT_CONTEXT : [@lattice.concrete(s), *arg_types].freeze
               direct = chain.find { |c| @methods.key?([c, method_name]) }
               if direct
+                callee_context = context_for_target(direct, method_name, candidate)
                 push_param_types(direct, method_name, arg_nodes, ctx, callee_context) if arg_nodes
                 result = @lattice.join(result, dispatch_lookup(direct, method_name, callee_context, ctx))
               else
                 mm = chain.find { |c| c != :BasicObject && @methods.key?([c, :method_missing]) }
                 if mm
-                  result = @lattice.join(result, dispatch_lookup(mm, :method_missing, callee_context, ctx))
+                  mm_context = context_for_target(mm, :method_missing, candidate)
+                  result = @lattice.join(result, dispatch_lookup(mm, :method_missing, mm_context, ctx))
                 else
                   result = @lattice.join(result, @lattice.noreturn)
                 end
