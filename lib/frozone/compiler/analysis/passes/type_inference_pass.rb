@@ -175,7 +175,20 @@ module Frozone
             end
           end
 
+          # FROZONE_TI_ENTRY_ONLY=1 seeds only the synthetic entry
+          # method. Everything else materializes on demand as
+          # dispatch_across_cone resolves callsites (via
+          # dispatch_lookup priming with NORETURN → engine enqueues
+          # the callee's transfer). Under this mode, reachability of
+          # methods, contexts, and classes is TI-directed — a method
+          # is analyzed iff some transfer's dispatch resolves to it.
+          # Anything not called (by name or dispatch) from the entry's
+          # transitive closure stays unanalyzed. See memory
+          # [[project_ti_subsumes_reachability]] for the direction.
+          ENTRY_ONLY_SEED = ENV['FROZONE_TI_ENTRY_ONLY'] == '1'
+
           def seed
+            return entry_only_seed if ENTRY_ONLY_SEED
             seeds = {}
             @methods.each do |(cls_flat, mname), m|
               seeds[self.class.method_node(cls_flat, mname)] = @lattice.bottom
@@ -184,6 +197,16 @@ module Frozone
               end
             end
             seeds
+          end
+
+          # Seed only the synthetic entry method. Consumers should feed
+          # @methods a `[[:Object, :__entry__]] => SyntheticEntryMethod`
+          # entry — dispatch_across_cone drives the rest via the
+          # NORETURN prime.
+          def entry_only_seed
+            entry_node = self.class.method_node(:Object, :__entry__)
+            return {} unless @methods.key?([:Object, :__entry__])
+            { entry_node => @lattice.bottom }
           end
 
           def transfer(node, _current, lookup)
@@ -993,7 +1016,11 @@ module Frozone
           # bounded. Small cones (Integer + a handful of descendants,
           # tap/dup receivers) stay per-context precise.
           CONE_WIDEN_THRESHOLD = 8
-          PER_METHOD_CONTEXT_CAP = 6
+          # Empirical measurement: cap disabled to observe the natural
+          # fanout under 1-CFA. Wide-cone dedup still bounds the hot
+          # loop; per-method fanout is now driven purely by callsite
+          # diversity.
+          PER_METHOD_CONTEXT_CAP = Float::INFINITY
           # Env-var kill-switch: FROZONE_TI_1CFA=0 forces UNIT context
           # at every callsite (pure 0-CFA). Useful for debugging blowup
           # and for A/B measurement against 1-CFA under identical
