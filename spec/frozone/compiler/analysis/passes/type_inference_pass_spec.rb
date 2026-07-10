@@ -605,26 +605,70 @@ RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
       expect(pass.type_of(x_read)).to eq(t(:Integer))
     end
 
-    it 'GAP: is_a?(K) falsy arm on already-K typed context — SHOULD narrow to ⊥ (Tier-1 keeps current)' do
+    it 'is_a?(K) falsy arm on already-K typed context narrows to ⊥' do
       # def m(x); if x.is_a?(Integer); nil; else; x; end; end
-      # caller: x:Integer.
-      # Under proper negative narrowing: falsy = Integer \ Integer = ⊥
-      #   → the else-arm's read of x is ⊥ (divergent).
-      #   → any dispatch on x in the else arm short-circuits.
-      # Under Tier-1 today: falsy = current = Integer (line 477-479 —
-      #   "Tier-1 lattice has no not-K"). The read of x is Integer.
-      #
-      # This tests the narrowing directly rather than through a
-      # dispatch — the previous is_a? truthy-arm test shows that
-      # narrowing produces the expected type in the truthy arm; this
-      # asserts the same shape for the falsy arm under negative
-      # narrowing.
+      # caller: x:Integer. Negative narrowing: falsy = Integer \ Integer
+      # = ⊥. Any dispatch on x in the else arm short-circuits — this
+      # is the mechanism the numeric-coercion coerce branch relies on
+      # to disappear under 1-CFA `(self:Integer, v:Integer)` context.
       x_read = ast::LocalVariableRead.new(:x, 0)
       pred = ast::MethodCall.new(:is_a?, ast::LocalVariableRead.new(:x, 0), [ast::ConstantRead.new(:Integer)], [])
       methods = narrow_scenario(pred, ast::NilLiteral::NIL, x_read, caller_arg_type: :Integer)
       pass = run_pass(methods)
-      pending 'negative is_a? narrowing (Tier-1 falsy = current) — target of Phase 2.5 step 2'
       expect(pass.type_of(x_read).divergent?).to be true
+    end
+
+    it 'is_a?(K) falsy arm on Numeric with K=Integer keeps current (Tier-1 no set-difference)' do
+      # def m(x); if x.is_a?(Integer); nil; else; x; end; end
+      # caller: x:Numeric. Narrowing: truthy = Integer (K ⊑ C).
+      # Falsy would be "Numeric minus Integer" (Float in the closed
+      # hierarchy) but Tier-1's flat lattice can't express set
+      # difference — keep C. Sound imprecise.
+      x_read = ast::LocalVariableRead.new(:x, 0)
+      pred = ast::MethodCall.new(:is_a?, ast::LocalVariableRead.new(:x, 0), [ast::ConstantRead.new(:Integer)], [])
+      m_body = ast::If.new(pred, ast::NilLiteral::NIL, x_read)
+      c1 = ast::MethodCall.new(:m, ast::SelfLiteral::SELF, [ast::IntegerLiteral.from(1)], [])
+      c2 = ast::MethodCall.new(:m, ast::SelfLiteral::SELF, [ast::FloatLiteral.new(1.5)], [])
+      methods = {
+        [:Foo, :m]  => make_method(m_body, required_params: [:x]),
+        [:Foo, :c1] => make_method(c1),
+        [:Foo, :c2] => make_method(c2),
+      }
+      pass = run_pass(methods)
+      expect(pass.type_of(x_read)).to eq(t(:Numeric))
+    end
+
+    it 'is_a?(K) truthy arm on disjoint typed context narrows to ⊥' do
+      # def m(x); if x.is_a?(String); x; end; end
+      # caller: x:Integer. Truthy = Integer ∩ String = ⊥ (disjoint) —
+      # is_a?(String) is provably false, the truthy arm is unreachable.
+      x_read = ast::LocalVariableRead.new(:x, 0)
+      pred = ast::MethodCall.new(:is_a?, ast::LocalVariableRead.new(:x, 0), [ast::ConstantRead.new(:String)], [])
+      methods = narrow_scenario(pred, x_read, ast::NilLiteral::NIL, caller_arg_type: :Integer)
+      pass = run_pass(methods)
+      expect(pass.type_of(x_read).divergent?).to be true
+    end
+
+    it 'is_a?(K) on nullable receiver: nil goes to falsy when NilClass ⊄ K' do
+      # def m(x); if x.is_a?(Integer); truthy_read; else; falsy_read; end; end
+      # Mixed callers → x:Integer?. NilClass ⊄ Integer → nil goes to
+      # the falsy arm. Truthy: Integer (nullable stripped).
+      # Falsy: NilClass (non-null Integer part narrows to ⊥, nil part
+      # survives).
+      truthy_read = ast::LocalVariableRead.new(:x, 0)
+      falsy_read  = ast::LocalVariableRead.new(:x, 0)
+      pred = ast::MethodCall.new(:is_a?, ast::LocalVariableRead.new(:x, 0), [ast::ConstantRead.new(:Integer)], [])
+      m_body = ast::If.new(pred, truthy_read, falsy_read)
+      c1 = ast::MethodCall.new(:m, ast::SelfLiteral::SELF, [ast::IntegerLiteral.from(1)], [])
+      c2 = ast::MethodCall.new(:m, ast::SelfLiteral::SELF, [ast::NilLiteral::NIL], [])
+      methods = {
+        [:Foo, :m]  => make_method(m_body, required_params: [:x]),
+        [:Foo, :c1] => make_method(c1),
+        [:Foo, :c2] => make_method(c2),
+      }
+      pass = run_pass(methods)
+      expect(pass.type_of(truthy_read)).to eq(t(:Integer))
+      expect(pass.type_of(falsy_read)).to eq(t(:NilClass))
     end
   end
 

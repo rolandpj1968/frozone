@@ -468,15 +468,51 @@ module Frozone
             @lattice.ancestor_chains.key?(name) ? name : nil
           end
 
+          # `is_a?(K)` is true when the receiver's runtime class is K
+          # or a descendant of K, false otherwise. Narrowing partitions
+          # `current` into (truthy_arm, falsy_arm) by the same predicate.
+          #
+          # Split current into a non-null part (C) and a nil part (if
+          # nullable). Analyze each independently against K, then
+          # recombine.
+          #
+          # Non-null part C vs K:
+          #   - C ⊑ K → all of C satisfies is_a?(K); truthy=C, falsy=⊥.
+          #   - K ⊑ C → K is a proper subset of C; some of C satisfies.
+          #     Truthy = K. Falsy would be "C minus K" — Tier-1 can't
+          #     express set difference, keep C (sound but imprecise).
+          #   - Disjoint → nothing in C satisfies; truthy=⊥, falsy=C.
+          #
+          # Nil part: nil satisfies is_a?(K) iff NilClass ⊑ K. If yes,
+          # nil goes to the truthy arm; else it goes to the falsy arm.
+          # Join back with the arm's non-null contribution.
           def build_class_narrow(target, class_sym, ctx)
             current = read_local(target, ctx)
             k_type = @lattice.concrete(class_sym)
-            # Truthy: pick the more precise of (current, K). If current
-            # is already-narrower than K, keep it. Else K.
-            truthy = @lattice.subsumes?(current, k_type) ? current : k_type
-            # Tier-1 lattice has no "not-K" — the falsy arm keeps
-            # current unchanged. Refinement waits for negative narrowing.
-            NarrowingFact.new(target, truthy, current)
+            c_non_null = @lattice.concrete(current.concrete)
+            if @lattice.subsumes?(c_non_null, k_type)
+              truthy_non_null = c_non_null
+              falsy_non_null  = @lattice.bottom
+            elsif @lattice.subsumes?(k_type, c_non_null)
+              truthy_non_null = k_type
+              falsy_non_null  = c_non_null
+            else
+              truthy_non_null = @lattice.bottom
+              falsy_non_null  = c_non_null
+            end
+            if current.nullable
+              if @lattice.subsumes?(@lattice.nil_type, k_type)
+                truthy = @lattice.join(truthy_non_null, @lattice.nil_type)
+                falsy  = falsy_non_null
+              else
+                truthy = truthy_non_null
+                falsy  = @lattice.join(falsy_non_null, @lattice.nil_type)
+              end
+            else
+              truthy = truthy_non_null
+              falsy  = falsy_non_null
+            end
+            NarrowingFact.new(target, truthy, falsy)
           end
 
           def build_nil_narrow(target, ctx)
