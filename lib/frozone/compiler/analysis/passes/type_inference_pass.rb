@@ -967,8 +967,27 @@ module Frozone
           def transfer_method_call(node, ctx)
             # Walk receiver + args + block so their types get cached.
             recv_type = node.receiver_node ? walk(node.receiver_node, ctx) : @lattice.concrete(ctx.class_flat)
-            (node.arg_nodes || []).each { |a| walk(a, ctx) }
-            walk(node.block_node, ctx) if node.block_node
+            # Strict evaluation: if any arg (or block) walk yields a
+            # divergent type, the whole call diverges — Ruby evaluates
+            # args left-to-right BEFORE dispatch, so a diverging arg
+            # means the receiver's method never runs. Under our lattice
+            # ⊥ / NORETURN both mean "no value produced," so a call
+            # depending on such an expression is itself divergent.
+            #
+            # This is the load-bearing fix for the coerce-protocol
+            # cascade: `self.__coerce_op__(v, :+)` in the falsy arm of
+            # `v.is_a?(Integer)` has v narrowed to ⊥, and this rule
+            # collapses the entire dispatch — Numeric#__coerce_op__ is
+            # never analyzed from that path.
+            arg_nodes = node.arg_nodes || []
+            arg_nodes.each do |a|
+              t = walk(a, ctx)
+              return t if t.divergent?
+            end
+            if node.block_node
+              t = walk(node.block_node, ctx)
+              return t if t.divergent?
+            end
 
             # Ruby's class-as-value primitives — `.new` and `.allocate`
             # break the "type-determines-dispatch" model because the
