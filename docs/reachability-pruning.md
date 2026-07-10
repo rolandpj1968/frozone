@@ -1,5 +1,14 @@
 # Reachability pruning — design notes
 
+> **Status (2026-07-10)**: the method-level 0-CFA analysis body
+> documented below will retire once TI absorbs it. See
+> `analysis-framework-plan.md` §4.8. The class-level and
+> constant-level walks (§ "What's landed" below) survive as TI's
+> seed provider; the method-name surface / Stage-3 self-receiver
+> narrowing / super-tail pruning become derived queries on TI's
+> transfer-count map. The rest of this doc describes the current
+> pass — retained for reference until the migration lands.
+
 ## Why
 
 Box-first AOT compiles a closed-world snapshot. Without pruning every

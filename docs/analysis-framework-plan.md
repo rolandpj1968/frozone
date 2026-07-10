@@ -226,6 +226,36 @@ Rough phasing:
    typing for `@ivar` mutation, interval analysis for BigNum
    elision, k-CFA.
 
+#### Empirical validation (2026-07-07)
+
+A splat-then-classify experiment on ti-v2 (preserved on branch
+`ti-v2-splat-experiment`) built ground-truth for the "when does
+context sensitivity actually pay off?" question. YOLO-splat every
+method to every descendant leaf class, run TI, then group the
+splatted copies by source method: **uniform** across all copies =
+context-insensitive (0-CFA suffices), **diverse** = context
+sensitivity buys something.
+
+On `bench/stubs/fib.rb`:
+
+- 390 splat families total.
+- 341 uniform (0-CFA already captures all useful precision).
+- 49 diverse (context sensitivity matters).
+- Refined-oracle estimate (restrict "diverse" to reached-only
+  leaves) tightens to ~14 truly class-parametric families.
+
+Read-through: **0-CFA already extracts ~96% of the useful
+per-method precision on this workload**. The remaining ~4% is the
+frontier where 1-CFA / receiver-context specialization pays off —
+`tap`, `dup`, `clone`, `initialize_dup`, and the coerce-shaped
+arithmetic methods (see §4.6.1).
+
+Implication: don't spend a full pass generating 1-CFA answers for
+every method. Run 0-CFA cheaply everywhere; introduce 1-CFA
+context only for classifier-selected diverse candidates. See §4.8
+for how this collapses into a single pass whose context axis
+widens per-method.
+
 ### 4.6 send / public_send filtering
 Literal-Symbol `send` is rare in idiomatic code. Most real
 `send`/`public_send` are computed-name dispatch tables and
@@ -365,6 +395,39 @@ narrowing doesn't apply. Suggested order:
    only where 0-CFA leaves a set that we want to keep
    singleton).
 
+#### Status update (2026-07-10)
+
+Predicate narrowing landed (tasks #243, #247) together with the
+Never lattice element and Never-routing on missing dispatches
+(#244). Ordering above rearranged in the light of subsequent
+empirical work — the operative triangle for numeric coercion is
+now understood as:
+
+1. **1-CFA on all params (including self)** — the enabler.
+   Without it, `v` in `Integer#+`'s body is the ⊤-union of every
+   type callers pass; `v.is_a?(Integer)` is unprovable; the
+   coerce branch is always live. Nothing else works without this.
+2. **`is_a?` / predicate partial-eval** — already implemented via
+   #243 + #244 + #247, but only pays off IF 1-CFA gives us a
+   typed context. In `(self:Integer, v:Integer)`, `v.is_a?(Integer)`
+   narrows the else-branch's `v` to Never; Never-routing kills
+   the whole `v.coerce(self).send(op, b)` chain. Load-bearing for
+   scalability: without else-collapse, TI would explore every
+   hypothetical `.coerce` return path per context and 1-CFA blows
+   up combinatorially.
+3. **Value-constrained Symbol lattice** — needed for slow-path
+   specialization (heteromorphic coerce, `respond_to?(:name)`,
+   Struct accessors, `send(:name, ...)` metaprogramming). Bounded
+   lattice — the closed-world Symbol universe is finite.
+
+The doc's original layering had (1) predicate narrowing → (2)
+value-constrained Symbol → (4) 1-CFA. The empirical read is that
+(1) alone was insufficient for the hot arithmetic path because
+`v` is still ⊤ without 1-CFA; the predicate has nothing to bite
+on. 1-CFA is the enabler, not the closer. Value-constrained
+Symbol becomes a slow-path completion once the hot path
+collapses.
+
 ### 4.7 Blocks
 For inline non-escaping blocks (the dominant case): polymorphic
 signature on the iterator method does the job. Hand-annotate
@@ -380,6 +443,66 @@ analysis. Separate, bigger lift; deferred.
 `Symbol#to_proc` (`&:to_s`) is just `λx. x.to_s` — canonicalize
 at AST normalization, same handling as a written-out block.
 
+### 4.8 TI subsumes ReachabilityPass (accepted 2026-07-10)
+
+The current 0-CFA-flavored ReachabilityPass is not worth running
+as a distinct analysis body. Two empirical inputs drive this:
+
+- **Marginal pruning value is small**: 0-CFA method-level
+  reachability eliminates only ~10% of methods beyond what
+  class-level naive reachability keeps. The main win from
+  reachability came from the class-level and constant-level
+  culls (documented in `reachability-pruning.md`); the
+  method-level 0-CFA delta on top is modest.
+- **0-CFA is already inside TI**: TI's fixpoint IS a 0-CFA
+  computation — it walks the same call graph, resolves dispatch
+  through the same receiver types, and now that Never routing
+  (task #244) is in place, a call site that dispatches to Never
+  contributes zero transfer calls to its target. That target
+  drops out automatically. The reachability set is a derived
+  query on TI:
+
+      reachable_methods = { m | engine.transfer_count[m] > 0 }
+
+**Concrete shape**:
+
+- What survives of ReachabilityPass: the **seed** side —
+  class-level walk, constant walk, `RubyClass.uses:`, top-level
+  entry, hoisted class bodies. These populate TI's initial
+  worklist. This is a small pre-pass, not a full analysis.
+- The **analysis body** — method-name-surface accumulation,
+  Stage-3 self-receiver narrowing, super-tail pruning — retires.
+  TI subsumes it. What Stage-3 self-receiver narrowing computed
+  by hand ("bare `foo` inside host's body dispatches through
+  host's MRO") falls out of TI's cone dispatch (see §4.1 receiver
+  narrowing).
+- **Codegen consumers** (elision, override emission gating,
+  Vtable pruning) migrate to reading TI's derived reachability
+  answer instead of the current ReachabilityPass's `@call_surface_set`.
+
+**Path to 1-CFA as key-space widening of the same pass**:
+
+- Today: TI keys analysis nodes by `method_node`. That's 0-CFA —
+  one abstract call per method regardless of caller.
+- Extension: TI keys by `(method_node, context)`.
+    - `context = ()` unit → behaves identically to 0-CFA. Every
+      method starts here.
+    - `context = (self_type, arg_types)` when a classifier says
+      the method's TI result is context-dependent (the ~14
+      diverse families from §4.5's empirical validation).
+- Same engine, same lattice, same monotone-join clamp. Wider key
+  space. The classifier from the splat experiment carries over
+  wholesale and can be scored against the same oracle.
+
+**Property**: 0-CFA and 1-CFA are modes of one pass, selected
+per-method by the classifier. No architectural fork; adding
+context sensitivity does not require a second analysis engine.
+
+**What this replaces**: the earlier "Phase 2 — 1-CFA at
+ambiguous sites" bullet under §4.5 read as if it were a separate
+engine invocation per site. It isn't — it's this same pass with a
+per-method context axis.
+
 ## 5. Roadmap
 
 Strangler fig pattern applied internally: the bespoke analyses
@@ -387,39 +510,73 @@ get strangled by the unified engine one at a time. Each migration
 is bounded (re-express as lattice + transfer), measurable (output
 parity with the existing pass), and committable independently.
 
-### Phase 0 — Engine skeleton + reachability migration
+### Phase 0 — Engine skeleton + reachability migration ✅
 - Build the engine: worklist, fixed-point, lattice interface,
-  widening hook, answer cache.
+  widening hook, answer cache. **Landed** — `lib/frozone/compiler/analysis/engine.rb`.
 - Implement a 2-element `Reachability` lattice as the first
-  tenant.
-- Migrate the initial-pruning pass. Verify byte-for-byte output
-  parity (or improvement) against the existing pruner.
-- Behavioral regression net: a small benchmark stub set whose
-  emitted-method set is enumerated and stable.
+  tenant. **Landed**, then **superseded by §4.8**: TI subsumes
+  ReachabilityPass rather than running it as an independent
+  tenant. Reachability's seed pieces (class-level, constant walk,
+  `uses:` declarations, top-level entry) remain as TI's initial
+  worklist; its analysis body retires.
+- Behavioral regression net: analysis specs green throughout
+  the ti-v2 landings.
 
-Outcome: framework in tree, one analysis migrated, no perf
-regression. Proves the abstraction is load-bearing.
+### Phase 1 — Migrate the rest of the bespoke set — partial
+Landed in various forms as engine passes or elided by TI:
+- NA eligibility → still a bespoke precompute; migration deferred.
+- Leaf-class → precomputed via TypeLattice descendants map (§4.1).
+- Try-frame necessity → still bespoke.
+- Visibility status → still bespoke.
 
-### Phase 1 — Migrate the rest of the bespoke set
-One per commit:
-- NA eligibility → 2-element lattice.
-- Leaf-class → 2-element lattice.
-- Try-frame necessity → 2-element lattice.
-- Visibility status → 3-element poset.
+Priority now sits with §4.8 + numeric-coercion 1-CFA rather than
+squeezing the remaining bespoke passes into the engine — they
+work as-is and the compounding wins are further downstream.
 
-Each migration ships independently. After all five, the
-bespoke code is retired.
+### Phase 2 — TI lattice v1 ✅
+Landed on ti-v2 (task #228 umbrella and #231–#251 waves):
+- Type lattice with classes + nullable + descendant cone (§4.4).
+- `TypeInferencePass` with full AST coverage (Sequence,
+  divergent jumps, loops, Case, And/Or, Rescue, RangeLiteral,
+  RegexpLiteral, InterpolatedString, calls, definitions,
+  assignments, ivar/gvar/cvar writes, MatchWrite, defined?,
+  splat/block-arg).
+- Tier-2 narrowing: `is_a?` / predicate on `If`, And/Or/Case
+  consumers, early-exit narrowing.
+- Never lattice element + Never routing on missing dispatches.
+- Receiver-cone dispatch (LUB across type cone instead of ⊤
+  short-circuit).
+- Authentic method_missing routing.
+- Nullable normalization (T? = T when NilClass ⊑ T).
+- Engine dual-check (:eager and :snapshot modes converge to
+  same LFP — soundness oracle).
 
-### Phase 2 — TI lattice v1
-Land the type lattice (Phase-1 from §4.4: classes + nullable +
-unions). Run as a new analysis. Codegen *starts* querying it for:
-- Receiver narrowing at call sites (devirt opportunities).
-- Argument types (for NA-direct args layout — pairs with NA
-  eligibility).
-- Return type propagation (for chains of typed calls).
+Codegen consumption is the next lift.
 
-Codegen continues to fall back to Universal for queries the
-lattice can't answer precisely.
+### Phase 2.5 — TI subsumes Reachability + numeric-coercion 1-CFA — NEXT
+
+Per §4.8: retire the 0-CFA ReachabilityPass analysis body; TI's
+transfer counts become the reachability answer. Then extend TI's
+node key space from `method_node` to `(method_node, context)`,
+gated by the splat-oracle classifier.
+
+Numeric coercion (§4.6.1) is the empirical driver: getting the
+Integer+Integer hot path to native ops requires 1-CFA on all
+params (including self) so the `is_a?(Integer)` guard collapses
+via Never routing (already implemented) and the coerce branch
+dies at analysis time.
+
+Concrete steps:
+1. Verify #243+#244+#247 already collapse the else-branch on
+   `Integer#+ (self:Integer, v:Integer)` — before building new
+   machinery.
+2. Merge TI + ReachabilityPass — retire the analysis body, keep
+   the seed.
+3. Introduce `(method_node, context)` keying in TI — start with
+   unit context (identity), classifier-widen selected methods to
+   param-type-tuple context.
+4. Value-constrained Symbol lattice for slow-path specialization
+   (§4.6.1 body).
 
 ### Phase 3 — Parametric containers
 Add `Array<T>`, `Hash<K,V>` to the lattice. Hand-annotated
