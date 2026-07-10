@@ -3565,6 +3565,7 @@ module Frozone
             precise = hist.reject { |k, _| k == '⊤' || k == '⊤?' || k == '?' || k == '⊥' }.values.sum
             $stderr.puts "[ti-dump] concrete or bounded: #{precise}/#{total} (#{(precise * 100.0 / total).round(1)}%)"
             print_status_breakdown(status_hist, total)
+            print_ti_context_distribution(pass, values, methods)
             if list == '1' || list == 'user'
               $stderr.puts "[ti-dump] per-method:"
               rows.each do |cls_flat, mname, key, loc, _|
@@ -3574,6 +3575,46 @@ module Frozone
               end
             end
             print_status_examples(rows, ENV['FROZONE_TI_DUMP_STATUS_SAMPLES'].to_i)
+          end
+
+          # 1-CFA context distribution — how many distinct contexts
+          # got materialized per (class, method). Under our current
+          # design every callsite produces a per-target context from
+          # the receiver's cone × arg types, so this is the direct
+          # measure of 1-CFA fanout. Hot methods with wide cones or
+          # heteromorphic callers show here.
+          def print_ti_context_distribution(pass, values, methods)
+            method_ctxs = Hash.new { |h, k| h[k] = Set.new }
+            param_ctxs  = Hash.new { |h, k| h[k] = Set.new }
+            method_node_class = Analysis::Passes::TypeInferencePass::MethodNode
+            param_node_class  = Analysis::Passes::TypeInferencePass::ParamNode
+            values.each_key do |k|
+              case k
+              when method_node_class then method_ctxs[[k.class_flat, k.method_name]] << k.context
+              when param_node_class  then param_ctxs[[k.class_flat, k.method_name]]  << k.context
+              end
+            end
+            total_method_keys = method_ctxs.values.sum(&:size)
+            method_hist = Hash.new(0)
+            method_ctxs.each_value { |set| method_hist[set.size] += 1 }
+            $stderr.puts "[ti-ctx] materialized method-node contexts:"
+            $stderr.puts "  #{method_ctxs.size} distinct (class, method) with #{total_method_keys} total context entries"
+            $stderr.puts "  distribution (contexts_per_method → #{'methods'.rjust(7)}):"
+            method_hist.sort_by { |k, _| k }.each do |ctx_count, method_count|
+              $stderr.puts "    #{ctx_count.to_s.rjust(4)}  #{method_count.to_s.rjust(7)}"
+            end
+            top = (ENV['FROZONE_TI_DUMP_CTX_TOP'] || '15').to_i
+            hot = method_ctxs.sort_by { |_, set| -set.size }.first(top)
+            $stderr.puts "[ti-ctx] top #{top} methods by context count:"
+            hot.each do |(cls_flat, mname), set|
+              $stderr.puts "  #{set.size.to_s.rjust(4)}  #{cls_flat}##{mname}"
+            end
+            # Rough cost model: each context ≈ one analysis walk.
+            # Compare to a hypothetical 0-CFA (1 walk per method).
+            walks_1cfa = total_method_keys
+            walks_0cfa = method_ctxs.size
+            ratio = walks_0cfa.zero? ? 0.0 : walks_1cfa.to_f / walks_0cfa
+            $stderr.puts "[ti-ctx] approximate walk-count ratio vs 0-CFA: #{ratio.round(2)}× (#{walks_1cfa} / #{walks_0cfa})"
           end
 
           # Cross the method's return-value Type with its param values to
