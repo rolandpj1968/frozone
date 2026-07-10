@@ -74,26 +74,41 @@ module Frozone
     module Analysis
       module Passes
         class TypeInferencePass < Pass
+          # Analysis context. Under 0-CFA, every callee is analyzed
+          # in one context; UNIT is that context, a frozen empty
+          # tuple. Under 1-CFA type-context, the tuple carries the
+          # caller-side (self_type, arg_types...) — see
+          # docs/analysis-framework-plan.md §4.8. Same lattice, wider
+          # key space; classifier decides per-method whether to widen
+          # beyond UNIT.
+          UNIT_CONTEXT = [].freeze
+
           # Engine node keys. Struct-based so eql?/hash come by field
           # equality automatically, and different Struct classes are
           # distinct even when fields overlap. Frozen at construction —
           # safe as Hash keys, immutable across recomputes.
-          MethodNode = Struct.new(:class_flat, :method_name) do
-            def to_s = "MethodNode(#{class_flat}, #{method_name})"
+          MethodNode = Struct.new(:class_flat, :method_name, :context) do
+            def to_s
+              base = "MethodNode(#{class_flat}, #{method_name})"
+              context.empty? ? base : "#{base}@#{context.inspect}"
+            end
             alias_method :inspect, :to_s
           end
 
-          ParamNode = Struct.new(:class_flat, :method_name, :param_name) do
-            def to_s = "ParamNode(#{class_flat}, #{method_name}, #{param_name})"
+          ParamNode = Struct.new(:class_flat, :method_name, :param_name, :context) do
+            def to_s
+              base = "ParamNode(#{class_flat}, #{method_name}, #{param_name})"
+              context.empty? ? base : "#{base}@#{context.inspect}"
+            end
             alias_method :inspect, :to_s
           end
 
-          def self.method_node(class_flat, method_name)
-            MethodNode.new(class_flat.to_sym, method_name.to_sym).freeze
+          def self.method_node(class_flat, method_name, context = UNIT_CONTEXT)
+            MethodNode.new(class_flat.to_sym, method_name.to_sym, context).freeze
           end
 
-          def self.param_node(class_flat, method_name, param_name)
-            ParamNode.new(class_flat.to_sym, method_name.to_sym, param_name.to_sym).freeze
+          def self.param_node(class_flat, method_name, param_name, context = UNIT_CONTEXT)
+            ParamNode.new(class_flat.to_sym, method_name.to_sym, param_name.to_sym, context).freeze
           end
 
           # `methods` — Hash [class_flat, method_name] → Vm::Method for
