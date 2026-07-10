@@ -93,7 +93,7 @@ module Frozone
         NIL_SUPERTYPES = %i[NilClass Object BasicObject __top__].freeze
         private_constant :NIL_SUPERTYPES
 
-        attr_reader :ancestor_chains, :descendants
+        attr_reader :ancestor_chains, :descendants, :all_classes
 
         # `all_classes` — Hash(flat_name Symbol → Vm::ClassObject/ModuleObject)
         # produced by the emitter. Only entries whose value is a

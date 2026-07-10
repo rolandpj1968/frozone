@@ -1111,6 +1111,27 @@ module Frozone
             $stderr.puts "ti1cfa|#{@trace_count}|#{ctx.class_flat}##{ctx.method_name}|#{target_cls}##{target_method}|#{action}|#{candidate.inspect}|#{result.inspect}"
           end
 
+          # Walk Ruby's authentic MRO (via the interpreter's
+          # `ancestors_list` — prepends + self + includes + superclass,
+          # recurse; classes AND modules) starting at `cls_flat` and
+          # return the flat-name of the first ancestor that defines
+          # `method_name` in @methods. `exclude` (used for the
+          # method_missing route) skips a specific class.
+          #
+          # MRO comes from the interpreter (authoritative). Membership
+          # comes from @methods (TI's method table, which specs
+          # populate independently of the ClassObject's methods_table).
+          def resolve_method_owner(cls_flat, method_name, exclude: nil)
+            cls = @lattice.all_classes[cls_flat]
+            return nil unless cls
+            cls.ancestors_list.each do |anc|
+              flat = Reachability.flat_name(anc)
+              next if flat.nil? || flat == exclude
+              return flat if @methods.key?([flat, method_name])
+            end
+            nil
+          end
+
           def dispatch_across_cone(recv_type, method_name, ctx, arg_nodes)
             cone = receiver_type_cone(recv_type)
             return @lattice.top if cone.empty?
@@ -1119,16 +1140,15 @@ module Frozone
             arg_types = arg_nodes ? arg_nodes.map { |a| @per_node_types[a] || @lattice.top } : []
             result = @lattice.bottom
             cone.each do |s|
-              chain = @lattice.ancestor_chains[s] || [s]
               candidate = [@lattice.concrete(s), *arg_types].freeze
-              direct = chain.find { |c| @methods.key?([c, method_name]) }
+              direct = resolve_method_owner(s, method_name)
               if direct
                 callee_context, action = context_for_target(direct, method_name, candidate)
                 trace_context(ctx, direct, method_name, candidate, callee_context, action)
                 push_param_types(direct, method_name, arg_nodes, ctx, callee_context) if arg_nodes
                 result = @lattice.join(result, dispatch_lookup(direct, method_name, callee_context, ctx))
               else
-                mm = chain.find { |c| c != :BasicObject && @methods.key?([c, :method_missing]) }
+                mm = resolve_method_owner(s, :method_missing, exclude: :BasicObject)
                 if mm
                   mm_context, action = context_for_target(mm, :method_missing, candidate)
                   trace_context(ctx, mm, :method_missing, candidate, mm_context, action)
@@ -1150,12 +1170,11 @@ module Frozone
             mm_hits        = Set.new
             noreturn_falls = false
             cone.each do |s|
-              chain = @lattice.ancestor_chains[s] || [s]
-              direct = chain.find { |c| @methods.key?([c, method_name]) }
+              direct = resolve_method_owner(s, method_name)
               if direct
                 direct_hits << direct
               else
-                mm = chain.find { |c| c != :BasicObject && @methods.key?([c, :method_missing]) }
+                mm = resolve_method_owner(s, :method_missing, exclude: :BasicObject)
                 mm ? (mm_hits << mm) : (noreturn_falls = true)
               end
             end
