@@ -169,7 +169,7 @@ module Frozone
           def transfer_method_node(node, lookup)
             method = @methods[[node.class_flat, node.method_name]]
             return TransferResult::EMPTY unless method
-            return_type, pushes = walk_method_body(node.class_flat, node.method_name, method, lookup)
+            return_type, pushes = walk_method_body(node.class_flat, node.method_name, method, lookup, context: node.context)
             TransferResult.both(self_value: return_type, pushes: pushes)
           end
 
@@ -183,20 +183,21 @@ module Frozone
           def transfer_param_node(node, lookup)
             method = @methods[[node.class_flat, node.method_name]]
             return TransferResult::EMPTY unless method
-            return_type, pushes = walk_method_body(node.class_flat, node.method_name, method, lookup)
+            return_type, pushes = walk_method_body(node.class_flat, node.method_name, method, lookup, context: node.context)
             # Merge our own return-type contribution into the pushes
             # for the owning MethodNode — that's what triggers a
             # re-transfer via apply_update's monotone-rise check.
-            method_node = self.class.method_node(node.class_flat, node.method_name)
+            method_node = self.class.method_node(node.class_flat, node.method_name, node.context)
             prev = pushes[method_node]
             pushes[method_node] = prev ? @lattice.join(prev, return_type) : return_type
             TransferResult.push(pushes)
           end
 
-          def walk_method_body(cls_flat, mname, method, lookup)
+          def walk_method_body(cls_flat, mname, method, lookup, context: UNIT_CONTEXT)
             ctx = TransferCtx.new(
               class_flat: cls_flat,
               method_name: mname,
+              context:     context,
               env:         {},
               return_joins: [],
               break_joins: [],
@@ -231,7 +232,7 @@ module Frozone
           # narrowing on entry and restore the pre-branch snapshot on
           # exit — env accumulates writes normally either way, so flow-
           # insensitive semantics on writes is preserved.
-          TransferCtx = Struct.new(:class_flat, :method_name, :env, :return_joins, :break_joins, :lookup, :pushes, :narrowings, keyword_init: true)
+          TransferCtx = Struct.new(:class_flat, :method_name, :context, :env, :return_joins, :break_joins, :lookup, :pushes, :narrowings, keyword_init: true)
 
           NarrowingFact = Struct.new(:target_name, :truthy_type, :falsy_type)
 
@@ -264,7 +265,7 @@ module Frozone
           def seed_params(method, ctx)
             if pushable_signature?(method)
               (method.required_params || []).each do |name|
-                ctx.env[name] = ctx.lookup.call(self.class.param_node(ctx.class_flat, ctx.method_name, name))
+                ctx.env[name] = ctx.lookup.call(self.class.param_node(ctx.class_flat, ctx.method_name, name, ctx.context))
               end
             else
               (method.required_params || []).each { |name| ctx.env[name] = @lattice.top }
@@ -297,7 +298,7 @@ module Frozone
             when Ast::RegexpLiteral     then @lattice.concrete(:Regexp)
             when Ast::InterpolatedRegexpLiteral then transfer_literal_children(node, ctx, :Regexp)
             when Ast::InterpolatedString then transfer_literal_children(node, ctx, :String)
-            when Ast::SelfLiteral       then @lattice.concrete(ctx.class_flat)
+            when Ast::SelfLiteral       then ctx.context.empty? ? @lattice.concrete(ctx.class_flat) : ctx.context.first
             when Ast::LocalVariableRead then read_local(node.name, ctx)
             when Ast::ConstantRead      then transfer_constant_read(node)
             when Ast::LocalVariableWrite then transfer_local_write(node, ctx)
