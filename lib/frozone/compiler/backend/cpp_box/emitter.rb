@@ -3542,12 +3542,23 @@ module Frozone
             list = ENV['FROZONE_TI_DUMP_LIST']
             values = engine.values
             param_node  = Analysis::Passes::TypeInferencePass.method(:param_node)
+            # Pre-index MethodNode returns by (class_flat, method_name)
+            # → LUB across contexts. One O(N) scan instead of an O(N²)
+            # dumper (calling method_return_widened per method scanned
+            # the whole values map each time — quadratic on program size).
+            method_node_class = Analysis::Passes::TypeInferencePass::MethodNode
+            widened = Hash.new { |h, k| h[k] = pass.lattice.bottom }
+            values.each do |k, v|
+              next unless k.is_a?(method_node_class)
+              key = [k.class_flat, k.method_name]
+              widened[key] = pass.lattice.join(widened[key], v)
+            end
             hist = Hash.new(0)
             status_hist = Hash.new(0)
             user_hist = Hash.new(0)
             core_hist = Hash.new(0)
             rows = methods.map do |(cls_flat, mname), m|
-              t = pass.method_return_widened(values, cls_flat, mname)
+              t = widened[[cls_flat.to_sym, mname.to_sym]]
               key = t ? t.to_s : '?'
               hist[key] += 1
               status = classify_method_status(t, cls_flat, mname, m, values, param_node)
