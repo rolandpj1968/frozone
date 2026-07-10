@@ -3541,14 +3541,13 @@ module Frozone
             top = (ENV['FROZONE_TI_DUMP_TOP'] || '25').to_i
             list = ENV['FROZONE_TI_DUMP_LIST']
             values = engine.values
-            method_node = Analysis::Passes::TypeInferencePass.method(:method_node)
             param_node  = Analysis::Passes::TypeInferencePass.method(:param_node)
             hist = Hash.new(0)
             status_hist = Hash.new(0)
             user_hist = Hash.new(0)
             core_hist = Hash.new(0)
             rows = methods.map do |(cls_flat, mname), m|
-              t = values[method_node.call(cls_flat, mname)]
+              t = pass.method_return_widened(values, cls_flat, mname)
               key = t ? t.to_s : '?'
               hist[key] += 1
               status = classify_method_status(t, cls_flat, mname, m, values, param_node)
@@ -3595,13 +3594,11 @@ module Frozone
             other_engine = Analysis::Engine.new(other_pass, mode: other_mode)
             other_engine.run
             $stderr.puts "[ti-diff] #{other_mode}: rounds=#{other_engine.rounds} transfer_calls=#{other_engine.transfer_calls}"
-            method_node = Analysis::Passes::TypeInferencePass.method(:method_node)
             same = 0
             diffs = []
             methods.each do |(cls_flat, mname), m|
-              node = method_node.call(cls_flat, mname)
-              a = primary_engine.values[node]
-              b = other_engine.values[node]
+              a = other_pass.method_return_widened(primary_engine.values, cls_flat, mname)
+              b = other_pass.method_return_widened(other_engine.values, cls_flat, mname)
               a_key = a.to_s
               b_key = b.to_s
               if a_key == b_key

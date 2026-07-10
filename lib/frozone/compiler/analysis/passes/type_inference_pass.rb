@@ -141,6 +141,25 @@ module Frozone
           # any method body).
           def type_of(node) = @per_node_types[node]
 
+          # LUB across every context-specific MethodNode return for
+          # (class_flat, method_name) in an engine values map. Useful
+          # for consumers that don't discriminate by context (emitter
+          # diagnostics, coarse-grained tests).
+          #
+          # Note: this is NOT 0-CFA-equivalent — LUB-of-transfers is
+          # strictly finer than transfer-of-LUB under monotonicity, so
+          # a consumer that used to see e.g. `Numeric` from a 0-CFA
+          # widened analysis may now see `Float`. That's a precision
+          # gain, not a regression.
+          def method_return_widened(values, class_flat, method_name)
+            cls_sym = class_flat.to_sym
+            mname_sym = method_name.to_sym
+            values.reduce(@lattice.bottom) do |acc, (k, v)|
+              next acc unless k.is_a?(MethodNode) && k.class_flat == cls_sym && k.method_name == mname_sym
+              @lattice.join(acc, v)
+            end
+          end
+
           def seed
             seeds = {}
             @methods.each do |(cls_flat, mname), m|
@@ -1117,17 +1136,17 @@ module Frozone
           # if the callsite's shape doesn't cleanly map arg[i] → param[i]
           # for every required param, we skip — a mis-attributed push
           # would silently widen every param on every subsequent call.
-          # Double-push discipline: every callsite pushes into both its
-          # specific ParamNode(C, m, p, callee_context) and the UNIT
-          # ParamNode(C, m, p, ⊤_ctx). UNIT ParamNode accumulates the LUB
-          # of all specific pushes → its MethodNode transfer walks the
-          # body with widened params → MethodNode(C, m, UNIT) becomes
-          # the 0-CFA-equivalent widening summary. Consumers that don't
-          # know contexts (emitter, tests written pre-1-CFA) read UNIT
-          # and get the sound coarse answer; consumers that ask for a
-          # specific context get the 1-CFA precision. Cost: 2× analyses
-          # per method (specific + UNIT); acceptable for a first cut,
-          # can be trimmed later (widening cap, selective UNIT).
+          # Push each arg type into the callee's specific-context
+          # ParamNode. Guarded on pushable_signature? + exact arity —
+          # mis-attributed pushes silently widen all params on the
+          # target under monotone joins.
+          #
+          # No UNIT double-push: LUB across specific contexts (via
+          # `method_return_widened`) is what consumers get when they
+          # want a coarse summary. It's strictly finer than the 0-CFA
+          # equivalent (LUB-of-transfers ⊑ transfer-of-LUB by
+          # monotonicity), which is a precision win — the extra
+          # information falls out of running the analyses separately.
           def push_param_types(cls, method_name, arg_nodes, ctx, callee_context = UNIT_CONTEXT)
             m = @methods[[cls, method_name]]
             return unless m && pushable_signature?(m)
@@ -1136,15 +1155,10 @@ module Frozone
             return if arg_nodes.any? { |a| a.is_a?(Ast::SplatArg) || a.is_a?(Ast::BlockArg) || a.is_a?(Ast::ForwardBlock) }
             required.each_with_index do |pname, i|
               arg_type = @per_node_types[arg_nodes[i]] || @lattice.top
-              push_one_param(cls, method_name, pname, arg_type, callee_context, ctx)
-              push_one_param(cls, method_name, pname, arg_type, UNIT_CONTEXT, ctx) unless callee_context.equal?(UNIT_CONTEXT)
+              node = self.class.param_node(cls, method_name, pname, callee_context)
+              prev = ctx.pushes[node]
+              ctx.pushes[node] = prev ? @lattice.join(prev, arg_type) : arg_type
             end
-          end
-
-          def push_one_param(cls, method_name, pname, arg_type, target_context, ctx)
-            node = self.class.param_node(cls, method_name, pname, target_context)
-            prev = ctx.pushes[node]
-            ctx.pushes[node] = prev ? @lattice.join(prev, arg_type) : arg_type
           end
 
           # `Intrinsics.foo(...)` — Frozone's Ruby↔C++ membrane. The

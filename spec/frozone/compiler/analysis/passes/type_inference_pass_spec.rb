@@ -208,10 +208,10 @@ RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
       pass = run_pass(methods)
       # Callsite's push flows through: Foo#m's :p → Integer, so `p` reads Integer.
       expect(pass.type_of(m_read)).to eq(t(:Integer))
-      # And Foo#m returns Integer.
-      key = described_class.method_node(:Foo, :m)
-      engine_value = Frozone::Compiler::Analysis::Engine.new(pass).tap { |e| e.run }.values[key]
-      expect(engine_value).to eq(t(:Integer))
+      # And Foo#m returns Integer. Under 1-CFA the return lives at the
+      # specific context; the widening helper LUBs across contexts.
+      engine = Frozone::Compiler::Analysis::Engine.new(pass).tap { |e| e.run }
+      expect(pass.method_return_widened(engine.values, :Foo, :m)).to eq(t(:Integer))
     end
   end
 
@@ -618,12 +618,22 @@ RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
       expect(pass.type_of(x_read).divergent?).to be true
     end
 
-    it 'is_a?(K) falsy arm on Numeric with K=Integer keeps current (Tier-1 no set-difference)' do
+    it 'is_a?(K) falsy arm on mixed Integer/Float callers narrows to Float via 1-CFA per-context precision' do
       # def m(x); if x.is_a?(Integer); nil; else; x; end; end
-      # caller: x:Numeric. Narrowing: truthy = Integer (K ⊑ C).
-      # Falsy would be "Numeric minus Integer" (Float in the closed
-      # hierarchy) but Tier-1's flat lattice can't express set
-      # difference — keep C. Sound imprecise.
+      # Callers push Integer and Float.
+      #
+      # Under 0-CFA (transfer-of-LUB): body walks once with x:Numeric.
+      # Falsy would be "Numeric minus Integer" — Tier-1's flat lattice
+      # can't express set difference, so falsy stays Numeric.
+      #
+      # Under 1-CFA (LUB-of-transfers): each caller runs separately.
+      #   Integer-context: is_a?(Integer) falsy → x = Integer \ Integer = ⊥.
+      #   Float-context:   is_a?(Integer) falsy → x = Float (disjoint).
+      #   LUB(⊥, Float) = Float. Sound AND finer than 0-CFA.
+      #
+      # The 1-CFA precision win falls out of running the contexts
+      # separately — LUB-of-transfers ⊑ transfer-of-LUB by
+      # monotonicity, always, and often strictly.
       x_read = ast::LocalVariableRead.new(:x, 0)
       pred = ast::MethodCall.new(:is_a?, ast::LocalVariableRead.new(:x, 0), [ast::ConstantRead.new(:Integer)], [])
       m_body = ast::If.new(pred, ast::NilLiteral::NIL, x_read)
@@ -635,7 +645,7 @@ RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
         [:Foo, :c2] => make_method(c2),
       }
       pass = run_pass(methods)
-      expect(pass.type_of(x_read)).to eq(t(:Numeric))
+      expect(pass.type_of(x_read)).to eq(t(:Float))
     end
 
     it 'is_a?(K) truthy arm on disjoint typed context narrows to ⊥' do
@@ -719,17 +729,20 @@ RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
       expect(pass.type_of(coerce_call).divergent?).to be true
     end
 
-    it 'mirrors Integer#+ shape — with a Float caller, coerce branch stays live at 0-CFA' do
-      # Same shape as above but Foo#call2 passes a Float. LUB(Integer,
-      # Float) = Numeric — v arrives as Numeric.
-      # Truthy: v narrows to Integer (K ⊑ current).
-      # Else:   Tier-1 keeps v = Numeric (Numeric \ Integer isn't
-      #         expressible). Coerce dispatch on Numeric receiver runs.
+    it 'mirrors Integer#+ shape — heteromorphic Integer/Float callers each collapse independently under 1-CFA' do
+      # Same shape as monomorphic test but Foo#call2 passes a Float.
+      # This is the coerce-shaped case the numeric-coercion pattern
+      # exists to handle.
       #
-      # This is the 4% shape from the splat oracle: 0-CFA joins the
-      # callsites and loses the per-caller precision. 1-CFA would fix
-      # by giving Foo#call1 its own (v:Integer) context and Foo#call2
-      # its own (v:Float) context — each collapses independently.
+      # 1-CFA fires two separate analyses:
+      #   [Integer, Integer] context: truthy=Integer, else v=⊥ (collapse).
+      #   [Integer, Float]   context: truthy=⊥ (disjoint), else v=Float.
+      # LUB across contexts on else_v: LUB(⊥, Float) = Float.
+      # LUB across contexts on truthy_v: LUB(Integer, ⊥) = Integer.
+      #
+      # 0-CFA would collapse both into a single body walk with
+      # v:Numeric — truthy=Integer, else=Numeric. Strictly coarser on
+      # the else arm.
       truthy_v = ast::LocalVariableRead.new(:v, 0)
       else_v   = ast::LocalVariableRead.new(:v, 0)
       coerce_call = ast::MethodCall.new(:coerce, else_v, [ast::SelfLiteral::SELF], [])
@@ -747,8 +760,41 @@ RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
       }
       pass = run_pass(methods)
       expect(pass.type_of(truthy_v)).to eq(t(:Integer))
-      # Coerce path is live: v is still Numeric in the else arm.
-      expect(pass.type_of(else_v)).to eq(t(:Numeric))
+      # 1-CFA precision reveal: else arm narrows to Float, not Numeric.
+      # The Integer-context contributes ⊥, only the Float-context
+      # contributes a real value. LUB drops the coarse Numeric answer.
+      expect(pass.type_of(else_v)).to eq(t(:Float))
+    end
+
+    it 'per-context precision: heteromorphic Integer#+ callers get distinct return contexts' do
+      # Same setup as the LUB test above; this asserts on the per-
+      # context MethodNode returns to verify the 1-CFA machinery isn't
+      # just producing the same joined analysis under different keys.
+      plus_body = ast::If.new(
+        ast::MethodCall.new(:is_a?, ast::LocalVariableRead.new(:v, 0), [ast::ConstantRead.new(:Integer)], []),
+        ast::LocalVariableRead.new(:v, 0),
+        ast::MethodCall.new(:coerce, ast::LocalVariableRead.new(:v, 0), [ast::SelfLiteral::SELF], []),
+      )
+      call1 = ast::MethodCall.new(:plus, ast::IntegerLiteral.from(1), [ast::IntegerLiteral.from(2)], [])
+      call2 = ast::MethodCall.new(:plus, ast::IntegerLiteral.from(3), [ast::FloatLiteral.new(1.5)], [])
+      methods = {
+        [:Integer, :plus] => make_method(plus_body, required_params: [:v]),
+        [:Foo, :call1]    => make_method(call1),
+        [:Foo, :call2]    => make_method(call2),
+      }
+      pass = run_pass(methods)
+      engine = Frozone::Compiler::Analysis::Engine.new(pass).tap { |e| e.run }
+      int_ctx   = [t(:Integer), t(:Integer)].freeze
+      float_ctx = [t(:Integer), t(:Float)].freeze
+      int_return   = engine.values[described_class.method_node(:Integer, :plus, int_ctx)]
+      float_return = engine.values[described_class.method_node(:Integer, :plus, float_ctx)]
+      # Integer-context: truthy arm returns Integer. Else arm is ⊥ (v
+      # narrows to Integer \ Integer = ⊥). Method return = Integer.
+      expect(int_return).to eq(t(:Integer))
+      # Float-context: truthy arm is ⊥ (Float ∩ Integer = ∅). Else arm
+      # types via coerce which the shim hierarchy doesn't define →
+      # method_missing → noreturn. Method return = noreturn.
+      expect(float_return.noreturn?).to be true
     end
   end
 
