@@ -670,6 +670,86 @@ RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
       expect(pass.type_of(truthy_read)).to eq(t(:Integer))
       expect(pass.type_of(falsy_read)).to eq(t(:NilClass))
     end
+
+    it 'mirrors Integer#+ shape — coerce branch collapses when every caller pushes v:Integer' do
+      # def Integer#plus(v)
+      #   if v.is_a?(Integer)
+      #     v                      # truthy: v is Integer here
+      #   else
+      #     v.coerce(self)         # else path: v is ⊥ under negative narrowing
+      #                            #   → dispatch on ⊥ receiver short-circuits
+      #                            #   → the whole coerce chain never gets walked
+      #                            #   → this is what makes 1-CFA affordable
+      #   end
+      # end
+      #
+      # Foo#call1 and Foo#call2: two callers both dispatch Integer#plus
+      # with an Integer arg. Tier-2 param propagation joins Integer ⊔
+      # Integer = Integer at [:param, :Integer, :plus, :v]. Method self
+      # is Integer via ctx.class_flat.
+      #
+      # 0-CFA suffices here because the join across all callsites for `v`
+      # is still Integer. This is the case the empirical splat oracle
+      # from ti-v2-splat-experiment showed dominates real programs
+      # (~96% of methods are context-insensitive at 0-CFA); the
+      # numeric-coercion pattern is one of the ~4% context-worthy shapes
+      # but only when at least one caller passes a non-Integer.
+      truthy_v = ast::LocalVariableRead.new(:v, 0)
+      else_v   = ast::LocalVariableRead.new(:v, 0)
+      coerce_call = ast::MethodCall.new(:coerce, else_v, [ast::SelfLiteral::SELF], [])
+      plus_body = ast::If.new(
+        ast::MethodCall.new(:is_a?, ast::LocalVariableRead.new(:v, 0), [ast::ConstantRead.new(:Integer)], []),
+        truthy_v,
+        coerce_call,
+      )
+      call1 = ast::MethodCall.new(:plus, ast::IntegerLiteral.from(1), [ast::IntegerLiteral.from(2)], [])
+      call2 = ast::MethodCall.new(:plus, ast::IntegerLiteral.from(3), [ast::IntegerLiteral.from(4)], [])
+      methods = {
+        [:Integer, :plus] => make_method(plus_body, required_params: [:v]),
+        [:Foo, :call1]    => make_method(call1),
+        [:Foo, :call2]    => make_method(call2),
+      }
+      pass = run_pass(methods)
+      # Truthy arm: v narrows to Integer.
+      expect(pass.type_of(truthy_v)).to eq(t(:Integer))
+      # Else arm: v narrows to ⊥ (Integer \ Integer). The read is
+      # divergent, and the coerce dispatch inherits divergence via the
+      # divergent-receiver short-circuit in transfer_method_call.
+      expect(pass.type_of(else_v).divergent?).to be true
+      expect(pass.type_of(coerce_call).divergent?).to be true
+    end
+
+    it 'mirrors Integer#+ shape — with a Float caller, coerce branch stays live at 0-CFA' do
+      # Same shape as above but Foo#call2 passes a Float. LUB(Integer,
+      # Float) = Numeric — v arrives as Numeric.
+      # Truthy: v narrows to Integer (K ⊑ current).
+      # Else:   Tier-1 keeps v = Numeric (Numeric \ Integer isn't
+      #         expressible). Coerce dispatch on Numeric receiver runs.
+      #
+      # This is the 4% shape from the splat oracle: 0-CFA joins the
+      # callsites and loses the per-caller precision. 1-CFA would fix
+      # by giving Foo#call1 its own (v:Integer) context and Foo#call2
+      # its own (v:Float) context — each collapses independently.
+      truthy_v = ast::LocalVariableRead.new(:v, 0)
+      else_v   = ast::LocalVariableRead.new(:v, 0)
+      coerce_call = ast::MethodCall.new(:coerce, else_v, [ast::SelfLiteral::SELF], [])
+      plus_body = ast::If.new(
+        ast::MethodCall.new(:is_a?, ast::LocalVariableRead.new(:v, 0), [ast::ConstantRead.new(:Integer)], []),
+        truthy_v,
+        coerce_call,
+      )
+      call1 = ast::MethodCall.new(:plus, ast::IntegerLiteral.from(1), [ast::IntegerLiteral.from(2)], [])
+      call2 = ast::MethodCall.new(:plus, ast::IntegerLiteral.from(3), [ast::FloatLiteral.new(1.5)], [])
+      methods = {
+        [:Integer, :plus] => make_method(plus_body, required_params: [:v]),
+        [:Foo, :call1]    => make_method(call1),
+        [:Foo, :call2]    => make_method(call2),
+      }
+      pass = run_pass(methods)
+      expect(pass.type_of(truthy_v)).to eq(t(:Integer))
+      # Coerce path is live: v is still Numeric in the else arm.
+      expect(pass.type_of(else_v)).to eq(t(:Numeric))
+    end
   end
 
   describe 'early-exit narrowing (surviving-arm env persists past the If)' do
