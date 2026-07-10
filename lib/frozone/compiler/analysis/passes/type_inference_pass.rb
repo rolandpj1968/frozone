@@ -6,10 +6,24 @@
 # Node kinds
 # ------------------------------------------------------------------
 #
-#   [:method, class_flat, method_name]
-#     — value is the method's return type. This is the ONLY node
-#       kind visible to the engine; every other TI product hangs off
-#       the pass's side tables.
+#   MethodNode(class_flat, method_name)
+#     — value is the method's return type. This is the primary node
+#       kind visible to the engine.
+#   ParamNode(class_flat, method_name, param_name)
+#     — value is the join of caller-pushed arg types for that
+#       positional param. Populated by `push_param_types` at
+#       callsites; consumed by the enclosing method's body transfer
+#       via `env[pname] = lookup(param_node)`.
+#
+# Both are frozen Structs — field-based eql?/hash gives value
+# equality automatically. Different Struct classes have distinct
+# identity even when fields would overlap, which is what we want.
+#
+# Extension point for context-sensitive analysis (1-CFA type-context,
+# see docs/analysis-framework-plan.md §4.8): adding a `context` field
+# to either Struct differentiates contexts without changing the
+# equality semantics. The engine's value map remains a flat
+# Hash[Node → LatticeValue].
 #
 # The per-AST-node type map (the "answer cache" from the framework
 # plan) is populated as a side effect of the transfer walk and
@@ -22,7 +36,7 @@
 # Transfer shape (Tier 1)
 # ------------------------------------------------------------------
 #
-# For each `[:method, C, m]` node, walk C.methods_table[m]'s body:
+# For each MethodNode, walk C.methods_table[m]'s body:
 #
 #   - Type-env: `local var name → Type` for the enclosing method.
 #     Flow-insensitive — all writes to a var are joined into its
@@ -60,16 +74,26 @@ module Frozone
     module Analysis
       module Passes
         class TypeInferencePass < Pass
-          # Node-kind tag for methods in the engine's value map.
-          def self.method_node(class_flat, method_name)
-            [:method, class_flat.to_sym, method_name.to_sym].freeze
+          # Engine node keys. Struct-based so eql?/hash come by field
+          # equality automatically, and different Struct classes are
+          # distinct even when fields overlap. Frozen at construction —
+          # safe as Hash keys, immutable across recomputes.
+          MethodNode = Struct.new(:class_flat, :method_name) do
+            def to_s = "MethodNode(#{class_flat}, #{method_name})"
+            alias_method :inspect, :to_s
           end
 
-          # Node-kind tag for method params. Populated by callsite pushes
-          # (arg type flows in) and consumed by the enclosing method's
-          # body transfer (env[pname] = lookup(param_node)).
+          ParamNode = Struct.new(:class_flat, :method_name, :param_name) do
+            def to_s = "ParamNode(#{class_flat}, #{method_name}, #{param_name})"
+            alias_method :inspect, :to_s
+          end
+
+          def self.method_node(class_flat, method_name)
+            MethodNode.new(class_flat.to_sym, method_name.to_sym).freeze
+          end
+
           def self.param_node(class_flat, method_name, param_name)
-            [:param, class_flat.to_sym, method_name.to_sym, param_name.to_sym].freeze
+            ParamNode.new(class_flat.to_sym, method_name.to_sym, param_name.to_sym).freeze
           end
 
           # `methods` — Hash [class_flat, method_name] → Vm::Method for
@@ -114,44 +138,41 @@ module Frozone
           end
 
           def transfer(node, _current, lookup)
-            return TransferResult::EMPTY unless node.is_a?(Array)
-            case node[0]
-            when :method then transfer_method_node(node, lookup)
-            when :param  then transfer_param_node(node, lookup)
-            else              TransferResult::EMPTY
+            case node
+            when MethodNode then transfer_method_node(node, lookup)
+            when ParamNode  then transfer_param_node(node, lookup)
+            else                 TransferResult::EMPTY
             end
           end
 
           private
 
           # Walk a method body → (return_type, pushes). Shared between
-          # the :method transfer (pull-side: publish return_type) and
-          # the :param transfer (push-side: bump owning :method when
-          # the param rises so it re-walks with the new env).
+          # the MethodNode transfer (pull-side: publish return_type) and
+          # the ParamNode transfer (push-side: bump owning MethodNode
+          # when the param rises so it re-walks with the new env).
           def transfer_method_node(node, lookup)
-            _, cls_flat, mname = node
-            method = @methods[[cls_flat, mname]]
+            method = @methods[[node.class_flat, node.method_name]]
             return TransferResult::EMPTY unless method
-            return_type, pushes = walk_method_body(cls_flat, mname, method, lookup)
+            return_type, pushes = walk_method_body(node.class_flat, node.method_name, method, lookup)
             TransferResult.both(self_value: return_type, pushes: pushes)
           end
 
-          # When a callsite raises `:param C.m.pname`, the engine
-          # enqueues that param node. Its transfer here re-walks the
-          # owning method's body with the fresh env and pushes the
-          # (possibly-higher) return type to `:method C.m`. That's what
-          # forwards the "params changed, re-inspect me" signal to the
-          # engine — without it, the method's cached return stays stale
-          # until something else enqueues it.
+          # When a callsite raises a ParamNode, the engine enqueues it.
+          # Its transfer here re-walks the owning method's body with the
+          # fresh env and pushes the (possibly-higher) return type to
+          # the owning MethodNode. That's what forwards the "params
+          # changed, re-inspect me" signal to the engine — without it,
+          # the method's cached return stays stale until something else
+          # enqueues it.
           def transfer_param_node(node, lookup)
-            _, cls_flat, mname, _pname = node
-            method = @methods[[cls_flat, mname]]
+            method = @methods[[node.class_flat, node.method_name]]
             return TransferResult::EMPTY unless method
-            return_type, pushes = walk_method_body(cls_flat, mname, method, lookup)
+            return_type, pushes = walk_method_body(node.class_flat, node.method_name, method, lookup)
             # Merge our own return-type contribution into the pushes
-            # for `:method C.m` — that's what triggers a re-transfer
-            # via apply_update's monotone-rise check.
-            method_node = self.class.method_node(cls_flat, mname)
+            # for the owning MethodNode — that's what triggers a
+            # re-transfer via apply_update's monotone-rise check.
+            method_node = self.class.method_node(node.class_flat, node.method_name)
             prev = pushes[method_node]
             pushes[method_node] = prev ? @lattice.join(prev, return_type) : return_type
             TransferResult.push(pushes)
@@ -220,11 +241,11 @@ module Frozone
           end
 
           # Params on pushable-shape methods get their types from the
-          # engine — [:param, C, m, name] accumulates arg-type
-          # contributions from every reachable callsite (see
-          # push_param_types). Non-pushable-shape (splat/kwargs/block/
-          # optional-defaults) methods still default to ⊤ because the
-          # push-side can't safely attribute args to those slots.
+          # engine — the ParamNode accumulates arg-type contributions
+          # from every reachable callsite (see push_param_types).
+          # Non-pushable-shape (splat/kwargs/block/optional-defaults)
+          # methods still default to ⊤ because the push-side can't
+          # safely attribute args to those slots.
           def seed_params(method, ctx)
             if pushable_signature?(method)
               (method.required_params || []).each do |name|
@@ -1048,7 +1069,7 @@ module Frozone
           end
 
           # Push each positional-arg's inferred type into the target
-          # method's [:param, C, m, name] node. Guarded by
+          # method's ParamNode. Guarded by
           # pushable_signature? on the callee AND exact arity match:
           # if the callsite's shape doesn't cleanly map arg[i] → param[i]
           # for every required param, we skip — a mis-attributed push
