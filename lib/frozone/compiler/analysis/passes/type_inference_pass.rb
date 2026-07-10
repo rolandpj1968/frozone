@@ -147,6 +147,19 @@ module Frozone
             @trace_contexts = ENV['FROZONE_TI_1CFA_TRACE'] == '1'
             @trace_cap = (ENV['FROZONE_TI_1CFA_TRACE_CAP'] || '200000').to_i
             @trace_count = 0
+            # Growing set of classes TI has "encountered" via type
+            # production. Cone iteration intersects with this set —
+            # ⊤-receiver dispatch only fans out to classes we've
+            # actually seen. Grows monotonically as walk() memoises
+            # types. Class hierarchy is a fixed queryable oracle
+            # (snapshot); this tracks which of its members TI has
+            # touched.
+            #
+            # Bootstrap: Object + BasicObject (always reachable as
+            # ancestors of everything), plus the Nil/True/False
+            # singletons which are values pass consumers observe
+            # ubiquitously.
+            @seen_classes = Set.new(%i[Object BasicObject NilClass TrueClass FalseClass])
           end
 
           def lattice = @lattice
@@ -155,6 +168,12 @@ module Frozone
           # the pass never visited (unreachable methods, or nodes outside
           # any method body).
           def type_of(node) = @per_node_types[node]
+
+          # Growing set of classes TI has encountered as a produced
+          # Type value. Consumers query .size to detect whether an
+          # engine.run round grew the set (needing an outer re-run).
+          def seen_class_count = @seen_classes.size
+          def seen_classes = @seen_classes
 
           # LUB across every context-specific MethodNode return for
           # (class_flat, method_name) in an engine values map. Useful
@@ -343,9 +362,25 @@ module Frozone
           def walk(node, ctx)
             return @lattice.top if node.nil?
             t = compute(node, ctx)
+            note_seen_from_type(t)
             prev = @per_node_types[node]
             @per_node_types[node] = prev ? @lattice.join(prev, t) : t
             t
+          end
+
+          # Register the type's concrete class in @seen_classes.
+          # Called from every walk() call — types produced anywhere in
+          # the transfer walk get registered. Skips synthetic markers.
+          def note_seen_from_type(t)
+            @seen_classes.add(:NilClass) if t.nullable
+            case t.concrete
+            when :__bottom__, :__top__, :__noreturn__ then nil
+            when :__boolean__
+              @seen_classes.add(:TrueClass)
+              @seen_classes.add(:FalseClass)
+            else
+              @seen_classes.add(t.concrete)
+            end
           end
 
           def compute(node, ctx)
@@ -1147,16 +1182,24 @@ module Frozone
           # on a nullable would ignore the nil path — usually noreturn
           # (NoMethodError), but sometimes concrete (nil.nil? → true).
           # ⊤ already covers NilClass so nullable-⊤ is a no-op.
+          # Cone iteration intersects with @seen_classes — we only
+          # dispatch to classes TI has already encountered as a produced
+          # type somewhere. Bootstraps from Object/BasicObject/Nil/True
+          # /FalseClass and grows monotonically. The outer engine.run
+          # loop must re-run whenever @seen_classes has grown (or a
+          # per-class SeenNode dep can drive it more precisely).
           def receiver_type_cone(recv_type)
-            if recv_type.top?
-              @lattice.ancestor_chains.keys
-            elsif recv_type.boolean_synth?
-              recv_type.nullable ? %i[TrueClass FalseClass NilClass] : %i[TrueClass FalseClass]
-            else
-              descs = @lattice.descendants[recv_type.concrete]
-              base = descs && !descs.empty? ? descs.to_a : [recv_type.concrete]
-              recv_type.nullable ? base + [:NilClass] : base
-            end
+            base =
+              if recv_type.top?
+                @lattice.ancestor_chains.keys
+              elsif recv_type.boolean_synth?
+                recv_type.nullable ? %i[TrueClass FalseClass NilClass] : %i[TrueClass FalseClass]
+              else
+                descs = @lattice.descendants[recv_type.concrete]
+                d = descs && !descs.empty? ? descs.to_a : [recv_type.concrete]
+                recv_type.nullable ? d + [:NilClass] : d
+              end
+            base & @seen_classes.to_a
           end
 
           CLASS_VALUE_METHODS = %i[new allocate].freeze

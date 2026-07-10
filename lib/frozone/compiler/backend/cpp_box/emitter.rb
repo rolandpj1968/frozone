@@ -211,8 +211,24 @@ module Frozone
             )
             mode = (ENV['FROZONE_TI_MODE'] || 'snapshot').to_sym
             engine = Analysis::Engine.new(pass, mode: mode)
-            engine.run
-            $stderr.puts "[ti-dump] engine mode: #{mode}; rounds: #{engine.rounds}; transfer_calls: #{engine.transfer_calls}"
+            # Outer re-run loop: cone iteration reads pass.@seen_classes
+            # which grows as walk() produces types. When engine.run
+            # returns with a larger seen set than before, earlier
+            # ⊤-dispatches missed those classes' overloads — re-enqueue
+            # everything to re-transfer with the wider seen view.
+            # Converges when a run doesn't discover any new classes.
+            # First iter always runs; subsequent iters only if seen
+            # grew during the previous run.
+            outer_rounds = 0
+            loop do
+              seen_before = pass.seen_class_count
+              engine.run
+              outer_rounds += 1
+              break if pass.seen_class_count == seen_before
+              break if outer_rounds >= 10  # safety valve
+              engine.instance_variable_get(:@worklist).merge(engine.values.keys)
+            end
+            $stderr.puts "[ti-dump] engine mode: #{mode}; rounds: #{engine.rounds}; transfer_calls: #{engine.transfer_calls}; outer_rounds: #{outer_rounds}; seen_classes: #{pass.seen_class_count}"
             print_ti_summary(pass, engine, methods)
             print_ti_mode_diff(methods, all_classes, top_level_scope, engine) if ENV['FROZONE_TI_DUMP_DIFF'] == '1'
           end
@@ -3685,6 +3701,12 @@ module Frozone
             walks_0cfa = method_ctxs.size
             ratio = walks_0cfa.zero? ? 0.0 : walks_1cfa.to_f / walks_0cfa
             $stderr.puts "[ti-ctx] approximate walk-count ratio vs 0-CFA: #{ratio.round(2)}× (#{walks_1cfa} / #{walks_0cfa})"
+            if ENV['FROZONE_TI_DUMP_REACHED'] == '1'
+              $stderr.puts "[ti-ctx] reached (class, method) pairs (sorted):"
+              method_ctxs.keys.sort.each do |cls_flat, mname|
+                $stderr.puts "  #{cls_flat}##{mname}  (#{method_ctxs[[cls_flat, mname]].size} contexts)"
+              end
+            end
           end
 
           # Cross the method's return-value Type with its param values to
