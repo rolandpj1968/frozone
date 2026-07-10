@@ -104,6 +104,25 @@ RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
     Frozone::Compiler::Analysis::TypeLattice.new(hierarchy).concrete(sym, nullable: nullable)
   end
 
+  # Helper: def m(x); if x.<pred>(...); then_expr; else else_expr; end; end
+  # + a caller that pushes a specific type for x so the param arrives at a
+  # useful starting point. Used by predicate-narrowing and Never-routing-
+  # collapse tests.
+  def narrow_scenario(pred_call, then_expr, else_expr, caller_arg_type:)
+    caller_arg =
+      case caller_arg_type
+      when :Integer then ast::IntegerLiteral.from(42)
+      when :String  then ast::StringLiteral.from('s')
+      when :NilClass then ast::NilLiteral::NIL
+      end
+    caller_body = ast::MethodCall.new(:m, ast::SelfLiteral::SELF, [caller_arg], [])
+    m_body = ast::If.new(pred_call, then_expr, else_expr)
+    {
+      [:Foo, :m]      => make_method(m_body, required_params: [:x]),
+      [:Foo, :caller] => make_method(caller_body),
+    }
+  end
+
   describe 'literal return types' do
     it 'infers Integer for a method returning an Integer literal' do
       body = ast::IntegerLiteral.from(42)
@@ -294,25 +313,6 @@ RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
   end
 
   describe 'predicate narrowing on If' do
-    # Helper: def m(x); if x.<pred>(...); then_expr; else else_expr; end; end
-    # + a caller that pushes a specific type for x so the param arrives at a
-    # useful starting point.
-    def narrow_scenario(pred_call, then_expr, else_expr, caller_arg_type:)
-      # caller sets up: def caller; m(<value of caller_arg_type>); end
-      caller_arg =
-        case caller_arg_type
-        when :Integer then ast::IntegerLiteral.from(42)
-        when :String  then ast::StringLiteral.from('s')
-        when :NilClass then ast::NilLiteral::NIL
-        end
-      caller_body = ast::MethodCall.new(:m, ast::SelfLiteral::SELF, [caller_arg], [])
-      m_body = ast::If.new(pred_call, then_expr, else_expr)
-      {
-        [:Foo, :m]      => make_method(m_body, required_params: [:x]),
-        [:Foo, :caller] => make_method(caller_body),
-      }
-    end
-
     it 'x.is_a?(Integer) narrows x to Integer in the truthy arm' do
       x_read = ast::LocalVariableRead.new(:x, 0)
       is_a = ast::MethodCall.new(:is_a?, ast::LocalVariableRead.new(:x, 0), [ast::ConstantRead.new(:Integer)], [])
@@ -500,6 +500,131 @@ RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
       }
       pass = run_pass(methods)
       expect(pass.type_of(arm_read)).to eq(t(:Numeric))
+    end
+  end
+
+  # Numeric-coercion collapse — the load-bearing dependency for
+  # 1-CFA scalability (see docs/analysis-framework-plan.md §4.6.1
+  # + §4.8, and memory [[project_ti_subsumes_reachability]]).
+  #
+  # For `def +(v) = v.is_a?(Integer) ? Intrinsics.integer__plus_(self, v)
+  #                                  : __coerce_op__(v, :+)` to be
+  # cheap under 1-CFA `(self:Integer, v:Integer)`, the else-branch
+  # must collapse to divergent — otherwise TI walks
+  # `v.coerce(self).send(:+, b)` per context and 1-CFA blows up
+  # combinatorially.
+  #
+  # Two mechanisms make collapse work:
+  #   1. Predicate narrowing pushes an unreachable-shaped type
+  #      (⊥ / NORETURN) into an arm.
+  #   2. Divergent-receiver dispatch (task #244) short-circuits any
+  #      call chain rooted on a ⊥/NORETURN receiver.
+  #
+  # The lattice has two divergent-marker values, both join-identity,
+  # different in meaning (see type_lattice.rb):
+  #   - BOTTOM   ⊥ — "no data yet; may rise" / "unreached in this context"
+  #   - NORETURN — "provably diverges" (raise/throw/return)
+  # Predicate narrowing produces BOTTOM for an unsatisfiable arm.
+  # Divergent-mm-dispatch produces NORETURN. `.divergent?` = `bottom? ||
+  # noreturn?` — either is enough to stop TI exploration downstream,
+  # which is what the coercion collapse needs.
+  #
+  # This block empirically documents where the collapse fires today
+  # and where the gap is (Tier-1 has no negative is_a? narrowing).
+  describe 'predicate + Never routing collapse (numeric-coercion enabler)' do
+    it 'And of disjoint is_a? facts → truthy arm receiver narrows to ⊥ and dispatch is divergent' do
+      # def m(x); if x.is_a?(Integer) && x.is_a?(String); x.no_such_op; end; end
+      # meet(Integer, String) = ⊥ (disjoint). Truthy arm sees x:⊥.
+      # x.no_such_op dispatches on ⊥ → short-circuit to ⊥ at
+      # transfer_method_call line 822. Not the same as noreturn — the
+      # arm is unreached, TI doesn't walk it.
+      then_dispatch = ast::MethodCall.new(:no_such_op, ast::LocalVariableRead.new(:x, 0), [], [])
+      pred = ast::And.new(
+        ast::MethodCall.new(:is_a?, ast::LocalVariableRead.new(:x, 0), [ast::ConstantRead.new(:Integer)], []),
+        ast::MethodCall.new(:is_a?, ast::LocalVariableRead.new(:x, 0), [ast::ConstantRead.new(:String)], []),
+      )
+      methods = narrow_scenario(pred, then_dispatch, ast::NilLiteral::NIL, caller_arg_type: :Integer)
+      pass = run_pass(methods)
+      expect(pass.type_of(then_dispatch).divergent?).to be true
+    end
+
+    it 'nil? truthy arm on non-nullable non-nil receiver — NilClass mm-dispatch → noreturn' do
+      # def m(x); if x.nil?; x.no_such_op_on_nilclass; end; end
+      # caller: x:Integer (non-nullable). nil? truthy → x narrows to NilClass.
+      # NilClass#no_such_op → not on chain → mm → canonical noreturn.
+      # Distinct from the ⊥ collapse above: dispatch actually happens on a
+      # real class (NilClass), just resolves to a divergent method.
+      then_dispatch = ast::MethodCall.new(:no_such_op_on_nilclass, ast::LocalVariableRead.new(:x, 0), [], [])
+      pred = ast::MethodCall.new(:nil?, ast::LocalVariableRead.new(:x, 0), [], [])
+      methods = narrow_scenario(pred, then_dispatch, ast::NilLiteral::NIL, caller_arg_type: :Integer)
+      pass = run_pass(methods)
+      expect(pass.type_of(then_dispatch).noreturn?).to be true
+    end
+
+    it 'nil? falsy arm on non-nullable NilClass receiver — falsy narrows to ⊥ and dispatch is divergent' do
+      # def m(x); if x.nil?; nil; else; x.no_such_op; end; end
+      # caller: x:NilClass. build_nil_narrow returns falsy=⊥ when current
+      # is exactly NilClass (line 486-488). Dispatch in else arm on ⊥ →
+      # short-circuit → ⊥.
+      else_dispatch = ast::MethodCall.new(:no_such_op, ast::LocalVariableRead.new(:x, 0), [], [])
+      pred = ast::MethodCall.new(:nil?, ast::LocalVariableRead.new(:x, 0), [], [])
+      methods = narrow_scenario(pred, ast::NilLiteral::NIL, else_dispatch, caller_arg_type: :NilClass)
+      pass = run_pass(methods)
+      expect(pass.type_of(else_dispatch).divergent?).to be true
+    end
+
+    it 'nil? truthy arm on nullable receiver — NilClass mm-dispatch → noreturn' do
+      # def m(x); if x.nil?; x.no_such_int_op; end; end
+      # Two callers → x:Integer? (nullable). Truthy narrow → x:NilClass.
+      # NilClass# lookup for :no_such_int_op → not found → mm → noreturn.
+      then_dispatch = ast::MethodCall.new(:no_such_int_op, ast::LocalVariableRead.new(:x, 0), [], [])
+      pred = ast::MethodCall.new(:nil?, ast::LocalVariableRead.new(:x, 0), [], [])
+      m_body = ast::If.new(pred, then_dispatch, ast::NilLiteral::NIL)
+      c1 = ast::MethodCall.new(:m, ast::SelfLiteral::SELF, [ast::IntegerLiteral.from(1)], [])
+      c2 = ast::MethodCall.new(:m, ast::SelfLiteral::SELF, [ast::NilLiteral::NIL], [])
+      methods = {
+        [:Foo, :m]  => make_method(m_body, required_params: [:x]),
+        [:Foo, :c1] => make_method(c1),
+        [:Foo, :c2] => make_method(c2),
+      }
+      pass = run_pass(methods)
+      expect(pass.type_of(then_dispatch).noreturn?).to be true
+    end
+
+    it 'is_a?(K) truthy arm on typed context — narrowing keeps x at K (baseline for the GAP below)' do
+      # def m(x); if x.is_a?(Integer); use_x; end; end
+      # caller: x:Integer. Truthy narrow: x stays Integer (already ⊑ K
+      # per build_class_narrow line 476: subsumes-check keeps the more
+      # precise of current and K). Sanity baseline for the GAP test —
+      # proves narrowing produces the expected concrete type in the
+      # truthy arm before we assert on the falsy arm.
+      x_read = ast::LocalVariableRead.new(:x, 0)
+      pred = ast::MethodCall.new(:is_a?, ast::LocalVariableRead.new(:x, 0), [ast::ConstantRead.new(:Integer)], [])
+      methods = narrow_scenario(pred, x_read, ast::NilLiteral::NIL, caller_arg_type: :Integer)
+      pass = run_pass(methods)
+      expect(pass.type_of(x_read)).to eq(t(:Integer))
+    end
+
+    it 'GAP: is_a?(K) falsy arm on already-K typed context — SHOULD narrow to ⊥ (Tier-1 keeps current)' do
+      # def m(x); if x.is_a?(Integer); nil; else; x; end; end
+      # caller: x:Integer.
+      # Under proper negative narrowing: falsy = Integer \ Integer = ⊥
+      #   → the else-arm's read of x is ⊥ (divergent).
+      #   → any dispatch on x in the else arm short-circuits.
+      # Under Tier-1 today: falsy = current = Integer (line 477-479 —
+      #   "Tier-1 lattice has no not-K"). The read of x is Integer.
+      #
+      # This tests the narrowing directly rather than through a
+      # dispatch — the previous is_a? truthy-arm test shows that
+      # narrowing produces the expected type in the truthy arm; this
+      # asserts the same shape for the falsy arm under negative
+      # narrowing.
+      x_read = ast::LocalVariableRead.new(:x, 0)
+      pred = ast::MethodCall.new(:is_a?, ast::LocalVariableRead.new(:x, 0), [ast::ConstantRead.new(:Integer)], [])
+      methods = narrow_scenario(pred, ast::NilLiteral::NIL, x_read, caller_arg_type: :Integer)
+      pass = run_pass(methods)
+      pending 'negative is_a? narrowing (Tier-1 falsy = current) — target of Phase 2.5 step 2'
+      expect(pass.type_of(x_read).divergent?).to be true
     end
   end
 
