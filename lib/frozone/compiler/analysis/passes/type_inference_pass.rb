@@ -1395,18 +1395,28 @@ module Frozone
             # Strict-eval short-circuit — matches transfer_method_call.
             # Divergent arg → whole call diverges (never reached at
             # runtime because arg evaluation blew up first).
-            (node.param_nodes || []).each do |a|
+            #
+            # First param is the receiver by Frozone's intrinsic
+            # calling convention. Save its type so we can resolve the
+            # `:__self__` sigil (receiver-preserving intrinsics like
+            # freeze / dup / <<) without walking it a second time.
+            recv_type = nil
+            (node.param_nodes || []).each_with_index do |a, i|
               t = walk(a, ctx)
               return t if t.divergent?
+              recv_type = t if i == 0
             end
             annotation = Backend::CppBox::IntrinsicLowering.return_type_of(node.name)
             @reached_intrinsics[node.name] += 1
             @unannotated_intrinsics << node.name if annotation.nil?
+            return recv_type || @lattice.top if annotation == :__self__
             annotation_to_type(annotation)
           end
 
           # Decode the INTRINSIC_RETURN_TYPES value shape into a lattice
           # Type. See the map's docstring for the shape reference.
+          # `:__self__` is NOT handled here — it's receiver-sensitive
+          # and resolved at the call site in transfer_intrinsic_call.
           def annotation_to_type(annotation)
             return @lattice.top if annotation.nil?
             case annotation

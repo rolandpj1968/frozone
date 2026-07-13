@@ -755,6 +755,17 @@ module Frozone
           # naturally `BO*` (universal-dispatch surface), pick the tightest
           # Ruby class the runtime actually returns; use nullable when the
           # runtime can return nil.
+          #
+          # `:__self__` is a receiver-preserving sigil — the intrinsic
+          # returns an instance of the receiver's class (either literally
+          # `self`, as with `freeze` / `<<`, or a fresh instance of the
+          # same class, as with `dup` / `clone`). Resolved at TI transfer
+          # time by reading the first-param type (Frozone's intrinsic
+          # calling convention puts the receiver first). Under 1-CFA
+          # this yields narrow returns per callsite; under 0-CFA it
+          # falls back to the receiver's cone-widened type — still at
+          # least as precise as a fixed class annotation, and sound
+          # under user subclassing.
           INTRINSIC_RETURN_TYPES = {
             # ---- Integer arithmetic --------------------------------
             integer__plus_:  :Integer,
@@ -795,9 +806,9 @@ module Frozone
             string_dump:     :String,
             string_to_sym:   :Symbol,
             string_to_i_base: :Integer,
-            string_concat:   :String,
-            string_dup:      :String,
-            string_clone:    :String,
+            string_concat:   :__self__, # mutator returning self
+            string_dup:      :__self__, # dup — new instance of receiver's class
+            string_clone:    :__self__,
             string_format:   :String,
             string_encoding: :Encoding,
 
@@ -811,14 +822,14 @@ module Frozone
 
             # ---- Container primitives ------------------------------
             array_to_s:       :String,
-            array_unshift:    :Array,
+            array_unshift:    :__self__, # mutator returning self
             array_initialize: :Array,
             hash_new:         :Hash,
             hash_delete:      :__top__,  # value type — genuinely unknown
 
             # ---- Object identity / class ---------------------------
             object_class:                       :Class,
-            object_shallow_copy:                :__top__,  # same class as self, but per-callsite
+            object_shallow_copy:                :__self__, # dup/clone — new instance of receiver's class
             basic_object__equal_equal_:         :__boolean__,
             basic_object___id__:                :Integer,
             object_is_a:                        :__boolean__,
@@ -862,7 +873,7 @@ module Frozone
             string_eql:           :__boolean__,
             string_match_q:       :__boolean__,
             string_dedup:         :String,
-            string_force_encoding: :String,
+            string_force_encoding: :__self__, # mutator returning self
             string_encode:        :String,
             string_to_f:          :Float,
             string_to_r:          :Rational,
@@ -897,25 +908,25 @@ module Frozone
             kernel_complex_from_string:  :Complex,
             kernel_verbose_warn:         :NilClass,
             string_match:                [:MatchData, nullable: true],
-            string_concat_codepoint:     :String,
+            string_concat_codepoint:     :__self__, # mutator returning self
             match_data_regexp:           :Regexp,
             match_data_slice:            [:String, nullable: true],
             match_data_slice_range:      [:String, nullable: true],
-            array_push:                  :Array,
-            array_concat:                :Array,
-            array_dup:                   :Array,
-            array_pop:                   :__top__, # element type — Array<T> needed
-            array_at:                    :__top__, # element type — Array<T> needed
-            hash_clone_storage:          :Hash,
-            hash_each:                   :Hash,    # returns self (Hash)
+            array_push:                  :__self__, # mutator returning self
+            array_concat:                :__self__, # mutator returning self
+            array_dup:                   :__self__, # new instance of receiver's class
+            array_pop:                   :__top__,  # element type — Array<T> needed
+            array_at:                    :__top__,  # element type — Array<T> needed
+            hash_clone_storage:          :__self__, # new Hash of receiver's class
+            hash_each:                   :__self__, # returns self
             fiber_raise:                 :__noreturn__,
             # Explicit ⊤ — considered but requires machinery we don't
             # have (context sensitivity, generics, snapshot inspection,
             # symbol value-lattice, block-body walk). Setting :__top__
             # marks them "examined, needs bigger fix" vs "unannotated".
-            object_freeze:               :__top__, # returns self — needs context sensitivity
-            object_unfreeze:             :__top__, # returns self
-            object_clear_singleton:      :__top__, # returns self
+            object_freeze:               :__self__, # mutator returning self
+            object_unfreeze:             :__self__, # returns self
+            object_clear_singleton:      :__self__, # returns self
             object_ivar_get:             :__top__, # ivar value — snapshot inspection
             object_ivar_set:             :__top__, # returns assigned value
             basic_object___send__:       :__top__, # symbol value-lattice needed
