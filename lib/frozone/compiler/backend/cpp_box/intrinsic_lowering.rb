@@ -982,7 +982,6 @@ module Frozone
             os_unsetenv:                 :NilClass,
             os_strftime:                 :String,
             os_time_now:                 :Float,
-            os_environ_pairs:            :Array,
             dir_pwd:                     :String,
             io_gets:                     [:String, nullable: true],
             io_getc:                     [:String, nullable: true],
@@ -1078,6 +1077,39 @@ module Frozone
           # `nil` when there's no declaration — callers (TI) treat that
           # as `⊤` under their lattice's own convention.
           def return_type_of(name) = INTRINSIC_RETURN_TYPES[name.to_sym]
+
+          # Intrinsics whose execution violates the AoT closed-world
+          # assumption. Under Frozone.compile!, load-phase class /
+          # method / constant / singleton tables are frozen and there
+          # is no Ruby compiler at execute time; these operations must
+          # raise at execute time even in a perfect implementation.
+          # TI types calls to them as NORETURN — independent of whether
+          # the box-first backend happens to have a stub for them today.
+          #
+          # Two categories, both class-graph-mutating in effect:
+          #
+          # 1. Direct mutation of the method / constant / MRO tables.
+          # 2. Dynamic code compilation (eval / binding / load), which
+          #    can perform arbitrary mutation.
+          #
+          # Callable-form variants (instance_exec, instance_eval taking
+          # only a block, define_method callers we've hoisted to Ruby)
+          # are NOT here — they're expressible without mutation.
+          AOT_FORBIDDEN = Set.new(%i[
+            module_define_method
+            module_attr_reader module_attr_writer module_attr_accessor
+            module_alias_method module_remove_method module_undef_method
+            module_include module_prepend
+            module_const_set module_const_remove
+            class_new
+            object_extend_multi
+            object_singleton_class object_clear_singleton
+            kernel_eval kernel_load kernel_binding
+            module_eval module_class_eval module_instance_eval
+            object_instance_eval_string
+          ]).freeze
+
+          def aot_forbidden?(name) = AOT_FORBIDDEN.include?(name.to_sym)
 
           # Predicates that produce a Tier-2 NarrowingFact when TI can
           # tie the receiver back to a local variable. Sibling of

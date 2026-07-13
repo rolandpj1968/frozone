@@ -1406,8 +1406,17 @@ module Frozone
               return t if t.divergent?
               recv_type = t if i == 0
             end
-            annotation = Backend::CppBox::IntrinsicLowering.return_type_of(node.name)
             @reached_intrinsics[node.name] += 1
+            # AoT semantic bright line: at execute time, class/method/
+            # constant/singleton tables are frozen and there is no Ruby
+            # compiler; intrinsics that mutate the class graph or eval
+            # dynamic code MUST raise. Independent of implementation
+            # status — semantically noreturn under closed-world AoT.
+            # Unimplemented-but-implementable intrinsics stay annotated
+            # with their proper return type so the analysis reflects
+            # semantics, not accidents of current build state.
+            return @lattice.noreturn if Backend::CppBox::IntrinsicLowering.aot_forbidden?(node.name)
+            annotation = Backend::CppBox::IntrinsicLowering.return_type_of(node.name)
             @unannotated_intrinsics << node.name if annotation.nil?
             return recv_type || @lattice.top if annotation == :__self__
             annotation_to_type(annotation)

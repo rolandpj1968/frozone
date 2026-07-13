@@ -1652,6 +1652,17 @@ RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
       expect(pass.type_of(body).top?).to be true
     end
 
+    it 'types AoT-forbidden intrinsics as NORETURN (execute-time invariant)' do
+      # module_define_method mutates the class method table, which is
+      # frozen at execute time under closed-world AoT. Its return
+      # annotation (:Symbol) documents the load-phase behavior; at
+      # execute time it must raise.
+      body = ast::IntrinsicCall.new(:module_define_method, [])
+      methods = { [:Foo, :m] => make_method(body) }
+      pass = run_pass(methods)
+      expect(pass.type_of(body).noreturn?).to be true
+    end
+
     it 'infers ⊤ when annotation is :__top__' do
       # hash_delete's value type is genuinely unknown at annotation
       # time — the value came from user code with no shared type
