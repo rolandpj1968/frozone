@@ -939,6 +939,114 @@ module Frozone
             class_new:                   :__top__, # depends on receiver Class value
             module_singleton_class_safe_target_str: [:String, nullable: true],
 
+            # ---- Reflection / metaprogramming (WQ residue) ---------
+            object_extend_multi:         :__self__, # returns receiver
+            object_singleton_class:      :Class,
+            kernel_binding:              :Binding,
+            kernel__method__:            [:Symbol, nullable: true],
+            kernel__callee__:            [:Symbol, nullable: true],
+            kernel_caller:               :Array,
+            kernel_global_variables:     :Array,
+            kernel_local_variables:      :Array,
+            kernel_dir:                  [:String, nullable: true],
+            object_methods:              :Array,
+            object_public_methods:       :Array,
+            object_private_methods:      :Array,
+            object_protected_methods:    :Array,
+            object_singleton_methods:    :Array,
+            os_environ_pairs:            :Array,
+            globals_trace_var_add:       :NilClass,
+            globals_trace_var_remove:    :Array,
+            signal_register:             :__top__, # Symbol/Proc/nil — no useful narrowing
+            # OS / process --------------------------------------------
+            kernel_srand:                :Integer,
+            kernel_spawn:                :Integer, # pid
+            kernel_system:               [:__boolean__, nullable: true], # true/false/nil
+            kernel_abort:                :__noreturn__,
+            # Explicit ⊤ — genuinely opaque (eval / send / instance_eval
+            # need Symbol/String value-lattice, block-body walk, or
+            # dynamic-code compilation to type usefully).
+            kernel_eval:                 :__top__,
+            kernel_load:                 :__top__,
+            kernel_catch:                :__top__,
+            kernel_p:                    :__top__, # returns arg or [args] — needs receiver semantics
+            object_instance_eval:        :__top__, # block runs with different self
+            object_instance_eval_string: :__top__, # dynamic string eval
+            object_instance_exec:        :__top__,
+            object_public_send:          :__top__, # send target dependent
+
+            # ---- IO / OS primitives --------------------------------
+            os_read:                     [:String, nullable: true], # FNIL on rescue
+            os_write:                    [:Integer, nullable: true],
+            os_lseek:                    [:Integer, nullable: true],
+            os_unsetenv:                 :NilClass,
+            os_strftime:                 :String,
+            os_time_now:                 :Float,
+            os_environ_pairs:            :Array,
+            dir_pwd:                     :String,
+            io_gets:                     [:String, nullable: true],
+            io_getc:                     [:String, nullable: true],
+            io_write:                    :Integer,
+            # ---- Predicates ----------------------------------------
+            object_eigenclass_has_respond_to_guard: :__boolean__,
+            # `?`-suffixed intrinsic names — Ruby allows `:foo?` symbol
+            # literals but hash-shorthand `foo?:` is a syntax error, so
+            # spell them out.
+            :"interpreted?"   => :__boolean__,
+            :"io_readable?"   => :__boolean__,
+            :"fstr?"          => :__boolean__,
+            :"fint?"          => :__boolean__,
+            :"fobj?"          => :__boolean__,
+            :"ffloat?"        => :__boolean__,
+            :"fsym?"          => :__boolean__,
+            :"fnil?"          => :__boolean__,
+            :"ftrue?"         => :__boolean__,
+            :"ffalse?"        => :__boolean__,
+            :"fhash?"         => :__boolean__,
+            :"farr?"          => :__boolean__,
+            :"fproc?"         => :__boolean__,
+            # ---- Float / string / hash mutators --------------------
+            float_from_ieee_be:          :Float,
+            float_to_ieee_be:            :String,
+            float_log:                   :Float,
+            string_replace:              :__self__, # replaces contents, returns self
+            string_gsub:                 :__self__, # new String of receiver's class
+            string_sub:                  :__self__,
+            string_swapcase_opts:        :__self__,
+            string_match_pos:            [:Integer, nullable: true],
+            hash_set_identity_mode:      :__self__,
+            hash_clear:                  :__self__,
+            # ---- Module / misc -------------------------------------
+            module_define_method:        :Symbol,
+            module_attr_reader:          :Array, # 3.0+ returns [Symbol]; treat as :Array
+            module_attr_writer:          :Array,
+            module_attr_accessor:        :Array,
+            exception_caller_string:     :String,
+            dbg_write:                   :NilClass,
+            kernel_deprecation_warn:     :NilClass,
+            # ---- Batch 3 (WQ residual) -----------------------------
+            array_shift:                 :__top__, # element type — needs Array<T>
+            array_replace:               :__self__,
+            array_index_write:           :__top__, # returns assigned value
+            string_split:                :Array,
+            string_downcase_opts:        :__self__,
+            string_upcase_opts:          :__self__,
+            string_capitalize_opts:      :__self__,
+            hash_set_default:            :__top__, # returns the value
+            hash_set_default_proc:       :__top__,
+            hash_get_default:            :__top__,
+            module_eval:                 :__top__, # eval — dynamic code
+            module_class_eval:           :__top__,
+            module_module_eval:          :__top__,
+            module_instance_eval:        :__top__,
+            thread_run_block:            :__top__, # block-body return
+            thread_restore_locals:       :NilClass,
+            thread_save_reset_locals:    :Hash,
+            process_kill:                :Integer, # number of processes signalled
+            bound_method_call:           :__top__, # bound method target-dependent
+            dir_open:                    :__top__, # block-return or Dir
+            encoding_converter_new:      :__top__, # Encoding::Converter — not in lattice yet
+
             # ---- Kernel ---------------------------------------------
             kernel_lambda:  :Proc,
             kernel_proc:    :Proc,

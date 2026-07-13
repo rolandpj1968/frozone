@@ -3642,14 +3642,21 @@ module Frozone
               [cls_flat, mname, key, m.source_location, status]
             end
             total = methods.size
+            # A method is "reached" iff TI actually walked it — anything
+            # left at ⊥ with no incoming push has status unreached_by_ti.
+            # Under 1-CFA + entry-only seed the reached set is a strict
+            # subset of the analyzed set; the useful precision denominator
+            # is the reached count, not the total.
+            reached = total - status_hist[:unreached_by_ti] - status_hist[:missing] - status_hist[:always_throws_undetected]
             $stderr.puts "[ti-dump] #{total} methods analyzed (#{user_hist.values.sum} user, #{core_hist.values.sum} core)"
+            $stderr.puts "[ti-dump] reached by TI: #{reached}/#{total} (#{pct_of(reached, total)}%)"
             $stderr.puts "[ti-dump] top return-type shapes:"
             hist.sort_by { |_, c| -c }.first(top).each do |shape, c|
-              pct = (c * 100.0 / total).round(1)
-              $stderr.puts "  #{c.to_s.rjust(6)}  #{pct.to_s.rjust(5)}%  #{shape}"
+              $stderr.puts "  #{c.to_s.rjust(6)}  #{pct_of(c, total).to_s.rjust(5)}%  #{shape}"
             end
             precise = hist.reject { |k, _| k == '⊤' || k == '⊤?' || k == '?' || k == '⊥' }.values.sum
-            $stderr.puts "[ti-dump] concrete or bounded: #{precise}/#{total} (#{(precise * 100.0 / total).round(1)}%)"
+            $stderr.puts "[ti-dump] concrete or bounded: #{precise}/#{total} of analyzed (#{pct_of(precise, total)}%)"
+            $stderr.puts "[ti-dump] concrete or bounded: #{precise}/#{reached} of reached (#{pct_of(precise, reached)}%)" if reached.positive?
             print_status_breakdown(status_hist, total)
             print_ti_context_distribution(pass, values, methods)
             print_ti_intrinsic_reach(pass)
@@ -3805,6 +3812,8 @@ module Frozone
             noreturn unreached_by_ti always_throws_undetected
             returns_top missing
           ].freeze
+
+          def pct_of(c, total) = total.positive? ? (c * 100.0 / total).round(1) : 0.0
 
           def print_status_breakdown(status_hist, total)
             $stderr.puts "[ti-dump] MethodStatus breakdown:"
