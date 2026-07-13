@@ -3652,6 +3652,7 @@ module Frozone
             $stderr.puts "[ti-dump] concrete or bounded: #{precise}/#{total} (#{(precise * 100.0 / total).round(1)}%)"
             print_status_breakdown(status_hist, total)
             print_ti_context_distribution(pass, values, methods)
+            print_ti_intrinsic_reach(pass)
             if list == '1' || list == 'user'
               $stderr.puts "[ti-dump] per-method:"
               rows.each do |cls_flat, mname, key, loc, _|
@@ -3701,11 +3702,31 @@ module Frozone
             walks_0cfa = method_ctxs.size
             ratio = walks_0cfa.zero? ? 0.0 : walks_1cfa.to_f / walks_0cfa
             $stderr.puts "[ti-ctx] approximate walk-count ratio vs 0-CFA: #{ratio.round(2)}× (#{walks_1cfa} / #{walks_0cfa})"
+            # placeholder for intrinsic reach printer
             if ENV['FROZONE_TI_DUMP_REACHED'] == '1'
               $stderr.puts "[ti-ctx] reached (class, method) pairs (sorted):"
               method_ctxs.keys.sort.each do |cls_flat, mname|
                 $stderr.puts "  #{cls_flat}##{mname}  (#{method_ctxs[[cls_flat, mname]].size} contexts)"
               end
+            end
+          end
+
+          # Reachable-intrinsic diagnostic. Shows the total distinct
+          # intrinsics TI transferred, and the subset that had no
+          # INTRINSIC_RETURN_TYPES entry (return ⊤ by default) — those
+          # are the direct de-⊤-ification candidates.
+          def print_ti_intrinsic_reach(pass)
+            reached = pass.reached_intrinsics
+            unann   = pass.unannotated_intrinsics
+            $stderr.puts "[ti-intrinsic] reached: #{reached.size} distinct (#{reached.values.sum} calls); unannotated: #{unann.size}"
+            return if unann.empty?
+            top = (ENV['FROZONE_TI_DUMP_INTRINSIC_TOP'] || '30').to_i
+            hot = unann.map { |n| [n, reached[n]] }.sort_by { |_, c| -c }.first(top)
+            $stderr.puts "[ti-intrinsic] top #{[top, unann.size].min} untyped by call count:"
+            hot.each { |name, calls| $stderr.puts "  #{calls.to_s.rjust(6)}  #{name}" }
+            if ENV['FROZONE_TI_DUMP_INTRINSIC_LIST'] == '1'
+              $stderr.puts "[ti-intrinsic] all untyped reached intrinsics:"
+              unann.sort.each { |n| $stderr.puts "  #{n}  (#{reached[n]} calls)" }
             end
           end
 

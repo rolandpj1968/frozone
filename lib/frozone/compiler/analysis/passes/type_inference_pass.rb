@@ -160,6 +160,12 @@ module Frozone
             # singletons which are values pass consumers observe
             # ubiquitously.
             @seen_classes = Set.new(%i[Object BasicObject NilClass TrueClass FalseClass])
+            # Track reached intrinsics for diagnostic. Two hashes:
+            # counts per intrinsic name, and a set of names whose
+            # return_type_of came back nil (unannotated). Unannotated
+            # reached intrinsics are direct de-⊤-ification candidates.
+            @reached_intrinsics = Hash.new(0)
+            @unannotated_intrinsics = Set.new
           end
 
           def lattice = @lattice
@@ -174,6 +180,14 @@ module Frozone
           # engine.run round grew the set (needing an outer re-run).
           def seen_class_count = @seen_classes.size
           def seen_classes = @seen_classes
+
+          # Intrinsic reach diagnostics. `reached_intrinsics` is a
+          # Hash[name → call_count]; `unannotated_intrinsics` is the
+          # subset with no INTRINSIC_RETURN_TYPES entry (return ⊤ by
+          # default). Reached-but-unannotated names are de-⊤-ification
+          # candidates — each is potentially cheap precision recovery.
+          def reached_intrinsics = @reached_intrinsics
+          def unannotated_intrinsics = @unannotated_intrinsics
 
           # LUB across every context-specific MethodNode return for
           # (class_flat, method_name) in an engine values map. Useful
@@ -1378,8 +1392,16 @@ module Frozone
           # default; blocks narrowing chains and shows up as a
           # de-annotation candidate).
           def transfer_intrinsic_call(node, ctx)
-            (node.param_nodes || []).each { |a| walk(a, ctx) }
+            # Strict-eval short-circuit — matches transfer_method_call.
+            # Divergent arg → whole call diverges (never reached at
+            # runtime because arg evaluation blew up first).
+            (node.param_nodes || []).each do |a|
+              t = walk(a, ctx)
+              return t if t.divergent?
+            end
             annotation = Backend::CppBox::IntrinsicLowering.return_type_of(node.name)
+            @reached_intrinsics[node.name] += 1
+            @unannotated_intrinsics << node.name if annotation.nil?
             annotation_to_type(annotation)
           end
 
