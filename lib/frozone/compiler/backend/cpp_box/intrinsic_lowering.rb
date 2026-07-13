@@ -821,6 +821,112 @@ module Frozone
             object_shallow_copy:                :__top__,  # same class as self, but per-callsite
             basic_object__equal_equal_:         :__boolean__,
             basic_object___id__:                :Integer,
+            object_is_a:                        :__boolean__,
+            object_instance_of:                 :__boolean__,
+            object_frozen:                      :__boolean__,
+            object_respond_to:                  :__boolean__,
+            object_ivar_defined:                :__boolean__,
+            object_ivar_names:                  :Array,
+            # object_ivar_get / object_ivar_set / basic_object___send__:
+            # left ⊤ pending on-demand snapshot ivar inspection and
+            # symbol value-tracking (send unfold) — see memory
+            # project_ti_1cfa_empirical_2026_07_10.
+
+            # ---- Integer comparison / spaceship ---------------------
+            integer__eq_:      :__boolean__,
+            integer__lt_:      :__boolean__,
+            integer__le_:      :__boolean__,
+            integer__gt_:      :__boolean__,
+            integer__ge_:      :__boolean__,
+            integer_spaceship: [:Integer, nullable: true],
+
+            # ---- Float arithmetic + comparison ----------------------
+            float__plus_:      :Float,
+            float__minus_:     :Float,
+            float__mul_:       :Float,
+            float__div_:       :Float,
+            float__mod_:       :Float,
+            float__pow_:       :Float,
+            float_eq:          :__boolean__,
+            float__lt_:        :__boolean__,
+            float__le_:        :__boolean__,
+            float__gt_:        :__boolean__,
+            float__ge_:        :__boolean__,
+            float_spaceship:   [:Integer, nullable: true],
+            float_to_s:        :String,
+
+            # ---- String / Symbol / Regexp / MatchData annotations ---
+            string_bytesize:      :Integer,
+            string_get_byte:      [:Integer, nullable: true],
+            string_chars:         :Array,
+            string_eql:           :__boolean__,
+            string_match_q:       :__boolean__,
+            string_dedup:         :String,
+            string_force_encoding: :String,
+            string_encode:        :String,
+            string_to_f:          :Float,
+            string_to_r:          :Rational,
+            string_to_c:          :Complex,
+            regexp_source:        :String,
+            regexp_options:       :Integer,
+            regexp_encoding:      :Encoding,
+            regexp_named_captures: :Hash,
+            match_data_string:    :String,
+            match_data_size:      :Integer,
+            match_data_begin:     [:Integer, nullable: true],
+            match_data_index:     [:Integer, nullable: true],
+            match_data_named_captures: :Hash,
+
+            # ---- Hash / Array / Range / Proc / Fiber annotations ---
+            hash_size:            :Integer,
+            array_length:         :Integer,
+            proc_arity:           :Integer,
+            proc_eql:             :__boolean__,
+            proc_lambda_p:        :__boolean__,
+            proc_inspect:         :String,
+            proc_to_s:            :String,
+            range_exclude_end:    :__boolean__,
+            fiber_alive:          :__boolean__,
+            fiber_inspect:        :String,
+            module_name:          [:String, nullable: true],
+            module_ancestors:     :Array,
+            module_singleton_class_q: :__boolean__,
+            kernel_block_given:   :__boolean__,
+            kernel_caller_locations: :Array,
+            kernel_rational_from_string: :Rational,
+            kernel_complex_from_string:  :Complex,
+            kernel_verbose_warn:         :NilClass,
+            string_match:                [:MatchData, nullable: true],
+            string_concat_codepoint:     :String,
+            match_data_regexp:           :Regexp,
+            match_data_slice:            [:String, nullable: true],
+            match_data_slice_range:      [:String, nullable: true],
+            array_push:                  :Array,
+            array_concat:                :Array,
+            array_dup:                   :Array,
+            array_pop:                   :__top__, # element type — Array<T> needed
+            array_at:                    :__top__, # element type — Array<T> needed
+            hash_clone_storage:          :Hash,
+            hash_each:                   :Hash,    # returns self (Hash)
+            fiber_raise:                 :__noreturn__,
+            # Explicit ⊤ — considered but requires machinery we don't
+            # have (context sensitivity, generics, snapshot inspection,
+            # symbol value-lattice, block-body walk). Setting :__top__
+            # marks them "examined, needs bigger fix" vs "unannotated".
+            object_freeze:               :__top__, # returns self — needs context sensitivity
+            object_unfreeze:             :__top__, # returns self
+            object_clear_singleton:      :__top__, # returns self
+            object_ivar_get:             :__top__, # ivar value — snapshot inspection
+            object_ivar_set:             :__top__, # returns assigned value
+            basic_object___send__:       :__top__, # symbol value-lattice needed
+            proc_call:                   :__top__, # block return — block-body walk
+            fiber_resume:                :__top__, # block return
+            hash_key:                    :__top__, # Hash<K,V> key type — generics
+            hash_index:                  :__top__, # Hash<K,V> key type
+            range_begin:                 :__top__, # Range<T> element type
+            range_end:                   :__top__,
+            class_new:                   :__top__, # depends on receiver Class value
+            module_singleton_class_safe_target_str: [:String, nullable: true],
 
             # ---- Kernel ---------------------------------------------
             kernel_lambda:  :Proc,
