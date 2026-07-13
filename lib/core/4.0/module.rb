@@ -14,9 +14,33 @@ class Module
   def prepended(other) = nil
   private :append_features, :prepend_features, :included, :prepended
 
-  def attr_reader(*names) = Intrinsics.module_attr_reader(self, names)
-  def attr_writer(*names) = Intrinsics.module_attr_writer(self, names)
-  def attr_accessor(*names) = Intrinsics.module_attr_accessor(self, names)
+  def attr_reader(*names)
+    names.each do |name|
+      n = name.to_sym
+      ivar = :"@#{n}"
+      define_method(n) { instance_variable_get(ivar) }
+    end
+    names.map(&:to_sym)
+  end
+
+  def attr_writer(*names)
+    names.each do |name|
+      n = name.to_sym
+      ivar = :"@#{n}"
+      define_method(:"#{n}=") { |v| instance_variable_set(ivar, v) }
+    end
+    names.map { |n| :"#{n}=" }
+  end
+
+  def attr_accessor(*names)
+    names.each do |name|
+      n = name.to_sym
+      ivar = :"@#{n}"
+      define_method(n) { instance_variable_get(ivar) }
+      define_method(:"#{n}=") { |v| instance_variable_set(ivar, v) }
+    end
+    names.flat_map { |n| s = n.to_sym; [s, :"#{s}="] }
+  end
   def private_constant(*names) = Intrinsics.module_private_constant(self, *names)
   def public_constant(*names) = Intrinsics.module_public_constant(self, *names)
   def private_class_method(*names) = Intrinsics.module_set_class_method_visibility(self, names, :private)
@@ -83,13 +107,9 @@ class Module
       warn "#{caller(1, 1).first}: warning: optional boolean argument is obsoleted" if $VERBOSE
       writable = names_and_writable.last
       names = names_and_writable[0..-2]
-      if writable
-        Intrinsics.module_attr_accessor(self, names)
-      else
-        Intrinsics.module_attr_reader(self, names)
-      end
+      writable ? attr_accessor(*names) : attr_reader(*names)
     else
-      Intrinsics.module_attr_reader(self, names_and_writable)
+      attr_reader(*names_and_writable)
     end
   end
 
