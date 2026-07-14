@@ -195,6 +195,22 @@ module Frozone
             # [method_name, cone_size, recv_type_string], value is
             # hit count. Exposed via `wide_cone_hits` for dumper.
             @wide_cone_hits = Hash.new(0)
+            # Method resolution tables — closed-world snapshot at init.
+            # H1[cls_flat][method_name] = flat-name of the class/module
+            #   that owns cls_flat's MRO-resolved method_node for name.
+            #   Full MRO walk done once per (class, name); dispatch is
+            #   O(1) hash lookup afterward.
+            # H2[cls_flat][method_name] = same, ONLY IF cls_flat directly
+            #   overrides (owner appears in cls's MRO before the
+            #   superclass's H1 entry). Missing key ⇒ inherits from
+            #   parent → same as H1[superclass][name] which routes via
+            #   the fall-through path in dispatch_across_cone.
+            # Neither table depends on @seen_classes — precomputed once
+            # from @methods + all_classes.ancestors_list (both snapshot-
+            # frozen). Grows monotonically as reachability expands: new
+            # cone members just look up their pre-existing entries.
+            @method_resolutions = precompute_method_resolutions
+            @method_overrides = precompute_method_overrides
           end
 
           def lattice = @lattice
@@ -342,6 +358,60 @@ module Frozone
                 @ivar_home[[cls_flat, ivar]] = home
               end
             end
+          end
+
+          # For every class in all_classes, resolve every method name
+          # visible on it via its full MRO. Result: H1[cls][name] =
+          # owner_flat (the flat-name of the class/module that owns
+          # the resolved method_node), or nil if unresolved.
+          #
+          # Cost: O(all_classes × ancestors × direct_methods) ONE time
+          # at TI init. Replaces O(cone × MRO) walk-per-dispatch.
+          def precompute_method_resolutions
+            # direct[cls_flat] = Set of method names cls_flat defines
+            # (present in @methods).
+            direct = Hash.new { |h, k| h[k] = Set.new }
+            @methods.each_key { |(flat, name)| direct[flat] << name }
+
+            h1 = {}
+            @lattice.all_classes.each do |cls_flat, cls_obj|
+              next unless cls_obj.is_a?(Vm::ClassObject)
+              resolved = {}
+              cls_obj.ancestors_list.each do |anc|
+                anc_flat = Reachability.flat_name(anc)
+                next unless anc_flat
+                names = direct[anc_flat]
+                next if names.empty?
+                names.each { |name| resolved[name] ||= anc_flat }
+              end
+              h1[cls_flat] = resolved.freeze
+            end
+            h1.freeze
+          end
+
+          # H2[cls_flat][name] = owner_flat IFF cls_flat's resolution of
+          # `name` doesn't come from its superclass — i.e. cls_flat itself
+          # (or a directly-included module unique to cls) provides the
+          # override. Missing entry ⇒ cls inherits parent's resolution,
+          # which the dispatch fall-through handles.
+          def precompute_method_overrides
+            h2 = {}
+            @lattice.all_classes.each do |cls_flat, cls_obj|
+              next unless cls_obj.is_a?(Vm::ClassObject)
+              own = @method_resolutions[cls_flat] || {}
+              sup = cls_obj.superclass
+              sup_flat = sup ? Reachability.flat_name(sup) : nil
+              sup_res = sup_flat ? @method_resolutions[sup_flat] : nil
+              overrides = {}
+              own.each do |name, owner|
+                # If superclass resolves to the same owner, cls didn't
+                # override — this name was purely inherited via super.
+                next if sup_res && sup_res[name] == owner
+                overrides[name] = owner
+              end
+              h2[cls_flat] = overrides.freeze
+            end
+            h2.freeze
           end
 
           # AST walk to collect ivar names (as Symbols like :@x) from
@@ -1332,17 +1402,15 @@ module Frozone
             $stderr.puts "ti1cfa|#{@trace_count}|#{ctx.class_flat}##{ctx.method_name}|#{target_cls}##{target_method}|#{action}|#{candidate.inspect}|#{result.inspect}"
           end
 
-          # Walk Ruby's authentic MRO (via the interpreter's
-          # `ancestors_list` — prepends + self + includes + superclass,
-          # recurse; classes AND modules) starting at `cls_flat` and
-          # return the flat-name of the first ancestor that defines
-          # `method_name` in @methods. `exclude` (used for the
-          # method_missing route) skips a specific class.
-          #
-          # MRO comes from the interpreter (authoritative). Membership
-          # comes from @methods (TI's method table, which specs
-          # populate independently of the ClassObject's methods_table).
+          # O(1) MRO lookup from the closed-world snapshot precomputed
+          # at TI init. Replaces the per-call `resolve_method_owner`
+          # ancestors_list walk. `exclude` (used for the method_missing
+          # route on BasicObject) still needs the ancestor walk because
+          # the precompute always resolves to the leftmost hit.
           def resolve_method_owner(cls_flat, method_name, exclude: nil)
+            return @method_resolutions[cls_flat]&.[](method_name) unless exclude
+            # Rare path — one caller (method_missing lookup that must
+            # skip BasicObject). Falls back to authentic MRO walk.
             cls = @lattice.all_classes[cls_flat]
             return nil unless cls
             cls.ancestors_list.each do |anc|
@@ -1353,30 +1421,76 @@ module Frozone
             nil
           end
 
+          # Bucket cone members by the method_node their MRO resolves
+          # `name` to. Fast path (no cone member overrides `name`
+          # relative to T): single bucket = {T's resolution => cone}.
+          # Slow path: per-member lookup via H1 (still O(1) per member).
+          # Grouped structure is what dispatch_across_cone consumes to
+          # collapse redundant per-subclass walks.
+          def bucket_cone_by_target(cone, name, base_target)
+            # Fast path: if H2 shows NO cone member overrides `name`,
+            # every member resolves to base_target — one bucket.
+            has_override = cone.any? { |s| @method_overrides[s]&.key?(name) }
+            return { base_target => cone } if base_target && !has_override
+            # Slow path: per-member H1 lookup.
+            buckets = Hash.new { |h, k| h[k] = [] }
+            cone.each do |s|
+              tgt = @method_resolutions[s]&.[](name)
+              (buckets[tgt] ||= []) << s
+            end
+            buckets
+          end
+
+          # Cone iteration collapsed to one dispatch per DISTINCT
+          # method_node (bucket_cone_by_target). For each bucket:
+          # self-type = class_lub(bucket_members) — always class-typed
+          # by construction (all bucket members are classes), so the
+          # module-typed-Type invariant holds automatically. Compared
+          # to the previous per-subclass walk, cost scales with the
+          # number of DISTINCT overrides in the cone, not cone.size.
+          # For methods no cone member overrides (Kernel#is_a? etc.),
+          # one bucket → one walk regardless of cone width.
           def dispatch_across_cone(recv_type, method_name, ctx, arg_nodes, kw_arg_nodes: nil, kw_splat_nodes: nil)
             cone = receiver_type_cone(recv_type)
             return @lattice.top if cone.empty?
             widen = !ONE_CFA_ENABLED || cone.size > CONE_WIDEN_THRESHOLD
             @wide_cone_hits[[method_name, cone.size, recv_type.to_s]] += 1 if widen && ONE_CFA_ENABLED
             return dispatch_widened(cone, method_name, ctx, arg_nodes, kw_arg_nodes: kw_arg_nodes, kw_splat_nodes: kw_splat_nodes) if widen
+
+            # T's own base target: for a ⊤ receiver, use :Object as the
+            # class-hierarchy anchor (⊤'s H1 entry doesn't exist). For a
+            # concrete receiver, use its class's H1 resolution.
+            recv_flat = recv_type.top? ? :Object : recv_type.concrete
+            base_target = @method_resolutions[recv_flat]&.[](method_name)
+            buckets = bucket_cone_by_target(cone, method_name, base_target)
+
             arg_types = arg_nodes ? arg_nodes.map { |a| @per_node_types[a] || @lattice.top } : []
             result = @lattice.bottom
-            cone.each do |s|
-              candidate = [@lattice.concrete(s), *arg_types].freeze
-              direct = resolve_method_owner(s, method_name)
-              if direct
-                callee_context, action = context_for_target(direct, method_name, candidate)
-                trace_context(ctx, direct, method_name, candidate, callee_context, action)
-                push_param_types(direct, method_name, arg_nodes, ctx, callee_context, kw_arg_nodes: kw_arg_nodes, kw_splat_nodes: kw_splat_nodes) if arg_nodes
-                result = @lattice.join(result, dispatch_lookup(direct, method_name, callee_context, ctx))
+            buckets.each do |target, members|
+              # class_lub across bucket members = the class-typed
+              # self-type for this bucket's callee walk. Bucket
+              # membership is always classes (cone ⊆ classes), so LUB
+              # stays class-typed — the invariant self-holds.
+              self_flat = members.reduce { |a, b| @lattice.class_lub(a, b) }
+              self_type = @lattice.concrete(self_flat)
+              candidate = [self_type, *arg_types].freeze
+              if target
+                callee_context, action = context_for_target(target, method_name, candidate)
+                trace_context(ctx, target, method_name, candidate, callee_context, action)
+                push_param_types(target, method_name, arg_nodes, ctx, callee_context, kw_arg_nodes: kw_arg_nodes, kw_splat_nodes: kw_splat_nodes) if arg_nodes
+                result = @lattice.join(result, dispatch_lookup(target, method_name, callee_context, ctx))
               else
-                mm = resolve_method_owner(s, :method_missing, exclude: :BasicObject)
-                if mm
-                  mm_context, action = context_for_target(mm, :method_missing, candidate)
-                  trace_context(ctx, mm, :method_missing, candidate, mm_context, action)
-                  result = @lattice.join(result, dispatch_lookup(mm, :method_missing, mm_context, ctx))
-                else
-                  result = @lattice.join(result, @lattice.noreturn)
+                # No target — try method_missing per bucket member (still
+                # needs the exclude: :BasicObject walk, so no fast path).
+                members.each do |s|
+                  mm = resolve_method_owner(s, :method_missing, exclude: :BasicObject)
+                  if mm
+                    mm_context, action = context_for_target(mm, :method_missing, candidate)
+                    trace_context(ctx, mm, :method_missing, candidate, mm_context, action)
+                    result = @lattice.join(result, dispatch_lookup(mm, :method_missing, mm_context, ctx))
+                  else
+                    result = @lattice.join(result, @lattice.noreturn)
+                  end
                 end
               end
             end
