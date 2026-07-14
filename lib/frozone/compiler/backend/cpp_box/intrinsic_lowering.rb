@@ -1017,9 +1017,6 @@ module Frozone
             hash_clear:                  :__self__,
             # ---- Module / misc -------------------------------------
             module_define_method:        :Symbol,
-            module_attr_reader:          :Array, # 3.0+ returns [Symbol]; treat as :Array
-            module_attr_writer:          :Array,
-            module_attr_accessor:        :Array,
             exception_caller_string:     :String,
             dbg_write:                   :NilClass,
             kernel_deprecation_warn:     :NilClass,
