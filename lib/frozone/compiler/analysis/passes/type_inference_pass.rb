@@ -1021,7 +1021,7 @@ module Frozone
             # Class#new's annotated return (currently ⊤). Recovering
             # precision through non-constant receivers needs dependent
             # `Class[X]` types — Tier 2+ extension.
-            if (t = try_class_value_peek(node))
+            if (t = try_class_value_peek(node, ctx))
               return t
             end
 
@@ -1309,7 +1309,18 @@ module Frozone
           # where SomeClass is a ConstantRead resolving to a known
           # class, return that class as the type. Otherwise nil (caller
           # falls through to normal dispatch).
-          def try_class_value_peek(node)
+          #
+          # For `.new`, also route through the class's `initialize`:
+          # push call arg types to `[class, :initialize]`'s ParamNode
+          # and read its MethodNode (adds a dep so this transfer re-runs
+          # as initialize's fixpoint tightens). This is what makes
+          # initialize actually WALKED at all — without it TI never sees
+          # the class's ivar-first-writes, and IVarNode-typing (WIP)
+          # would stay stuck at ⊥.
+          #
+          # `.allocate` explicitly does NOT route through initialize —
+          # its whole purpose is to bypass it.
+          def try_class_value_peek(node, ctx)
             return nil unless CLASS_VALUE_METHODS.include?(node.name)
             recv = node.receiver_node
             return nil unless recv.is_a?(Ast::ConstantRead)
@@ -1318,7 +1329,28 @@ module Frozone
             # lexical-scope shadowing or nested constants (Foo::Bar) —
             # extend when we start typing programs that need it.
             return nil unless @lattice.ancestor_chains.key?(class_sym)
+            route_new_to_initialize(class_sym, node.arg_nodes || [], ctx) if node.name == :new
             @lattice.concrete(class_sym)
+          end
+
+          # `SomeClass.new(args)` → walk SomeClass#initialize (or the
+          # nearest ancestor that defines it — usually
+          # BasicObject#initialize as a no-op). Pushes arg types to the
+          # target's ParamNodes and adds a dep on its MethodNode so
+          # this transfer re-fires as initialize's fixpoint tightens.
+          #
+          # If no `initialize` exists anywhere in the class chain,
+          # nothing to do. Return type is discarded — the caller has
+          # already committed to returning the constructed instance's
+          # class, not initialize's return value.
+          def route_new_to_initialize(class_sym, arg_nodes, ctx)
+            chain = @lattice.ancestor_chains[class_sym] || [class_sym]
+            chain.each do |cls|
+              next unless @methods.key?([cls, :initialize])
+              push_param_types(cls, :initialize, arg_nodes, ctx)
+              ctx.lookup.call(self.class.method_node(cls, :initialize))
+              return
+            end
           end
 
           # Walk the class-only ancestor chain from `recv_class` upward,
