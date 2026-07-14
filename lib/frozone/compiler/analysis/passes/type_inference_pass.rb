@@ -439,7 +439,11 @@ module Frozone
             return false unless (method.required_params || []).all? { |p| p.is_a?(Symbol) }
             return false unless (method.optional_params || []).empty?
             return false if method.respond_to?(:rest_param) && method.rest_param
-            return false if method.respond_to?(:required_kw_params) && !(method.required_kw_params || []).empty?
+            # required_kw_params ARE pushable — they bind to method-local
+            # variables with the kwarg name, same as positional params,
+            # and callsites with fixed kwargs can attribute types to
+            # them by name. Phase 1: allow required kwargs. Phase 2
+            # extends to optional_kw_params (needs default-value seed).
             return false if method.respond_to?(:optional_kw_params) && !(method.optional_kw_params || []).empty?
             return false if method.respond_to?(:kw_rest_param) && method.kw_rest_param
             return false if method.respond_to?(:block_param) && method.block_param
@@ -457,9 +461,23 @@ module Frozone
               (method.required_params || []).each do |name|
                 ctx.env[name] = ctx.lookup.call(self.class.param_node(ctx.class_flat, ctx.method_name, name, ctx.context))
               end
+              # Required kwargs bind to method-locals with the kwarg
+              # name; seed from the same ParamNode key that
+              # push_kwarg_types pushes to.
+              if method.respond_to?(:required_kw_params) && method.required_kw_params
+                method.required_kw_params.each do |kw_name|
+                  ctx.env[kw_name] = ctx.lookup.call(self.class.param_node(ctx.class_flat, ctx.method_name, kw_name, ctx.context))
+                end
+              end
             else
               (method.required_params || []).each { |name| ctx.env[name] = @lattice.top }
               (method.optional_params || []).each { |(name, _default)| ctx.env[name] = @lattice.top }
+              if method.respond_to?(:required_kw_params) && method.required_kw_params
+                method.required_kw_params.each { |kw_name| ctx.env[kw_name] = @lattice.top }
+              end
+              if method.respond_to?(:optional_kw_params) && method.optional_kw_params
+                method.optional_kw_params.each { |(kw_name, _default)| ctx.env[kw_name] = @lattice.top }
+              end
             end
             ctx.env[method.rest_param] = @lattice.concrete(:Array) if method.respond_to?(:rest_param) && method.rest_param
           end
@@ -1152,6 +1170,16 @@ module Frozone
               t = walk(a, ctx)
               return t if t.divergent?
             end
+            # Kwargs / kw-splat / block: also walked strictly so their
+            # types cache and any divergent value collapses the call.
+            (node.kw_arg_nodes || []).each do |(_key, value_node)|
+              t = walk(value_node, ctx)
+              return t if t.divergent?
+            end
+            (node.kw_splat_nodes || []).each do |k|
+              t = walk(k, ctx)
+              return t if t.divergent?
+            end
             if node.block_node
               t = walk(node.block_node, ctx)
               return t if t.divergent?
@@ -1197,7 +1225,7 @@ module Frozone
             # closed-world this is bounded — bo.nil? types as <boolean>
             # because every class's nil? returns TrueClass or FalseClass,
             # bo.to_s types as String, etc. — not ⊤.
-            dispatch_across_cone(recv_type, node.name, ctx, node.arg_nodes || [])
+            dispatch_across_cone(recv_type, node.name, ctx, node.arg_nodes || [], kw_arg_nodes: node.kw_arg_nodes, kw_splat_nodes: node.kw_splat_nodes)
           end
 
           # Compute LUB of `method_name`'s resolutions across the
@@ -1300,11 +1328,11 @@ module Frozone
             nil
           end
 
-          def dispatch_across_cone(recv_type, method_name, ctx, arg_nodes)
+          def dispatch_across_cone(recv_type, method_name, ctx, arg_nodes, kw_arg_nodes: nil, kw_splat_nodes: nil)
             cone = receiver_type_cone(recv_type)
             return @lattice.top if cone.empty?
             widen = !ONE_CFA_ENABLED || cone.size > CONE_WIDEN_THRESHOLD
-            return dispatch_widened(cone, method_name, ctx, arg_nodes) if widen
+            return dispatch_widened(cone, method_name, ctx, arg_nodes, kw_arg_nodes: kw_arg_nodes, kw_splat_nodes: kw_splat_nodes) if widen
             arg_types = arg_nodes ? arg_nodes.map { |a| @per_node_types[a] || @lattice.top } : []
             result = @lattice.bottom
             cone.each do |s|
@@ -1313,7 +1341,7 @@ module Frozone
               if direct
                 callee_context, action = context_for_target(direct, method_name, candidate)
                 trace_context(ctx, direct, method_name, candidate, callee_context, action)
-                push_param_types(direct, method_name, arg_nodes, ctx, callee_context) if arg_nodes
+                push_param_types(direct, method_name, arg_nodes, ctx, callee_context, kw_arg_nodes: kw_arg_nodes, kw_splat_nodes: kw_splat_nodes) if arg_nodes
                 result = @lattice.join(result, dispatch_lookup(direct, method_name, callee_context, ctx))
               else
                 mm = resolve_method_owner(s, :method_missing, exclude: :BasicObject)
@@ -1333,7 +1361,7 @@ module Frozone
           # (0-CFA-style) so we only pay one dispatch per distinct
           # target regardless of cone size. All lookups land at UNIT
           # context. Reproduces the pre-1-CFA hot loop.
-          def dispatch_widened(cone, method_name, ctx, arg_nodes)
+          def dispatch_widened(cone, method_name, ctx, arg_nodes, kw_arg_nodes: nil, kw_splat_nodes: nil)
             direct_hits    = Set.new
             mm_hits        = Set.new
             noreturn_falls = false
@@ -1348,7 +1376,7 @@ module Frozone
             end
             result = @lattice.bottom
             direct_hits.each do |c|
-              push_param_types(c, method_name, arg_nodes, ctx, UNIT_CONTEXT) if arg_nodes
+              push_param_types(c, method_name, arg_nodes, ctx, UNIT_CONTEXT, kw_arg_nodes: kw_arg_nodes, kw_splat_nodes: kw_splat_nodes) if arg_nodes
               trace_context(ctx, c, method_name, UNIT_CONTEXT, UNIT_CONTEXT, 'UNIT')
               result = @lattice.join(result, dispatch_lookup(c, method_name, UNIT_CONTEXT, ctx))
             end
@@ -1483,7 +1511,7 @@ module Frozone
             # lexical-scope shadowing or nested constants (Foo::Bar) —
             # extend when we start typing programs that need it.
             return nil unless @lattice.ancestor_chains.key?(class_sym)
-            route_new_to_initialize(class_sym, node.arg_nodes || [], ctx) if node.name == :new
+            route_new_to_initialize(class_sym, node.arg_nodes || [], ctx, kw_arg_nodes: node.kw_arg_nodes, kw_splat_nodes: node.kw_splat_nodes) if node.name == :new
             @lattice.concrete(class_sym)
           end
 
@@ -1497,11 +1525,11 @@ module Frozone
           # nothing to do. Return type is discarded — the caller has
           # already committed to returning the constructed instance's
           # class, not initialize's return value.
-          def route_new_to_initialize(class_sym, arg_nodes, ctx)
+          def route_new_to_initialize(class_sym, arg_nodes, ctx, kw_arg_nodes: nil, kw_splat_nodes: nil)
             chain = @lattice.ancestor_chains[class_sym] || [class_sym]
             chain.each do |cls|
               next unless @methods.key?([cls, :initialize])
-              push_param_types(cls, :initialize, arg_nodes, ctx)
+              push_param_types(cls, :initialize, arg_nodes, ctx, UNIT_CONTEXT, kw_arg_nodes: kw_arg_nodes, kw_splat_nodes: kw_splat_nodes)
               ctx.lookup.call(self.class.method_node(cls, :initialize))
               return
             end
@@ -1564,7 +1592,7 @@ module Frozone
           # equivalent (LUB-of-transfers ⊑ transfer-of-LUB by
           # monotonicity), which is a precision win — the extra
           # information falls out of running the analyses separately.
-          def push_param_types(cls, method_name, arg_nodes, ctx, callee_context = UNIT_CONTEXT)
+          def push_param_types(cls, method_name, arg_nodes, ctx, callee_context = UNIT_CONTEXT, kw_arg_nodes: nil, kw_splat_nodes: nil)
             m = @methods[[cls, method_name]]
             return unless m && pushable_signature?(m)
             required = m.required_params || []
@@ -1575,6 +1603,47 @@ module Frozone
               node = self.class.param_node(cls, method_name, pname, callee_context)
               prev = ctx.pushes[node]
               ctx.pushes[node] = prev ? @lattice.join(prev, arg_type) : arg_type
+            end
+            push_kwarg_types(cls, method_name, m, kw_arg_nodes, kw_splat_nodes, ctx, callee_context)
+          end
+
+          # Push required-kwarg values from the callsite to the callee's
+          # ParamNode(cls, method, kwarg_name, callee_context). Kwargs
+          # bind to method locals with the same name inside the body,
+          # so seed_params reads them via the SAME ParamNode as
+          # positionals — no separate KwargNode needed.
+          #
+          # Phase 1 discipline (matches pushable_signature? gate):
+          # - Callsite bails on **splat (kwargs unknown at compile time).
+          # - Callee has ONLY required_kw_params (no optional_kw, no
+          #   kw_rest). Enforced by pushable_signature?.
+          # - Callsite must supply every required kwarg; else miss →
+          #   runtime ArgumentError so no push should happen.
+          # - kw_arg_nodes[i][0] must be a SymbolLiteral (so we know
+          #   the kwarg name statically).
+          #
+          # kw_arg_nodes is `[[key_node, value_node], ...]` per the
+          # Ast::MethodCall interface.
+          def push_kwarg_types(cls, method_name, m, kw_arg_nodes, kw_splat_nodes, ctx, callee_context)
+            return unless kw_arg_nodes && !kw_arg_nodes.empty?
+            return if kw_splat_nodes && !kw_splat_nodes.empty?
+            required_kw = (m.respond_to?(:required_kw_params) ? m.required_kw_params : nil) || []
+            return if required_kw.empty?
+            # Extract statically-known kwarg names + value types.
+            supplied = {}
+            kw_arg_nodes.each do |(key_node, value_node)|
+              return unless key_node.is_a?(Ast::SymbolLiteral)
+              supplied[key_node.value.to_sym] = value_node
+            end
+            # Callsite must cover every callee-required kwarg — else
+            # runtime ArgumentError, no dispatch happens.
+            return unless required_kw.all? { |kw| supplied.key?(kw) }
+            required_kw.each do |kw_name|
+              value_node = supplied[kw_name]
+              value_type = @per_node_types[value_node] || @lattice.top
+              node = self.class.param_node(cls, method_name, kw_name, callee_context)
+              prev = ctx.pushes[node]
+              ctx.pushes[node] = prev ? @lattice.join(prev, value_type) : value_type
             end
           end
 
