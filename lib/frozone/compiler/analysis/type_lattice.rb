@@ -116,7 +116,7 @@ module Frozone
         NIL_SUPERTYPES = %i[NilClass Object BasicObject __top__].freeze
         private_constant :NIL_SUPERTYPES
 
-        attr_reader :ancestor_chains, :descendants, :all_classes
+        attr_reader :ancestor_chains, :descendants, :all_classes, :module_includers
 
         # `all_classes` — Hash(flat_name Symbol → Vm::ClassObject/ModuleObject)
         # produced by the emitter. Only entries whose value is a
@@ -126,6 +126,7 @@ module Frozone
           @all_classes = all_classes
           @ancestor_chains = precompute_ancestor_chains
           @descendants = precompute_descendants
+          @module_includers = precompute_module_includers
           @lub_cache = {}
         end
 
@@ -221,11 +222,42 @@ module Frozone
 
         # Public constructors -----------------------------------------
 
+        # Public Type constructor. Enforces the invariant that TI Type
+        # values are ALWAYS class-typed (or one of the special tags:
+        # ⊥/⊤/<boolean>/noreturn). If a caller passes a MODULE flat-name
+        # (present in @all_classes but not in @ancestor_chains), it is
+        # silently canonicalised to the class LUB of every class that
+        # includes that module. This is because:
+        #
+        #   - ancestor_chains / descendants / class_lub are all class-only
+        #     (single-inheritance closed-world).
+        #   - Modules have no direct Type representation — a value whose
+        #     dynamic type is "some class that includes M" is faithfully
+        #     represented as `class-LUB(includers of M)`, since Ruby is
+        #     single-inheritance for classes.
+        #
+        # Examples:
+        #   - :Kernel   → :BasicObject (Object includes Kernel; LUB = Object,
+        #                 but Object.include?(Kernel) forces us down to Object).
+        #                 (Empirically: LUB across all Kernel-including classes
+        #                 collapses to :Object.)
+        #   - :Comparable → :Numeric or so, depending on includers.
+        #   - Module with no includers → :BasicObject (defensive floor;
+        #                 such a method is unreachable at execute time).
+        #
+        # Callers can pass module flats freely (from `ctx.class_flat` etc.);
+        # they will get a class-typed Type back, never a module-typed one.
         def concrete(class_sym, nullable: false, value: nil)
           return BOTTOM if class_sym == :__bottom__
           return NORETURN if class_sym == :__noreturn__
           return TOP if class_sym == :__top__
           return nullable ? BOOLEAN_NULLABLE : BOOLEAN if class_sym == :__boolean__
+          # Module → canonicalise to class-LUB of includers.
+          if @module_includers.key?(class_sym) && !@ancestor_chains.key?(class_sym)
+            includers = @module_includers[class_sym]
+            class_sym = includers.empty? ? :BasicObject : includers.reduce { |a, c| class_lub(a, c) }
+            value = nil
+          end
           make(class_sym, nullable, value: value)
         end
 
@@ -338,6 +370,38 @@ module Frozone
           descs.each_value(&:freeze)
           descs.freeze
         end
+
+        # For each MODULE in @all_classes, the set of classes that
+        # include it (walk each class's ancestors_list — Ruby MRO —
+        # for module memberships). Under closed-world, `self` inside
+        # a module-owned method M is an instance of some class in
+        # `module_includers[M]`. `concrete()` uses this to canonicalise
+        # module flat-names into a class-LUB Type — the lattice has no
+        # meaningful representation for module types.
+        def precompute_module_includers
+          includers = Hash.new { |h, k| h[k] = Set.new }
+          # Seed an empty entry for every MODULE in all_classes — even
+          # ones no class includes. Ensures `.key?(module_sym)` in
+          # concrete() always answers "yes this is a known module",
+          # so the canonicalisation fires even for zero-includer modules
+          # (which then collapse to :BasicObject as a defensive floor).
+          @all_classes.each do |flat, obj|
+            next if obj.is_a?(Vm::ClassObject)
+            includers[flat]
+          end
+          @all_classes.each do |flat, obj|
+            next unless obj.is_a?(Vm::ClassObject)
+            obj.ancestors_list.each do |anc|
+              next if anc.is_a?(Vm::ClassObject)
+              anc_flat = Reachability.flat_name(anc)
+              includers[anc_flat] << flat if anc_flat
+            end
+          end
+          includers.default_proc = nil
+          includers.each_value(&:freeze)
+          includers.freeze
+        end
+
       end
     end
   end

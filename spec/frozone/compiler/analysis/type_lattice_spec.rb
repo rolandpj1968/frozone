@@ -102,6 +102,40 @@ RSpec.describe Frozone::Compiler::Analysis::TypeLattice do
     end
   end
 
+  describe '#concrete — module → class canonicalisation' do
+    # Invariant: Type values are ALWAYS class-typed. If a caller
+    # passes a module flat-name to concrete(), it silently collapses
+    # to the class-LUB of the module's includers.
+    it 'canonicalises a module with no includers to :BasicObject' do
+      # In make_hierarchy, no class includes Comparable
+      t = lattice.concrete(:Comparable)
+      expect(t.concrete).to eq(:BasicObject)
+      expect(lattice.ancestor_chains).to have_key(t.concrete)
+    end
+
+    it 'canonicalises a module to its includers-LUB when includers exist' do
+      hier = make_hierarchy
+      mod = Frozone::Vm::ModuleObject.new(:MixMod, nil)
+      hier[:MixMod] = mod
+      hier[:Integer].add_module(mod)
+      hier[:Float].add_module(mod)
+      lat = described_class.new(hier)
+      # MixMod includers: Integer + Float → LUB = Numeric
+      t = lat.concrete(:MixMod)
+      expect(t.concrete).to eq(:Numeric)
+      expect(lat.ancestor_chains).to have_key(t.concrete)
+    end
+
+    it 'never yields a module-typed Type for any all_classes flat' do
+      all_classes.each_key do |flat|
+        t = lattice.concrete(flat)
+        next if t.top? || t.bottom? || t.boolean_synth? || t.noreturn?
+        expect(lattice.ancestor_chains).to have_key(t.concrete),
+          "concrete(#{flat.inspect}) leaked module-typed #{t.inspect}"
+      end
+    end
+  end
+
   describe '#join — the lattice-level join' do
     it '⊥ is identity' do
       expect(lattice.join(bot, t(:Integer))).to eq(t(:Integer))
