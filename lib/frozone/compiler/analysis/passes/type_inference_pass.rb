@@ -103,12 +103,30 @@ module Frozone
             alias_method :inspect, :to_s
           end
 
+          # Ivar-typing key. Class-scoped (not per-context): under
+          # Ruby, ivars are per-instance shared storage, so a class
+          # C's ivar @x is one node regardless of which method wrote
+          # it. `home_class_flat` is the topmost class in C's ancestor
+          # chain that mentions :@x (mirrors emitter's collect_ivars
+          # + collect_parent_ivars — same storage-owning-class
+          # semantics). Ivars from included modules attribute to the
+          # topmost including class in the chain via the eager
+          # ivar-home pass.
+          IVarNode = Struct.new(:home_class_flat, :ivar_name) do
+            def to_s = "IVarNode(#{home_class_flat}, #{ivar_name})"
+            alias_method :inspect, :to_s
+          end
+
           def self.method_node(class_flat, method_name, context = UNIT_CONTEXT)
             MethodNode.new(class_flat.to_sym, method_name.to_sym, context).freeze
           end
 
           def self.param_node(class_flat, method_name, param_name, context = UNIT_CONTEXT)
             ParamNode.new(class_flat.to_sym, method_name.to_sym, param_name.to_sym, context).freeze
+          end
+
+          def self.ivar_node(home_class_flat, ivar_name)
+            IVarNode.new(home_class_flat.to_sym, ivar_name.to_sym).freeze
           end
 
           # `methods` — Hash [class_flat, method_name] → Vm::Method for
@@ -166,6 +184,12 @@ module Frozone
             # reached intrinsics are direct de-⊤-ification candidates.
             @reached_intrinsics = Hash.new(0)
             @unannotated_intrinsics = Set.new
+            # Ivar-home cache: key (class_flat, ivar_name) → home
+            # class_flat. Populated once by precompute_ivar_homes.
+            # Read at InstanceVariableRead/Write time to route to
+            # the shared IVarNode.
+            @ivar_home = {}
+            precompute_ivar_homes
           end
 
           def lattice = @lattice
@@ -250,7 +274,83 @@ module Frozone
             end
           end
 
+          # Ivar-home lookup. Given a class C and ivar name :@x, returns
+          # the flat-name Symbol of the topmost class in C's ancestor
+          # chain that mentions :@x — matches the emitter's storage-owning
+          # class semantics. Falls back to C itself if no ancestor
+          # mentions it (means C is the topmost mentioner).
+          def ivar_home_for(class_flat, ivar_name)
+            @ivar_home[[class_flat.to_sym, ivar_name.to_sym]] || class_flat.to_sym
+          end
+
           private
+
+          # Eager preliminary pass — build the ivar-home map once at
+          # pass init. Two phases:
+          #
+          # 1. direct_mentions[K]: for each K (class OR module) in
+          #    @methods, scan the method bodies for ivar names.
+          # 2. effective_mentions[C] for each Class C: direct_mentions[C]
+          #    UNION direct_mentions[M] for every module M in
+          #    C.ancestors_list. Transitive includes come free from
+          #    Ruby's MRO putting all transitively-included modules
+          #    in ancestors_list.
+          # 3. ivar_home[(C, :@x)] = topmost class X_i in C's
+          #    class-only ancestor chain where :@x is in
+          #    effective_mentions[X_i]. Modules can't own storage
+          #    per Ruby, so homing always lands on a class.
+          #
+          # Depends only on syntactic mentions across the FULL method
+          # table — stable, unaffected by reached-set growth.
+          def precompute_ivar_homes
+            direct = Hash.new { |h, k| h[k] = Set.new }
+            @methods.each do |(class_flat, _mname), method|
+              next unless method&.body
+              scan_ivar_mentions(method.body, direct[class_flat])
+            end
+
+            effective = {}
+            @lattice.all_classes.each do |cls_flat, cls_obj|
+              next unless cls_obj.is_a?(Vm::ClassObject)
+              mentions = Set.new(direct[cls_flat])
+              cls_obj.ancestors_list.each do |anc|
+                next if anc.equal?(cls_obj)
+                next if anc.is_a?(Vm::ClassObject)
+                anc_flat = Reachability.flat_name(anc)
+                mentions.merge(direct[anc_flat]) if anc_flat && direct.key?(anc_flat)
+              end
+              effective[cls_flat] = mentions
+            end
+
+            # For each (class, ivar) pair, walk the class ancestor chain
+            # topward, home = topmost ancestor whose effective_mentions
+            # includes the ivar.
+            effective.each do |cls_flat, ivars|
+              chain = @lattice.ancestor_chains[cls_flat] || [cls_flat]
+              ivars.each do |ivar|
+                home = cls_flat
+                chain.each do |anc_flat|
+                  next unless effective[anc_flat]&.include?(ivar)
+                  home = anc_flat
+                end
+                @ivar_home[[cls_flat, ivar]] = home
+              end
+            end
+          end
+
+          # AST walk to collect ivar names (as Symbols like :@x) from
+          # InstanceVariableRead / InstanceVariableWrite anywhere in the
+          # body (including nested blocks, if/case branches, rescue,
+          # etc.). Blocks-in-methods are Ruby-level closures so their
+          # ivar mentions still count.
+          def scan_ivar_mentions(node, out)
+            return unless node.is_a?(Ast::Node)
+            case node
+            when Ast::InstanceVariableRead, Ast::InstanceVariableWrite
+              out << node.name.to_sym
+            end
+            node.children.each { |c| scan_ivar_mentions(c, out) } if node.respond_to?(:children)
+          end
 
           # Walk a method body → (return_type, pushes). Shared between
           # the MethodNode transfer (pull-side: publish return_type) and
@@ -437,7 +537,8 @@ module Frozone
             when Ast::AttributeWrite     then transfer_attribute_write(node, ctx)
             when Ast::ConstantWrite      then transfer_pass_through_value(node, ctx)
             when Ast::MultipleAssignment then transfer_pass_through_value(node, ctx)
-            when Ast::InstanceVariableWrite then transfer_pass_through_value(node, ctx)
+            when Ast::InstanceVariableRead  then transfer_ivar_read(node, ctx)
+            when Ast::InstanceVariableWrite then transfer_ivar_write(node, ctx)
             when Ast::ClassVariableWrite    then transfer_pass_through_value(node, ctx)
             when Ast::GlobalVariableWrite   then transfer_pass_through_value(node, ctx)
             when Ast::SplatArg           then walk(node.value_node, ctx)
@@ -844,6 +945,59 @@ module Frozone
             value_type = walk(node.value_node, ctx)
             walk_children(node, ctx)
             value_type
+          end
+
+          # `@x = value` — walk the RHS, push its type to the shared
+          # IVarNode(home, :@x) so all sibling methods that read @x see
+          # the value flow, and return the RHS type as the assignment
+          # expression's value (matches `x = 5` returning 5).
+          def transfer_ivar_write(node, ctx)
+            value_type = walk(node.value_node, ctx)
+            return value_type if value_type.divergent?
+            home = ivar_home_from_ctx(ctx, node.name)
+            return value_type unless home
+            ivar_node = self.class.ivar_node(home, node.name)
+            prev = ctx.pushes[ivar_node]
+            ctx.pushes[ivar_node] = prev ? @lattice.join(prev, value_type) : value_type
+            value_type
+          end
+
+          # `@x` — read from IVarNode(home, :@x). Layer NilClass on top:
+          # Ruby's default-nil semantic means a read of an ivar never
+          # written on this path returns nil (silently). The lattice's
+          # join(NilClass, T) = T? does exactly this. No smartness
+          # about proving write-before-read on this path (that's a
+          # flow-sensitive follow-on; not needed for correctness).
+          def transfer_ivar_read(node, ctx)
+            home = ivar_home_from_ctx(ctx, node.name)
+            return @lattice.top unless home
+            ivar_node = self.class.ivar_node(home, node.name)
+            @lattice.join(@lattice.nil_type, ctx.lookup.call(ivar_node))
+          end
+
+          # Resolve the ivar's home class from the current transfer
+          # context. Ivars are per-instance storage, so the home is
+          # determined by the RECEIVER's class, not by which class or
+          # module owns the method being walked.
+          #
+          # Under 1-CFA context, self's type comes from ctx.context.first
+          # (matches SelfLiteral resolution). If self's concrete is a
+          # known class, home via ivar_home_for. Otherwise (⊤ / synthetic
+          # boolean / etc.), bail — the ivar can't be attributed to any
+          # single home, so we return nil and callers fall back to ⊤/
+          # skip the push.
+          #
+          # For methods keyed on a class (not module) with no 1-CFA
+          # context, fall back to ctx.class_flat — the caller-class IS
+          # the receiver's class in that case.
+          def ivar_home_from_ctx(ctx, ivar_name)
+            self_type = ctx.context.empty? ? @lattice.concrete(ctx.class_flat) : ctx.context.first
+            return nil unless self_type
+            return nil if self_type.top? || self_type.boolean_synth?
+            recv_flat = self_type.concrete
+            return nil if recv_flat == :__top__ || recv_flat == :__boolean__ ||
+                          recv_flat == :__bottom__ || recv_flat == :__noreturn__
+            ivar_home_for(recv_flat, ivar_name)
           end
 
           # `super(args)` / `super` — resolves against the ancestor
