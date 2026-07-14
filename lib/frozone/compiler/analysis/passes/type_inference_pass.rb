@@ -437,14 +437,15 @@ module Frozone
 
           def pushable_signature?(method)
             return false unless (method.required_params || []).all? { |p| p.is_a?(Symbol) }
-            return false unless (method.optional_params || []).empty?
+            # Optional positional AND optional kwarg params are pushable
+            # too — callsites push when the arg is supplied; seed_params
+            # walks the default expression to seed the "no arg supplied,
+            # default fires at runtime" case. LUB gives sound answer.
+            #
+            # Still bail on rest / kw-rest / block-param — those need
+            # structural aggregate typing (splat authenticity, block-body
+            # walk) not yet implemented.
             return false if method.respond_to?(:rest_param) && method.rest_param
-            # required_kw_params ARE pushable — they bind to method-local
-            # variables with the kwarg name, same as positional params,
-            # and callsites with fixed kwargs can attribute types to
-            # them by name. Phase 1: allow required kwargs. Phase 2
-            # extends to optional_kw_params (needs default-value seed).
-            return false if method.respond_to?(:optional_kw_params) && !(method.optional_kw_params || []).empty?
             return false if method.respond_to?(:kw_rest_param) && method.kw_rest_param
             return false if method.respond_to?(:block_param) && method.block_param
             true
@@ -461,12 +462,30 @@ module Frozone
               (method.required_params || []).each do |name|
                 ctx.env[name] = ctx.lookup.call(self.class.param_node(ctx.class_flat, ctx.method_name, name, ctx.context))
               end
+              # Optional positionals: LUB "callsite pushed if supplied"
+              # (ParamNode) with "default fires at runtime if omitted"
+              # (walk the default expression in dependency order —
+              # earlier params are already in env, so `def foo(a, b = a + 1)`
+              # walks b's default with env[:a] bound).
+              (method.optional_params || []).each do |(name, default_node)|
+                pushed = ctx.lookup.call(self.class.param_node(ctx.class_flat, ctx.method_name, name, ctx.context))
+                default_type = default_node ? walk(default_node, ctx) : @lattice.nil_type
+                ctx.env[name] = @lattice.join(pushed, default_type)
+              end
               # Required kwargs bind to method-locals with the kwarg
               # name; seed from the same ParamNode key that
               # push_kwarg_types pushes to.
               if method.respond_to?(:required_kw_params) && method.required_kw_params
                 method.required_kw_params.each do |kw_name|
                   ctx.env[kw_name] = ctx.lookup.call(self.class.param_node(ctx.class_flat, ctx.method_name, kw_name, ctx.context))
+                end
+              end
+              # Optional kwargs: same pattern as optional positionals.
+              if method.respond_to?(:optional_kw_params) && method.optional_kw_params
+                method.optional_kw_params.each do |(kw_name, default_node)|
+                  pushed = ctx.lookup.call(self.class.param_node(ctx.class_flat, ctx.method_name, kw_name, ctx.context))
+                  default_type = default_node ? walk(default_node, ctx) : @lattice.nil_type
+                  ctx.env[kw_name] = @lattice.join(pushed, default_type)
                 end
               end
             else
@@ -1596,15 +1615,28 @@ module Frozone
             m = @methods[[cls, method_name]]
             return unless m && pushable_signature?(m)
             required = m.required_params || []
-            return unless arg_nodes.size == required.size
+            optional = m.optional_params || []
+            return unless arg_nodes.size >= required.size && arg_nodes.size <= required.size + optional.size
             return if arg_nodes.any? { |a| a.is_a?(Ast::SplatArg) || a.is_a?(Ast::BlockArg) || a.is_a?(Ast::ForwardBlock) }
             required.each_with_index do |pname, i|
-              arg_type = @per_node_types[arg_nodes[i]] || @lattice.top
-              node = self.class.param_node(cls, method_name, pname, callee_context)
-              prev = ctx.pushes[node]
-              ctx.pushes[node] = prev ? @lattice.join(prev, arg_type) : arg_type
+              push_one(cls, method_name, pname, arg_nodes[i], ctx, callee_context)
+            end
+            # Positional optionals: callsite may supply 0..optional.size
+            # of them. Push whichever were actually supplied — the rest
+            # get their default via seed_params.
+            optional.each_with_index do |(pname, _default), i|
+              arg_node = arg_nodes[required.size + i]
+              break unless arg_node
+              push_one(cls, method_name, pname, arg_node, ctx, callee_context)
             end
             push_kwarg_types(cls, method_name, m, kw_arg_nodes, kw_splat_nodes, ctx, callee_context)
+          end
+
+          def push_one(cls, method_name, pname, arg_node, ctx, callee_context)
+            arg_type = @per_node_types[arg_node] || @lattice.top
+            node = self.class.param_node(cls, method_name, pname, callee_context)
+            prev = ctx.pushes[node]
+            ctx.pushes[node] = prev ? @lattice.join(prev, arg_type) : arg_type
           end
 
           # Push required-kwarg values from the callsite to the callee's
@@ -1625,13 +1657,15 @@ module Frozone
           # kw_arg_nodes is `[[key_node, value_node], ...]` per the
           # Ast::MethodCall interface.
           def push_kwarg_types(cls, method_name, m, kw_arg_nodes, kw_splat_nodes, ctx, callee_context)
-            return unless kw_arg_nodes && !kw_arg_nodes.empty?
             return if kw_splat_nodes && !kw_splat_nodes.empty?
             required_kw = (m.respond_to?(:required_kw_params) ? m.required_kw_params : nil) || []
-            return if required_kw.empty?
-            # Extract statically-known kwarg names + value types.
+            optional_kw = (m.respond_to?(:optional_kw_params) ? m.optional_kw_params : nil) || []
+            return if required_kw.empty? && optional_kw.empty?
+            # Extract statically-known kwarg names + value types from the
+            # callsite. Empty kw_arg_nodes is fine when required_kw is
+            # empty (all-optional callee, callsite omitted all).
             supplied = {}
-            kw_arg_nodes.each do |(key_node, value_node)|
+            (kw_arg_nodes || []).each do |(key_node, value_node)|
               return unless key_node.is_a?(Ast::SymbolLiteral)
               supplied[key_node.value.to_sym] = value_node
             end
@@ -1639,11 +1673,13 @@ module Frozone
             # runtime ArgumentError, no dispatch happens.
             return unless required_kw.all? { |kw| supplied.key?(kw) }
             required_kw.each do |kw_name|
-              value_node = supplied[kw_name]
-              value_type = @per_node_types[value_node] || @lattice.top
-              node = self.class.param_node(cls, method_name, kw_name, callee_context)
-              prev = ctx.pushes[node]
-              ctx.pushes[node] = prev ? @lattice.join(prev, value_type) : value_type
+              push_one(cls, method_name, kw_name, supplied[kw_name], ctx, callee_context)
+            end
+            # Optional kwargs: push if supplied. Skip if omitted — the
+            # default fires at runtime and seed_params walks it.
+            optional_kw.each do |(kw_name, _default)|
+              next unless supplied.key?(kw_name)
+              push_one(cls, method_name, kw_name, supplied[kw_name], ctx, callee_context)
             end
           end
 
