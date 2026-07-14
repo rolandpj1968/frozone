@@ -44,7 +44,29 @@ module Frozone
         # A Type value in the lattice. Frozen at construction to
         # keep `==` cheap (Struct falls back to field-eq) and to
         # make caching sound (map keys never mutate under us).
-        Type = Struct.new(:concrete, :nullable) do
+        #
+        # `value` is an optional compile-time-constant narrowing.
+        # When set, the invariant is:
+        #
+        #   value != nil ⇒ nullable == false
+        #                  AND class-of(value) == concrete
+        #
+        # i.e. we know the exact runtime value. Any join that would
+        # widen (nullable-induction, different value, class LUB)
+        # drops the value narrow — value-tracking is compile-time
+        # constant folding, and joining with anything else means
+        # it's no longer a constant.
+        #
+        # Value carriers per concrete class (all use Ruby's built-in
+        # ==/hash so Struct's default eql?/hash Just Work):
+        #   :Class     → flat-name Symbol   (e.g. :Foo)
+        #   :Symbol    → raw Symbol         (e.g. :new)
+        #   others     → not currently value-tracked (Integer/Float/
+        #                String opt-in when we have a use case).
+        #
+        # `:TrueClass`, `:FalseClass`, `:NilClass` don't need value:
+        # their concrete is already single-inhabitant.
+        Type = Struct.new(:concrete, :nullable, :value) do
           def bottom?   = concrete == :__bottom__
           def top?      = concrete == :__top__
           def noreturn? = concrete == :__noreturn__
@@ -67,20 +89,21 @@ module Frozone
                    when :__noreturn__ then 'noreturn'
                    else concrete.to_s
                    end
+            base = "#{base}[#{value.inspect}]" if value
             nullable ? "#{base}?" : base
           end
           alias_method :inspect, :to_s
         end
 
-        BOTTOM           = Type.new(:__bottom__,   false).freeze
-        TOP              = Type.new(:__top__,      false).freeze
+        BOTTOM           = Type.new(:__bottom__,   false, nil).freeze
+        TOP              = Type.new(:__top__,      false, nil).freeze
         # ⊤? == ⊤ (nil is a member of the ⊤ universe); alias for
         # backwards-compat with callers that construct explicit
         # nullable TOPs. join() and factories collapse to TOP.
         TOP_NULLABLE     = TOP
-        BOOLEAN          = Type.new(:__boolean__,  false).freeze
-        BOOLEAN_NULLABLE = Type.new(:__boolean__,  true).freeze
-        NORETURN         = Type.new(:__noreturn__, false).freeze
+        BOOLEAN          = Type.new(:__boolean__,  false, nil).freeze
+        BOOLEAN_NULLABLE = Type.new(:__boolean__,  true,  nil).freeze
+        NORETURN         = Type.new(:__noreturn__, false, nil).freeze
 
         BOOLEAN_CLASSES = [:TrueClass, :FalseClass].freeze
         NIL_CLASS       = :NilClass
@@ -140,9 +163,15 @@ module Frozone
             return a.nullable ? a : make(a.concrete, true)
           end
 
-          # Same concrete → merge nullable only
+          # Same concrete → merge nullable and value.
+          # Value preserved only when both sides agree (value-narrow
+          # is a compile-time-constant claim; two different constants
+          # joined together are no longer a single constant).
           if a.concrete == b.concrete
-            return a.nullable == b.nullable ? a : make(a.concrete, true)
+            same_value = a.value == b.value
+            merged_nullable = a.nullable || b.nullable
+            return a if a.nullable == b.nullable && same_value
+            return make(a.concrete, merged_nullable, value: same_value ? a.value : nil)
           end
 
           # Boolean carve-out: TrueClass ∨ FalseClass ∨ <boolean> stay
@@ -168,7 +197,14 @@ module Frozone
           return false if a.top?
           # Nullable dimension: a.nullable ⇒ b.nullable
           return false if a.nullable && !b.nullable
-          return true if a.concrete == b.concrete
+          if a.concrete == b.concrete
+            # Value-narrow dimension: if b claims a specific value,
+            # a must claim the same value (or a narrower thing under
+            # our value scheme — currently value is a singleton, so
+            # equality is the whole story).
+            return a.value == b.value if b.value
+            return true
+          end
 
           # Boolean: <boolean> ⊑ Object only; TrueClass/FalseClass ⊑ <boolean>
           if a.concrete == :__boolean__
@@ -185,12 +221,12 @@ module Frozone
 
         # Public constructors -----------------------------------------
 
-        def concrete(class_sym, nullable: false)
+        def concrete(class_sym, nullable: false, value: nil)
           return BOTTOM if class_sym == :__bottom__
           return NORETURN if class_sym == :__noreturn__
           return TOP if class_sym == :__top__
           return nullable ? BOOLEAN_NULLABLE : BOOLEAN if class_sym == :__boolean__
-          make(class_sym, nullable)
+          make(class_sym, nullable, value: value)
         end
 
         def noreturn = NORETURN
@@ -212,14 +248,22 @@ module Frozone
 
         private
 
-        # Canonicalizing Type factory. Whenever `nullable` is requested
-        # for a class C where NilClass ⊑ C, the nullable bit is dropped
-        # because C already includes nil in its extension. Keeps the
-        # lattice's canonical form thin — every Type value has a unique
-        # representation regardless of how it was constructed.
-        def make(class_sym, nullable)
+        # Canonicalizing Type factory. Enforces two canonical rules:
+        #
+        # 1. Nullable-drop: if nullable is requested for a class C where
+        #    NilClass ⊑ C (Object / BasicObject / NilClass / ⊤), drop
+        #    the nullable bit — C already includes nil set-theoretically.
+        # 2. Value + nullable is contradictory: value-narrow means "we
+        #    know the exact runtime value at this expression"; nullable
+        #    means "or it might be nil". Both together is nonsense —
+        #    drop value when nullable is set.
+        #
+        # Keeps the lattice's canonical form thin — every Type value has
+        # a unique representation regardless of how it was constructed.
+        def make(class_sym, nullable, value: nil)
           nullable = false if nullable && NIL_SUPERTYPES.include?(class_sym)
-          Type.new(class_sym, nullable).freeze
+          value    = nil   if nullable
+          Type.new(class_sym, nullable, value).freeze
         end
 
         def boolean_element?(t)
@@ -238,7 +282,7 @@ module Frozone
           # so the meet-point is Object (or higher if non_bool's chain
           # doesn't reach Object, which shouldn't happen).
           non_bool = a_bool ? b : a
-          Type.new(class_lub(:Object, non_bool.concrete), nullable).freeze
+          Type.new(class_lub(:Object, non_bool.concrete), nullable, nil).freeze
         end
 
         def compute_class_lub(a, b)

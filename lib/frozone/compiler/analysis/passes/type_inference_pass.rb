@@ -1287,11 +1287,17 @@ module Frozone
           # a plain ModuleObject's class is Module (Class is a subclass
           # of Module in Ruby); anything else uses its own class_object.
           # Falls back to ⊤ for unfamiliar Vm value types.
+          #
+          # For ClassObject / ModuleObject values, also carry the
+          # class's flat-name as the type's `value` narrowing —
+          # `Foo` in code types as `Class[Foo]`, not just `Class`. Any
+          # downstream widening (LUB with a different class value,
+          # nullable induction) drops the value naturally.
           def class_sym_of_value(val)
             if val.is_a?(Vm::ClassObject)
-              @lattice.concrete(:Class)
+              @lattice.concrete(:Class, value: Reachability.flat_name(val))
             elsif val.is_a?(Vm::ModuleObject)
-              @lattice.concrete(:Module)
+              @lattice.concrete(:Module, value: Reachability.flat_name(val))
             elsif val.respond_to?(:class_object) && val.class_object
               @lattice.concrete(Reachability.flat_name(val.class_object))
             else

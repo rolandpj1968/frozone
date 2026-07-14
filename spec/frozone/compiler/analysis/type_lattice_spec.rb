@@ -227,6 +227,57 @@ RSpec.describe Frozone::Compiler::Analysis::TypeLattice do
     end
   end
 
+  describe 'value narrowing (Shape C)' do
+    it 'concrete(:Class, value: :Foo) carries the value' do
+      c = lattice.concrete(:Class, value: :Foo)
+      expect(c.value).to eq(:Foo)
+      expect(c.nullable).to be false
+      expect(c.to_s).to eq('Class[:Foo]')
+    end
+
+    it 'same-concrete + same-value joins preserve value' do
+      a = lattice.concrete(:Class, value: :Foo)
+      b = lattice.concrete(:Class, value: :Foo)
+      expect(lattice.join(a, b).value).to eq(:Foo)
+    end
+
+    it 'same-concrete + different-value joins drop value' do
+      a = lattice.concrete(:Class, value: :Foo)
+      b = lattice.concrete(:Class, value: :Bar)
+      j = lattice.join(a, b)
+      expect(j.concrete).to eq(:Class)
+      expect(j.value).to be_nil
+    end
+
+    it 'value + nullable is contradictory — factory drops value' do
+      c = lattice.concrete(:Class, value: :Foo, nullable: true)
+      expect(c.value).to be_nil
+      expect(c.nullable).to be true
+    end
+
+    it 'joining a value-narrow with nil widens to nullable and drops value' do
+      a = lattice.concrete(:Class, value: :Foo)
+      b = lattice.nil_type
+      j = lattice.join(a, b)
+      expect(j.nullable).to be true
+      expect(j.value).to be_nil
+    end
+
+    it 'subsumption: Class[Foo] ⊑ Class (widened)' do
+      narrow = lattice.concrete(:Class, value: :Foo)
+      wide   = lattice.concrete(:Class)
+      expect(lattice.subsumes?(narrow, wide)).to be true
+      expect(lattice.subsumes?(wide, narrow)).to be false
+    end
+
+    it 'subsumption: Class[Foo] not ⊑ Class[Bar]' do
+      a = lattice.concrete(:Class, value: :Foo)
+      b = lattice.concrete(:Class, value: :Bar)
+      expect(lattice.subsumes?(a, b)).to be false
+      expect(lattice.subsumes?(b, a)).to be false
+    end
+  end
+
   describe 'Lattice protocol compliance' do
     it 'includes the Lattice mixin' do
       expect(lattice).to be_a(Frozone::Compiler::Analysis::Lattice)

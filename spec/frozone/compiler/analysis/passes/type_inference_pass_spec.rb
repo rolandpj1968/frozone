@@ -1734,16 +1734,17 @@ RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
       expect(pass.type_of(body).top?).to be true
     end
 
-    it 'types a class-valued constant as Class' do
+    it 'types a class-valued constant as Class[X] with value narrowing' do
       # top_level_scope with `Integer` mapped to the Integer class object.
       scope = double('scope', constants_table: { Integer: hierarchy[:Integer] })
       body = ast::ConstantRead.new(:Integer)
       methods = { [:Foo, :m] => make_method(body) }
       pass = described_class.new(methods: methods, all_classes: hierarchy, top_level_scope: scope)
       Frozone::Compiler::Analysis::Engine.new(pass).run
-      # Precision loss: Integer class → Class. This is the case that
-      # motivates the Class[X] Tier 2 extension.
-      expect(pass.type_of(body)).to eq(t(:Class))
+      # Shape C: Class-valued constants carry their flat-name Symbol
+      # as the type's value narrow — this constant is specifically
+      # Class[Integer], not just widened Class.
+      expect(pass.type_of(body)).to eq(Frozone::Compiler::Analysis::TypeLattice.new(hierarchy).concrete(:Class, value: :Integer))
     end
 
     it 'types a value-constant as the value`s class' do
@@ -1759,14 +1760,15 @@ RSpec.describe Frozone::Compiler::Analysis::Passes::TypeInferencePass do
       expect(pass.type_of(body)).to eq(t(:Integer))
     end
 
-    it 'types a module-valued constant as Module' do
+    it 'types a module-valued constant as Module[X] with value narrowing' do
       mod_val = Frozone::Vm::ModuleObject.new(:Comparable, nil)
       scope = double('scope', constants_table: { Comparable: mod_val })
       body = ast::ConstantRead.new(:Comparable)
       methods = { [:Foo, :m] => make_method(body) }
       pass = described_class.new(methods: methods, all_classes: hierarchy, top_level_scope: scope)
       Frozone::Compiler::Analysis::Engine.new(pass).run
-      expect(pass.type_of(body)).to eq(t(:Module))
+      # Shape C: Module-valued constants carry their flat-name too.
+      expect(pass.type_of(body)).to eq(Frozone::Compiler::Analysis::TypeLattice.new(hierarchy).concrete(:Module, value: :Comparable))
     end
 
     it 'is ⊤ when the constant name isn`t in top_level_scope' do
