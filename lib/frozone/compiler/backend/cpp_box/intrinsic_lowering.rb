@@ -1092,13 +1092,24 @@ module Frozone
           # Callable-form variants (instance_exec, instance_eval taking
           # only a block, define_method callers we've hoisted to Ruby)
           # are NOT here — they're expressible without mutation.
+          #
+          # NOT here: class_new. It backs both `Foo.new(args)` (legit
+          # instance construction at execute time) AND
+          # `Class.new(superclass) { ... }` (anonymous-class creation,
+          # which IS forbidden). The forbidden/legal distinction is
+          # receiver-value-dependent, not intrinsic-name-dependent —
+          # blocking class_new here over-flags every non-peephole
+          # `.new` callsite as NORETURN. Correct handling waits on
+          # Class-value-lattice (dependent Class[X] types); until
+          # then the intrinsic returns ⊤ per its annotation, and the
+          # bare-constant peephole in try_class_value_peek continues
+          # to give precise instance types for the common case.
           AOT_FORBIDDEN = Set.new(%i[
             module_define_method
             module_attr_reader module_attr_writer module_attr_accessor
             module_alias_method module_remove_method module_undef_method
             module_include module_prepend
             module_const_set module_const_remove
-            class_new
             object_extend_multi
             object_singleton_class object_clear_singleton
             kernel_eval kernel_load kernel_binding
