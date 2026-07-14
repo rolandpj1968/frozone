@@ -190,6 +190,11 @@ module Frozone
             # the shared IVarNode.
             @ivar_home = {}
             precompute_ivar_homes
+            # Wide-cone diagnostic: counts callsites that hit the
+            # dispatch_widened fallback under 1-CFA. Key is
+            # [method_name, cone_size, recv_type_string], value is
+            # hit count. Exposed via `wide_cone_hits` for dumper.
+            @wide_cone_hits = Hash.new(0)
           end
 
           def lattice = @lattice
@@ -212,6 +217,7 @@ module Frozone
           # candidates — each is potentially cheap precision recovery.
           def reached_intrinsics = @reached_intrinsics
           def unannotated_intrinsics = @unannotated_intrinsics
+          def wide_cone_hits = @wide_cone_hits
 
           # LUB across every context-specific MethodNode return for
           # (class_flat, method_name) in an engine values map. Useful
@@ -1284,7 +1290,7 @@ module Frozone
           # wide-cone dispatches but keeps termination and cost
           # bounded. Small cones (Integer + a handful of descendants,
           # tap/dup receivers) stay per-context precise.
-          CONE_WIDEN_THRESHOLD = 8
+          CONE_WIDEN_THRESHOLD = (ENV['FROZONE_TI_CONE_WIDEN'] || '8').to_i.then { |n| n <= 0 ? Float::INFINITY : n }
           # Empirical measurement: cap disabled to observe the natural
           # fanout under 1-CFA. Wide-cone dedup still bounds the hot
           # loop; per-method fanout is now driven purely by callsite
@@ -1351,6 +1357,7 @@ module Frozone
             cone = receiver_type_cone(recv_type)
             return @lattice.top if cone.empty?
             widen = !ONE_CFA_ENABLED || cone.size > CONE_WIDEN_THRESHOLD
+            @wide_cone_hits[[method_name, cone.size, recv_type.to_s]] += 1 if widen && ONE_CFA_ENABLED
             return dispatch_widened(cone, method_name, ctx, arg_nodes, kw_arg_nodes: kw_arg_nodes, kw_splat_nodes: kw_splat_nodes) if widen
             arg_types = arg_nodes ? arg_nodes.map { |a| @per_node_types[a] || @lattice.top } : []
             result = @lattice.bottom

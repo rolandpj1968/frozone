@@ -3660,6 +3660,7 @@ module Frozone
             print_status_breakdown(status_hist, total)
             print_ti_context_distribution(pass, values, methods)
             print_ti_intrinsic_reach(pass)
+            print_ti_wide_cone_hits(pass)
             if list == '1' || list == 'user'
               $stderr.puts "[ti-dump] per-method:"
               rows.each do |cls_flat, mname, key, loc, _|
@@ -3734,6 +3735,30 @@ module Frozone
             if ENV['FROZONE_TI_DUMP_INTRINSIC_LIST'] == '1'
               $stderr.puts "[ti-intrinsic] all untyped reached intrinsics:"
               unann.sort.each { |n| $stderr.puts "  #{n}  (#{reached[n]} calls)" }
+            end
+          end
+
+          # Wide-cone diagnostic. Under 1-CFA, dispatch_across_cone falls
+          # back to dispatch_widened (0-CFA-style dedup + UNIT context)
+          # when the receiver cone exceeds CONE_WIDEN_THRESHOLD. Each
+          # hit is a callsite where per-receiver-context precision was
+          # traded for tractability. Shows the top N by hit-count so
+          # we can identify the wide-cone hot spots.
+          #
+          # Key shape: (method_name, cone_size, recv_type_string).
+          # Multiple callsites hitting the same (method, cone_size,
+          # recv_type) join under a single row.
+          def print_ti_wide_cone_hits(pass)
+            hits = pass.wide_cone_hits
+            return if hits.empty?
+            total_hits  = hits.values.sum
+            total_sites = hits.size
+            $stderr.puts "[ti-wide-cone] hit #{total_hits}× across #{total_sites} distinct (method, cone_size, recv) sites"
+            top = (ENV['FROZONE_TI_DUMP_WIDECONE_TOP'] || '30').to_i
+            hot = hits.sort_by { |_, c| -c }.first(top)
+            $stderr.puts "[ti-wide-cone] top #{[top, hits.size].min} by call count:"
+            hot.each do |(mname, cone_size, recv_str), calls|
+              $stderr.puts "  #{calls.to_s.rjust(6)}  cone=#{cone_size.to_s.rjust(4)}  recv=#{recv_str.ljust(20)} #{mname}"
             end
           end
 
